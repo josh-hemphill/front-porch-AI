@@ -25,9 +25,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'comfy_workflow.dart';
-import 'image/comfy_catalog.dart';
-import 'image/comfy_edit_workflow.dart';
-import 'image/comfy_template_index.dart';
+import 'image/image.dart';
 
 part 'comfy_ui_service.catalog.dart';
 
@@ -193,8 +191,9 @@ class ComfyUiService {
   /// fall back to file-name detection, so this is strictly best-effort.
   Future<Map<String, dynamic>> fetchLoraMetadata(String filename) async {
     try {
-      final uri = Uri.parse('$_root/view_metadata/loras')
-          .replace(queryParameters: {'filename': filename});
+      final uri = Uri.parse(
+        '$_root/view_metadata/loras',
+      ).replace(queryParameters: {'filename': filename});
       final r = await http.get(uri).timeout(const Duration(seconds: 8));
       if (r.statusCode != 200 || r.body.isEmpty) return const {};
       final decoded = jsonDecode(r.body);
@@ -351,13 +350,13 @@ class ComfyUiService {
       String detail = 'HTTP ${submit.statusCode}';
       try {
         final err = jsonDecode(submit.body);
-        detail = err['error']?['message']?.toString() ?? detail;
+        detail = describeComfyPromptError(err, fallback: detail);
       } catch (_) {}
       throw Exception('ComfyUI rejected the workflow: $detail');
     }
-    final promptId = (jsonDecode(
-      submit.body,
-    ) as Map<String, dynamic>)['prompt_id']?.toString();
+    final promptId =
+        (jsonDecode(submit.body) as Map<String, dynamic>)['prompt_id']
+            ?.toString();
     if (promptId == null || promptId.isEmpty) {
       throw Exception('ComfyUI did not return a prompt_id');
     }
@@ -372,8 +371,9 @@ class ComfyUiService {
         final wsRoot = _root
             .replaceFirst('https://', 'wss://')
             .replaceFirst('http://', 'ws://');
-        ws = await WebSocket.connect('$wsRoot/ws?clientId=$clientId')
-            .timeout(const Duration(seconds: 3));
+        ws = await WebSocket.connect(
+          '$wsRoot/ws?clientId=$clientId',
+        ).timeout(const Duration(seconds: 3));
         ws.listen(
           (frame) {
             try {
@@ -388,8 +388,9 @@ class ComfyUiService {
                   }
                 }
               } else if (frame is List<int> && frame.length > 8) {
-                final header = Uint8List.fromList(frame.sublist(0, 4)).buffer
-                    .asByteData();
+                final header = Uint8List.fromList(
+                  frame.sublist(0, 4),
+                ).buffer.asByteData();
                 if (header.getInt32(0) == 1) {
                   onProgress(null, Uint8List.fromList(frame.sublist(8)));
                 }

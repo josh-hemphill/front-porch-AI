@@ -11,6 +11,7 @@ export 'comfy_create_presets.dart';
 export 'comfy_create_workflow.dart';
 export 'comfy_edit_presets.dart';
 export 'comfy_edit_workflow.dart';
+export 'comfy_prompt_errors.dart';
 export 'comfy_starters.dart';
 export 'comfy_template_index.dart';
 export 'comfy_workflow_adapt.dart';

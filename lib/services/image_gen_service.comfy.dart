@@ -36,7 +36,14 @@ extension _ImageGenComfy on ImageGenService {
     final comfy = _ensureComfyUi;
     final settings = _storage.imageGenSettings;
     final (width, height) = _parseSize(size ?? settings.imageGenSize);
-    final available = await comfy.fetchSamplers();
+    final objectInfo = await comfy.fetchObjectInfo();
+    final available = objectInfo == null
+        ? const <String>[]
+        : ComfyUiService.optionsFromObjectInfo(
+            objectInfo,
+            'KSampler',
+            'sampler_name',
+          );
     final storedSampler = settings.imageGenSampler;
     final storedScheduler = settings.imageGenScheduler;
     final scheduler =
@@ -76,6 +83,7 @@ extension _ImageGenComfy on ImageGenService {
         width: width,
         height: height,
         liveTemplate: editTemplate,
+        objectInfo: objectInfo,
       );
       if (req == null) {
         throw Exception(
@@ -118,6 +126,7 @@ extension _ImageGenComfy on ImageGenService {
       scheduler: scheduler,
       checkpointFallback: refModelName,
       liveTemplate: liveTemplate,
+      objectInfo: objectInfo,
     );
     if (req == null) {
       throw Exception(

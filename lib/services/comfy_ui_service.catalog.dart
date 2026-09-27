@@ -36,6 +36,9 @@ extension _ComfyCatalog on ComfyUiService {
 
 /// Discovery: checkpoints AND diffusion_models so ZIT/Flux/Qwen appear.
 extension ComfyUiCatalogApi on ComfyUiService {
+  /// Current node definitions for converting saved UI workflows to API graphs.
+  Future<Map<String, dynamic>?> fetchObjectInfo() => _objectInfo();
+
   Future<List<String>> fetchModels() async {
     final cat = await fetchCatalog();
     return cat.createDiscovery;
