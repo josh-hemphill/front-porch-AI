@@ -22,6 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:front_porch_ai/services/image_prompt/expression_prompts.dart';
+import 'package:front_porch_ai/services/image/comfy_create_presets.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/utils/utils.dart';
@@ -84,6 +85,9 @@ class _ExpressionPackSetupState extends State<ExpressionPackSetup> {
   Widget build(BuildContext context) {
     final count =
         (_fullSet ? kFullExpressionSet : kCuratedExpressionSet).length;
+    final imageSettings =
+        (widget.storage ?? context.read<StorageService>()).imageGenSettings;
+    final editWorkflowId = imageSettings.comfyEditWorkflowId;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -113,22 +117,30 @@ class _ExpressionPackSetupState extends State<ExpressionPackSetup> {
           ],
         ),
         const SizedBox(height: 16),
-        if (ImageGenBackend.fromKey(
-              (widget.storage ?? context.read<StorageService>())
-                  .imageGenSettings
-                  .imageGenBackend,
-            ) ==
+        if (ImageGenBackend.fromKey(imageSettings.imageGenBackend) ==
             ImageGenBackend.comfyUi) ...[
-          const ComfyCreatePanel(),
-          const SizedBox(height: 10),
-          Text(
-            'The pack uses a ready Edit workflow when selected; otherwise '
-            'it uses this Create family for img2img from the base portrait.',
-            style: TextStyle(
-              color: AppColors.textTertiary(context),
-              fontSize: 11,
+          if (editWorkflowId.startsWith('comfy:'))
+            Text(
+              'Edit workflow for this pack: '
+              '${comfyTemplateNameFor(editWorkflowId)}. '
+              'Change it in Image Studio → Edit.',
+              style: TextStyle(
+                color: AppColors.textSecondary(context),
+                fontSize: 12,
+              ),
+            )
+          else ...[
+            const ComfyCreatePanel(),
+            const SizedBox(height: 10),
+            Text(
+              'The pack uses a ready Edit workflow when selected; otherwise '
+              'it uses this Create family for img2img from the base portrait.',
+              style: TextStyle(
+                color: AppColors.textTertiary(context),
+                fontSize: 11,
+              ),
             ),
-          ),
+          ],
           const SizedBox(height: 16),
         ],
         _setChoice(

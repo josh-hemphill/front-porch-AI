@@ -273,6 +273,7 @@ class _ComfyEditPanelState extends State<ComfyEditPanel> {
       );
     }
     return DropdownButtonFormField<String>(
+      key: ValueKey(current),
       initialValue: current,
       isExpanded: true,
       dropdownColor: AppColors.surfaceContainerOf(context),

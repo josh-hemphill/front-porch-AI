@@ -213,16 +213,19 @@ extension _GenerationOptionsLocalPanel on _GenerationOptionsTabState {
             onSubmitted: (_) => _testConnection(),
           ),
           const SizedBox(height: 8),
-          const ComfyCreatePanel(),
-          const SizedBox(height: 4),
-          Text(
-            'The selected family is applied per generation — no separate load '
-            'step. Expression packs use this same stove.',
-            style: TextStyle(
-              color: AppColors.textTertiary(context),
-              fontSize: 9,
+          if (!widget.editScoped) ...[
+            const ComfyCreatePanel(),
+            const SizedBox(height: 4),
+            Text(
+              'This family runs Create generations and may be used as an '
+              'expression-pack img2img fallback. Choose the Edit workflow '
+              'in Image Studio → Edit.',
+              style: TextStyle(
+                color: AppColors.textTertiary(context),
+                fontSize: 9,
+              ),
             ),
-          ),
+          ],
         ] else ...[
           Text(
             'Server URL',
