@@ -18,6 +18,14 @@
 
 part of 'image_gen_service.dart';
 
+/// Stops an expression pack's active ComfyUI request without changing the
+/// ImageGenService interface implemented by existing test doubles.
+extension ImageGenComfyCancellation on ImageGenService {
+  Future<void> cancelActiveComfyGeneration() async {
+    await _comfyUi?.cancelActivePrompt();
+  }
+}
+
 extension _ImageGenComfy on ImageGenService {
   /// Edit presets unchanged (pack stays Edit-first). Create / pack img2img
   /// ride Comfy's own template (or a replaceable starter) + the BYO token
@@ -34,6 +42,7 @@ extension _ImageGenComfy on ImageGenService {
     required ImageReferenceRole refRole,
   }) async {
     final comfy = _ensureComfyUi;
+    comfy.beginGeneration();
     final settings = _storage.imageGenSettings;
     final (width, height) = _parseSize(size ?? settings.imageGenSize);
     final available = await comfy.fetchSamplers();

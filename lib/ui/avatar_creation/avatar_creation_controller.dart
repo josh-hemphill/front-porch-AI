@@ -459,7 +459,11 @@ class AvatarCreationController extends ChangeNotifier {
 
   /// Stop after whatever is in flight; completed images always stay.
   void cancel() {
+    if (_cancelRequested) return;
     _cancelRequested = true;
+    if (backend == ImageGenBackend.comfyUi && session?.isRunning == true) {
+      unawaited(imageGen.cancelActiveComfyGeneration());
+    }
     session?.cancel();
     qc?.cancel();
     notifyListeners();
@@ -472,6 +476,9 @@ class AvatarCreationController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    if (backend == ImageGenBackend.comfyUi && session?.isRunning == true) {
+      unawaited(imageGen.cancelActiveComfyGeneration());
+    }
     session?.cancel();
     session?.removeListener(_notify);
     session?.dispose();

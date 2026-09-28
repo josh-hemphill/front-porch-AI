@@ -25,11 +25,13 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'comfy_workflow.dart';
+import 'image/comfy_prompt_cancellation.dart';
 import 'image/comfy_catalog.dart';
 import 'image/comfy_edit_workflow.dart';
 import 'image/comfy_template_index.dart';
 
 part 'comfy_ui_service.catalog.dart';
+part 'comfy_ui_service.cancel.dart';
 
 /// ComfyUI backend client (plain HTTP — no sidecar). The novice contract:
 /// ComfyUI runs on http://127.0.0.1:8188 out of the box, everything the UI
@@ -44,6 +46,7 @@ class ComfyUiService {
   /// e.g. `http://127.0.0.1:8188` (trailing slash tolerated; a missing
   /// scheme is assumed to be http — novices type `localhost:8188`).
   final String baseUrl;
+  ComfyPromptCancellation? _activePrompt;
 
   String get _root => ensureHttpScheme(baseUrl);
 
@@ -338,6 +341,10 @@ class ComfyUiService {
     Map<String, dynamic> workflow,
     void Function(double? progress, Uint8List? preview)? onProgress,
   ) async {
+    final cancellation = _activePrompt ??= ComfyPromptCancellation();
+    if (cancellation.isCancelled) {
+      throw StateError('ComfyUI generation cancelled');
+    }
     final clientId =
         'frontporch-${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}';
     final submit = await http
@@ -360,6 +367,11 @@ class ComfyUiService {
     ) as Map<String, dynamic>)['prompt_id']?.toString();
     if (promptId == null || promptId.isEmpty) {
       throw Exception('ComfyUI did not return a prompt_id');
+    }
+    cancellation.promptId = promptId;
+    if (cancellation.isCancelled) {
+      await _cancelRemotePrompt(promptId);
+      throw StateError('ComfyUI generation cancelled');
     }
 
     // Best-effort live progress over ComfyUI's WebSocket: text frames carry
@@ -414,11 +426,20 @@ class ComfyUiService {
     Map<String, dynamic>? outputs;
     try {
       while (DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(seconds: 1));
+        await Future.any<void>([
+          Future<void>.delayed(const Duration(seconds: 1)),
+          cancellation.whenCancelled,
+        ]);
+        if (cancellation.isCancelled) {
+          throw StateError('ComfyUI generation cancelled');
+        }
         try {
           final h = await http
               .get(Uri.parse('$_root/history/$promptId'))
               .timeout(const Duration(seconds: 10));
+          if (cancellation.isCancelled) {
+            throw StateError('ComfyUI generation cancelled');
+          }
           if (h.statusCode != 200) continue;
           final hist = jsonDecode(h.body) as Map<String, dynamic>;
           final entry = hist[promptId];
@@ -458,7 +479,12 @@ class ComfyUiService {
             'type': img['type']?.toString() ?? 'output',
           },
         );
-        final r = await http.get(uri).timeout(const Duration(seconds: 60));
+        final r = await Future.any<http.Response>([
+          http.get(uri).timeout(const Duration(seconds: 60)),
+          cancellation.whenCancelled.then(
+            (_) => throw StateError('ComfyUI generation cancelled'),
+          ),
+        ]);
         if (r.statusCode == 200 && r.bodyBytes.isNotEmpty) {
           return r.bodyBytes;
         }

@@ -353,18 +353,23 @@ class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
     Navigator.of(context).pop(true);
   }
 
-  /// Header X: confirm when a run is in flight (cancel stops after the
-  /// current image; the session is dispose-safe).
+  /// Header X: confirm and stop the active ComfyUI job before closing.
   Future<void> _close() async {
     final session = _session;
     if (session != null && session.isRunning) {
+      final isComfy =
+          ImageGenBackend.fromKey(
+            widget.storage.imageGenSettings.imageGenBackend,
+          ) ==
+          ImageGenBackend.comfyUi;
       final stop = await showWarmDialog<bool>(
         context,
         title: 'Stop generating?',
         icon: Icons.stop_circle_outlined,
-        content: const WarmDialogText(
-          'The pack is still generating. Stop after the current image and '
-          'discard the results?',
+        content: WarmDialogText(
+          isComfy
+              ? 'Stop the current image and discard the pack results?'
+              : 'Stop after the current image and discard the pack results?',
         ),
         actions: [
           warmDialogCancel(context, label: 'Keep going'),
@@ -378,6 +383,12 @@ class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
       );
       if (stop != true || !mounted) return;
       session.cancel();
+      if (isComfy) {
+        await widget.imageGen.cancelActiveComfyGeneration();
+        while (mounted && widget.imageGen.isGenerating) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+      }
     }
     if (mounted) Navigator.of(context).pop(false);
   }
