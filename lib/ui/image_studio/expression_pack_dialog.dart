@@ -281,16 +281,29 @@ class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
               if (!widget.existingEmotions.contains(e)) e,
           ]
         : chosen;
-    // Edit-first: when the active backend + the EDIT-slot model can
-    // instruction-edit, drive each emotion through the EDIT path (identity
-    // pinned by the base portrait) instead of img2img. The decision is the
-    // ONE shared [ImageReferenceResolver.packEditMode] (also used by the
-    // creator's Portrait & Avatars panel) — resolver supportsEdit over the
-    // edit slot + the Edit tab's ComfyUI workflow-readiness gate.
     final editMode = await ImageReferenceResolver.packEditModeForGeneration(
       widget.storage.imageGenSettings,
     );
     if (!mounted) return;
+    final settings = widget.storage.imageGenSettings;
+    if (ImageReferenceResolver.unreadySelectedSavedEdit(
+      settings,
+      editMode: editMode,
+    )) {
+      setState(() => _checkingWorkflow = false);
+      await showWarmDialog(
+        context,
+        title: 'Edit workflow not ready',
+        icon: Icons.warning_amber_rounded,
+        content: const WarmDialogText(
+          'The selected saved Edit workflow is not ready. Open Image Studio '
+          '→ Edit and resolve its workflow or model warning, then start '
+          'the pack again.',
+        ),
+        actions: [warmDialogCancel(context, label: 'Got it')],
+      );
+      return;
+    }
     final session = ExpressionPackSession(
       emotions: emotions,
       basePrompt: '${widget.basePrompt}, $kExpressionFraming',

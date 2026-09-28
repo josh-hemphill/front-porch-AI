@@ -98,6 +98,17 @@ extension _AvatarCreationRunSteps on AvatarCreationController {
       storage.imageGenSettings,
     );
     if (_disposed || _cancelRequested) return;
+    if (ImageReferenceResolver.unreadySelectedSavedEdit(
+      storage.imageGenSettings,
+      editMode: editMode,
+    )) {
+      _fail(
+        'The selected saved Edit workflow is not ready. Resolve its '
+        'workflow or model warning in Image Studio → Edit before running '
+        'the expression pack.',
+      );
+      return;
+    }
     _activePackEditMode = editMode;
     if (editMode) {
       // Explicit stage: the swap itself is graceful (the model rides each

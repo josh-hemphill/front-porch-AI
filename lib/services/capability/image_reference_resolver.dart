@@ -30,6 +30,17 @@ import 'package:front_porch_ai/services/storage/settings/image_gen_settings.dart
 class ImageReferenceResolver {
   const ImageReferenceResolver._();
 
+  /// A selected saved Edit workflow must report its missing setup rather than
+  /// quietly sending a pack through the unrelated Create workflow.
+  static bool unreadySelectedSavedEdit(
+    ImageGenSettings settings, {
+    required bool editMode,
+  }) =>
+      !editMode &&
+      ImageGenBackend.fromKey(settings.imageGenBackend) ==
+          ImageGenBackend.comfyUi &&
+      settings.comfyEditWorkflowId.startsWith('comfy:');
+
   /// The reference capability for the active backend + model.
   ///
   /// Edit GENERATION is wired per backend as phases land; a backend whose edit
