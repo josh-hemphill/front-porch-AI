@@ -208,7 +208,9 @@ AdaptedComfyGraph adaptComfyApiWorkflow(Map<String, dynamic> api) {
         }
         _tokenIfLiteral(ins, 'sampler_name', ComfyEditTokens.sampler);
         _tokenIfLiteral(ins, 'scheduler', ComfyEditTokens.scheduler);
-        _tokenIfLiteral(ins, 'denoise', ComfyEditTokens.denoise);
+        if (!_usesQwenImage21Latent(graph, ins['latent_image'])) {
+          _tokenIfLiteral(ins, 'denoise', ComfyEditTokens.denoise);
+        }
       case 'FluxGuidance':
         _tokenIfLiteral(ins, 'guidance', ComfyEditTokens.cfg);
       case 'ModelSamplingAuraFlow':
@@ -315,4 +317,35 @@ void _tokenIfLiteral(Map<String, dynamic> inputs, String key, String token) {
   if (v is String && v.startsWith('%') && v.endsWith('%')) return;
   if (v is List) return; // linked socket — not a widget we own
   inputs[key] = token;
+}
+
+bool _usesQwenImage21Latent(
+  Map<String, dynamic> graph,
+  Object? link, [
+  Set<String>? visited,
+]) {
+  if (link is! List || link.length < 2) return false;
+  final id = link.first.toString();
+  final seen = visited ?? <String>{};
+  if (!seen.add(id)) return false;
+  final node = graph[id];
+  if (node is! Map) return false;
+  if (node['class_type'] == 'TextEncodeQwenImage21') return link[1] == 2;
+  if (node['class_type'] != 'ComfySwitchNode' || link[1] != 0) return false;
+  final inputs = node['inputs'];
+  if (inputs is! Map) return false;
+  final selected = inputs['switch'];
+  if (selected is bool) {
+    return _usesQwenImage21Latent(
+      graph,
+      selected ? inputs['on_true'] : inputs['on_false'],
+      seen,
+    );
+  }
+  return _usesQwenImage21Latent(
+        graph,
+        inputs['on_false'],
+        Set<String>.from(seen),
+      ) &&
+      _usesQwenImage21Latent(graph, inputs['on_true'], Set<String>.from(seen));
 }
