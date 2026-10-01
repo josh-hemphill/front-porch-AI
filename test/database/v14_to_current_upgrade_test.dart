@@ -132,7 +132,7 @@ void main() {
     }
 
     final first = await hydrateOnce();
-    expect(first['_meta']!['user_version'], 53);
+    expect(first['_meta']!['user_version'], 54);
     expect(first['_meta']!['has_gate'], isTrue);
     for (final spec in chats) {
       final label = spec['label'] as String;
@@ -157,7 +157,7 @@ void main() {
     }
 
     final second = await hydrateOnce();
-    expect(second['_meta']!['user_version'], 53);
+    expect(second['_meta']!['user_version'], 54);
     for (final spec in chats) {
       final label = spec['label'] as String;
       expect(second[label]!['clock'], first[label]!['clock']);

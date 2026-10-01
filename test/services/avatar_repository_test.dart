@@ -95,7 +95,7 @@ void main() {
       // v53: sessions.passage_of_time_gate_migrated — one-shot leftover
       //      per-chat Passage of Time re-derive. Ladder in
       //      lib/database/database.migrations.late.dart.
-      expect(db.schemaVersion, 53);
+      expect(db.schemaVersion, 54);
     });
 
     test('journal_memories table exists and round-trips (v35)', () async {
