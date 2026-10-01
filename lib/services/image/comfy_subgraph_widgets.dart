@@ -41,5 +41,7 @@ bool isComfyPromptInput(String type, String name) =>
 bool isExposedPromptFeed(String? port, String type, String name) =>
     (port == 'prompt' || port == 'text') &&
     (isComfyPromptInput(type, name) ||
+        (type == 'StringConcatenate' &&
+            (name == 'string_a' || name == 'string_b')) ||
         (type == 'ComfySwitchNode' &&
             (name == 'on_false' || name == 'on_true')));
