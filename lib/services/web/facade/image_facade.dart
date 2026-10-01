@@ -16,25 +16,49 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Front Porch AI. If not, see <https://www.gnu.org/licenses/>.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:front_porch_ai/services/capability/image_reference_role.dart';
+import 'package:front_porch_ai/models/models.dart';
+import 'package:front_porch_ai/services/capability/capability.dart';
 import 'package:front_porch_ai/services/comfy_ui_service.dart';
+import 'package:front_porch_ai/services/image/expression_pack_board.dart';
+import 'package:front_porch_ai/services/image/expression_pack_flight.dart';
 import 'package:front_porch_ai/services/image/image.dart';
+import 'package:front_porch_ai/services/image_prompt/expression_prompts.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/storage/storage.dart';
+
+part 'image_facade_catalog.dart';
+part 'image_facade_desk.dart';
+part 'image_facade_pack.dart';
+part 'image_facade_ready.dart';
 
 /// Web adapter for image generation: read/flip the backend config (Local A1111 /
 /// Draw Things ↔ remote API) and generate an image. Reuses [ImageGenService]
 /// (which routes to whichever backend is configured) and the existing settings.
 class ImageFacade {
-  ImageFacade(this._image, this._storage);
+  ImageFacade(
+    this._image,
+    this._storage, [
+    this._characters,
+    ExpressionPackBoard? packBoard,
+  ]) : _packBoard = packBoard ?? expressionPackBoard;
 
   final ImageGenService _image;
   final StorageService _storage;
+
+  /// The library a pack is made for and imported into; null where there is none.
+  final CharacterRepository? _characters;
+  final ExpressionPackBoard _packBoard;
+
+  /// How the ready check looks for ComfyUI; tests point it at their servers.
+  @visibleForTesting
+  ComfyUrlFinder? comfyFinder;
 
   /// Current image-gen config for the web panel. The API key is never returned
   /// (presence only), matching the text-backend settings facade.
@@ -53,6 +77,8 @@ class ImageFacade {
       'size': img.imageGenSize,
       'style': img.imageGenStyle,
       'model': img.imageGenModel,
+      'editModel': img.imageGenEditModel,
+      'genProgress': _image.genProgress,
       'negativePrompt': img.imageGenNegativePrompt,
       'steps': img.imageGenSteps,
       'cfgScale': img.imageGenCfgScale,
@@ -68,8 +94,16 @@ class ImageFacade {
       'localUrl': img.localImageGenUrl,
       'comfyUrl': img.comfyUiUrl,
       'promptReview': img.imageGenPromptReview,
+      // Whether adult CivitAI results may be asked for: the app's own adult
+      // setting, which the phone cannot change.
+      'adultAllowed': _storage.realismSettings.adultThemesEnabled,
       'drawThingsHost': img.drawThingsGrpcHost,
       'drawThingsPort': img.drawThingsGrpcPort,
+      'drawThingsSampler': img.drawThingsSampler,
+      'drawThingsSamplers': [
+        for (final s in kDrawThingsSamplers)
+          {'label': s.label, 'value': s.value},
+      ],
       // Studio-scoped remote host (chips). `remoteApiUrl` is the resolved
       // Studio URL — flipping it here must not rewrite chat's mouth.
       ..._remoteHostConfig(img, b),
@@ -78,11 +112,13 @@ class ImageFacade {
       'comfyCreateUploadedWorkflow': img.comfyCreateUploadedWorkflow
           .trim()
           .isNotEmpty,
+      'comfyCreateUploadedTitle': img.comfyCreateUploadedTitle,
       'comfyEditWorkflowId': img.comfyEditWorkflowId,
       'comfyEditModelChoices': img.comfyEditModelChoices,
       'comfyEditUploadedWorkflow': img.comfyEditUploadedWorkflow
           .trim()
           .isNotEmpty,
+      'comfyEditUploadedTitle': img.comfyEditUploadedTitle,
       'comfyEditPresets': [
         for (final preset in kComfyEditPresets)
           {
@@ -122,111 +158,26 @@ class ImageFacade {
     };
   }
 
-  /// Live Comfy drawers + template names for Create / pack slot dropdowns.
-  Future<Map<String, dynamic>> comfyCatalog() async {
-    final url = _storage.imageGenSettings.comfyUiUrl;
-    final cat = await _image.fetchComfyCatalog(url);
-    final comfy = ComfyUiService(baseUrl: url);
-    final templates = [
-      ...await comfy.fetchCreateTemplates(),
-      ...await comfy.fetchUserWorkflows(),
-    ];
-    final editTemplates = [
-      ...await comfy.fetchEditTemplates(),
-      ...await comfy.fetchUserWorkflows(),
-    ];
-    return {
-      'checkpoints': cat.checkpoints,
-      'diffusionModels': cat.diffusionModels,
-      'textEncoders': cat.textEncoders,
-      'vaes': cat.vaes,
-      'loras': cat.loras,
-      'createDiscovery': cat.createDiscovery,
-      'templates': [
-        for (final t in templates)
-          {
-            'id': t.pickerId,
-            'name': t.name,
-            'title': t.title,
-            'source': t.source,
-          },
-      ],
-      'editTemplates': [
-        for (final t in editTemplates)
-          {
-            'id': t.pickerId,
-            'name': t.name,
-            'title': t.title,
-            'source': t.source,
-          },
-      ],
-    };
-  }
-
-  /// Resolve slots from the selected live or uploaded workflow.
-  Future<Map<String, dynamic>> comfyWorkflowSlots(
-    String workflowId, {
-    bool edit = false,
-  }) async {
-    final img = _storage.imageGenSettings;
-    final comfy = ComfyUiService(baseUrl: img.comfyUiUrl);
-    final name = comfyTemplateNameFor(workflowId);
-    final live = name == null
-        ? null
-        : await comfy.fetchTemplateJson(
-            name,
-            preferUserdata: comfyTemplatePrefersUserdata(workflowId),
-          );
-    Map<String, dynamic>? source;
-    if (edit && workflowId == kComfyUploadedWorkflowId) {
-      try {
-        final decoded = jsonDecode(img.comfyEditUploadedWorkflow);
-        if (decoded is Map) source = decoded.cast<String, dynamic>();
-      } catch (_) {}
-    } else if (edit) {
-      source = live;
-    } else {
-      source = loadComfyCreateSource(
-        workflowId: workflowId,
-        uploadedWorkflowJson: img.comfyCreateUploadedWorkflow,
-        liveTemplate: live,
-      );
-    }
-    final graph = source == null ? null : ensureComfyApiGraph(source);
-    final presetSlots = edit
-        ? comfyEditPresetById(workflowId)?.modelSlots
-        : comfyCreatePresetById(workflowId)?.modelSlots;
-    final slots = presetSlots != null && presetSlots.isNotEmpty
-        ? presetSlots
-        : graph == null
-        ? const <ComfyModelSlot>[]
-        : adaptComfyApiWorkflow(graph).slots;
-    return {
-      'slots': [
-        for (final slot in slots)
-          {
-            'token': slot.token,
-            'label': slot.label,
-            'loaderClass': slot.loaderClass,
-            'inputName': slot.inputName,
-            'folderHint': slot.folderHint,
-            'files': await comfy.fetchModelFilesFor(
-              slot.loaderClass,
-              slot.inputName,
-            ),
-          },
-      ],
-    };
-  }
-
   /// Apply any subset of the image-gen config (only present keys change).
   Future<void> updateConfig(Map<String, dynamic> f) async {
     final img = _storage.imageGenSettings;
     final b = _storage.backendSettings;
+    // A graph is checked before anything in this write is stored, so a
+    // refused one leaves the config as it was. Clearing one ('') is fine.
+    final graphs = <String, String>{
+      for (final key in [
+        'comfyCreateUploadedWorkflow',
+        'comfyEditUploadedWorkflow',
+      ])
+        if (f[key] is String && (f[key] as String).trim().isNotEmpty)
+          key: checkedDeskGraph(f[key] as String),
+    };
     if (f['backend'] is String) {
       await img.setImageGenBackend(f['backend'] as String);
     }
-    if (f['size'] is String) await img.setImageGenSize(f['size'] as String);
+    if (f['size'] is String) {
+      await img.setImageGenSize(snappedStudioSize(f['size'] as String));
+    }
     if (f['style'] is String) await img.setImageGenStyle(f['style'] as String);
     if (f['negativePrompt'] is String) {
       await img.setImageGenNegativePrompt(f['negativePrompt'] as String);
@@ -273,7 +224,22 @@ class ImageFacade {
       await img.setDrawThingsGrpcHost(f['drawThingsHost'] as String);
     }
     if (f['drawThingsPort'] is int) {
-      await img.setDrawThingsGrpcPort(f['drawThingsPort'] as int);
+      await img.setDrawThingsGrpcPort(
+        (f['drawThingsPort'] as int).clamp(1, 65535),
+      );
+    }
+    if (f['drawThingsSampler'] is int) {
+      await img.setDrawThingsSampler(f['drawThingsSampler'] as int);
+    }
+    if (f['loraOverrideFamily'] is String) {
+      await img.prefs?.setString(
+        img.k('image_studio_lora_override_family'),
+        f['loraOverrideFamily'] as String,
+      );
+      img.notify();
+    }
+    if (f['editModel'] is String) {
+      await img.setImageGenEditModel(f['editModel'] as String);
     }
     // Studio-scoped host only. `imageRemoteHost` is the chip id; a raw
     // `remoteApiUrl` from older PWAs still parks on Image Studio, never chat.
@@ -316,12 +282,14 @@ class ImageFacade {
     }
     if (f['comfyCreateUploadedWorkflow'] is String) {
       await img.setComfyCreateUploadedWorkflow(
-        f['comfyCreateUploadedWorkflow'] as String,
+        graphs['comfyCreateUploadedWorkflow'] ?? '',
+        title: f['comfyCreateUploadedTitle']?.toString() ?? '',
       );
     }
     if (f['comfyEditUploadedWorkflow'] is String) {
       await img.setComfyEditUploadedWorkflow(
-        f['comfyEditUploadedWorkflow'] as String,
+        graphs['comfyEditUploadedWorkflow'] ?? '',
+        title: f['comfyEditUploadedTitle']?.toString() ?? '',
       );
     }
     if (f['comfyEditWorkflowId'] is String) {
@@ -363,13 +331,27 @@ class ImageFacade {
   Future<Map<String, dynamic>?> generate(Map<String, dynamic> f) async {
     final prompt = f['prompt']?.toString().trim() ?? '';
     if (prompt.isEmpty) return null;
+    // Edit changes a picture: it needs one, and it runs the Edit graph and
+    // model. A Create with a picture varies it (img2img).
+    final edit = f['mode'] == 'edit';
+    final reference = await _reference(f);
+    if (edit && reference == null) {
+      throw const DeskRefused('needs_picture', 'Pick a picture to edit.');
+    }
     // negativePrompt: absent → null → generateImage falls back to the user's
     // configured default (the web panel sends only a prompt). An explicit
     // value — including '' — is respected as-is.
-    final bytes = await _image.generateImage(
-      prompt: prompt,
-      negativePrompt: f['negativePrompt']?.toString(),
-      size: f['size']?.toString(),
+    // The phone or web caller cannot answer the desktop's loader dialog, so
+    // the gate answers "confirm on the desktop" at once instead of waiting.
+    final bytes = await withoutCity96Ask(
+      () => _image.generateImage(
+        prompt: prompt,
+        negativePrompt: f['negativePrompt']?.toString(),
+        size: f['size']?.toString(),
+        referenceImage: reference,
+        intent: edit ? StudioIntent.edit : StudioIntent.create,
+        editStrength: (f['editStrength'] as num?)?.toDouble(),
+      ),
     );
     if (bytes == null) return null;
     final savedPath = await _image.saveImageToDisk(bytes);

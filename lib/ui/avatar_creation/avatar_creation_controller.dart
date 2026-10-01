@@ -25,6 +25,8 @@ import 'package:flutter/widgets.dart' show TextEditingController;
 
 import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/capability/capability.dart';
+import 'package:front_porch_ai/services/image/expression_pack_board.dart';
+import 'package:front_porch_ai/services/image/expression_pack_flight.dart';
 import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/expression_pack_qc.dart';
@@ -147,6 +149,9 @@ class AvatarCreationController extends ChangeNotifier {
   // ── Run state ─────────────────────────────────────────────────────────────
   AvatarRunStage stage = AvatarRunStage.idle;
   String statusDetail = '';
+
+  /// The pack's base was a JPEG or WebP that was converted to a PNG.
+  bool packBaseConverted = false;
   ExpressionPackSession? session;
   ExpressionPackQc? qc;
   int importedCount = 0;
@@ -402,6 +407,7 @@ class AvatarCreationController extends ChangeNotifier {
     importedCount = 0;
     flaggedExcluded = 0;
     statusDetail = '';
+    packBaseConverted = false;
     final wantPortrait = source == PortraitSource.generate;
 
     _setStage(AvatarRunStage.saving);
@@ -459,6 +465,9 @@ class AvatarCreationController extends ChangeNotifier {
 
   /// Stop after whatever is in flight; completed images always stay.
   void cancel() {
+    // A listener that cancels on every notify would otherwise call this
+    // again from its own notify, without end.
+    if (_cancelRequested) return;
     _cancelRequested = true;
     session?.cancel();
     qc?.cancel();
@@ -474,6 +483,7 @@ class AvatarCreationController extends ChangeNotifier {
     _disposed = true;
     session?.cancel();
     session?.removeListener(_notify);
+    if (session != null) expressionPackBoard.release(session!);
     session?.dispose();
     qc?.cancel();
     qc?.removeListener(_notify);

@@ -34,6 +34,10 @@ class AdaptedComfyGraph {
   /// CheckpointLoaderSimple CLIP is output 1. A CLIP loader's CLIP is output 0.
   final int clipOutputIndex;
 
+  /// The graph's own `shift` for each ModelSampling node that became
+  /// `%SHIFT%`, by node id.
+  final Map<String, num> ownShifts;
+
   const AdaptedComfyGraph({
     required this.template,
     required this.slots,
@@ -43,7 +47,24 @@ class AdaptedComfyGraph {
     this.modelNodeId = 'unet',
     this.clipNodeId = 'clip',
     this.clipOutputIndex = 0,
+    this.ownShifts = const {},
   });
+
+  /// [template] with each shift node back at its own value: what the graph
+  /// posts when the person has not moved Shift for it.
+  Map<String, dynamic> get templateWithOwnShift {
+    if (ownShifts.isEmpty) return template;
+    final out = Map<String, dynamic>.from(template);
+    for (final e in ownShifts.entries) {
+      final node = Map<String, dynamic>.from(out[e.key] as Map);
+      node['inputs'] = {
+        ...Map<String, dynamic>.from(node['inputs'] as Map),
+        'shift': e.value,
+      };
+      out[e.key] = node;
+    }
+    return out;
+  }
 }
 
 const _kPromptTextNodes = {
@@ -71,6 +92,7 @@ AdaptedComfyGraph adaptComfyApiWorkflow(Map<String, dynamic> api) {
   var clipFromCheckpoint = false;
   var hasFluxGuidance = false;
   final promptSwitchIds = <String>{};
+  final ownShifts = <String, num>{};
   for (final node in graph.values.whereType<Map>()) {
     if (!_kPromptTextNodes.contains(node['class_type'])) continue;
     final inputs = node['inputs'];
@@ -211,8 +233,6 @@ AdaptedComfyGraph adaptComfyApiWorkflow(Map<String, dynamic> api) {
         _tokenIfLiteral(ins, 'denoise', ComfyEditTokens.denoise);
       case 'FluxGuidance':
         _tokenIfLiteral(ins, 'guidance', ComfyEditTokens.cfg);
-      case 'ModelSamplingAuraFlow':
-        _tokenIfLiteral(ins, 'shift', ComfyEditTokens.shift);
       case 'EmptyLatentImage':
       case 'EmptySD3LatentImage':
         _tokenIfLiteral(ins, 'width', ComfyEditTokens.width);
@@ -224,6 +244,14 @@ AdaptedComfyGraph adaptComfyApiWorkflow(Map<String, dynamic> api) {
           _tokenIfLiteral(ins, 'on_false', ComfyEditTokens.prompt);
         }
       default:
+        // The `shift` of whichever ModelSampling node the graph has (AuraFlow,
+        // SD3, ...) is the desk's Shift. Its own value is kept aside: the
+        // graph posts that unless the person moved Shift. Flux's `max_shift`
+        // is a different setting and is left alone.
+        if (classType.startsWith('ModelSampling') && ins['shift'] is num) {
+          ownShifts[e.key] = ins['shift'] as num;
+          _tokenIfLiteral(ins, 'shift', ComfyEditTokens.shift);
+        }
         if (classType == 'TextEncodeQwenImage21') {
           _tokenIfLiteral(ins, 'negative_prompt', ComfyEditTokens.negative);
         }
@@ -253,6 +281,7 @@ AdaptedComfyGraph adaptComfyApiWorkflow(Map<String, dynamic> api) {
     modelNodeId: modelNodeId.isEmpty ? 'unet' : modelNodeId,
     clipNodeId: clipNodeId.isEmpty ? 'clip' : clipNodeId,
     clipOutputIndex: clipFromCheckpoint ? 1 : 0,
+    ownShifts: ownShifts,
   );
 }
 

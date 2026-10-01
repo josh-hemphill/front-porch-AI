@@ -26,8 +26,6 @@ import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/utils/utils.dart';
 
-import 'comfy_create_panel.dart';
-
 /// Step 1 of the Expression-pack dialog: the setup form. Owns its own local
 /// choices (set size, variation strength, replace-existing) and reports them
 /// once on Start; the dialog then builds the generation session from them.
@@ -40,10 +38,14 @@ class ExpressionPackSetup extends StatefulWidget {
     required this.onCancel,
     required this.onStart,
     this.storage,
+    this.note,
   });
 
   final StorageService? storage;
   final Uint8List baseImage;
+
+  /// A short line shown under the portrait (that it was converted to PNG).
+  final String? note;
   final String characterName;
 
   /// Emotions this character already has images for (drives the default
@@ -112,6 +114,17 @@ class _ExpressionPackSetupState extends State<ExpressionPackSetup> {
             ),
           ],
         ),
+        if (widget.note != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            widget.note!,
+            style: TextStyle(
+              color: AppColors.textSecondary(context),
+              fontSize: 12,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         if (ImageGenBackend.fromKey(
               (widget.storage ?? context.read<StorageService>())
@@ -119,11 +132,10 @@ class _ExpressionPackSetupState extends State<ExpressionPackSetup> {
                   .imageGenBackend,
             ) ==
             ImageGenBackend.comfyUi) ...[
-          const ComfyCreatePanel(),
-          const SizedBox(height: 10),
           Text(
-            'The pack uses a ready Edit workflow when selected; otherwise '
-            'it uses this Create family for img2img from the base portrait.',
+            'On ComfyUI the pack runs your Edit graph (chosen on the Image '
+            'Studio desk, under Edit). If it is not ready the pack stops and '
+            'says what is missing; it never uses the Create graph instead.',
             style: TextStyle(
               color: AppColors.textTertiary(context),
               fontSize: 11,

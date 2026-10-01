@@ -19,10 +19,14 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import 'package:front_porch_ai/utils/picker_prefs.dart';
 
 import 'package:front_porch_ai/database/database.dart' hide World;
 import 'package:front_porch_ai/models/models.dart';
+import 'package:front_porch_ai/services/image/comfy_gguf_city96_gate.dart'
+    show withoutCity96Ask;
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/chargen/chargen.dart';
 import 'package:front_porch_ai/services/chat/chat.dart';
@@ -276,7 +280,8 @@ class ChargenFacade {
   /// backend / prompt / on failure (generation never blocks on the image step).
   /// Mirrors the desktop buildPortraitPromptSeed: strip the character name from the
   /// LLM-authored prompt so the image model doesn't render it as text.
-  Future<List<int>?> _renderPortrait(String name, String? imagePrompt) async {
+  @visibleForTesting
+  Future<List<int>?> renderPortrait(String name, String? imagePrompt) async {
     final svc = _imageGen;
     final prompt = imagePrompt?.trim() ?? '';
     if (svc == null || !svc.isConfigured || prompt.isEmpty) return null;
@@ -303,7 +308,10 @@ class ChargenFacade {
       // Configured size, oriented portrait, configured default negative —
       // mirrors the desktop creator (the old fixed 512x512 failed on remote
       // models that reject small sizes and capped local quality).
-      return await svc.generateImage(prompt: clean, isPortrait: true);
+      // No desktop dialog can be answered from here; see ImageFacade.generate.
+      return await withoutCity96Ask(
+        () => svc.generateImage(prompt: clean, isPortrait: true),
+      );
     } catch (_) {
       _hub?.broadcast({
         'event': 'chargen_status',
@@ -375,7 +383,7 @@ class ChargenFacade {
       // convenience; desktop generation moved to the explicit Portrait &
       // Avatars panel). The LLM authored the prompt during generation; strip the
       // name (image models render names as text) and render a 512² portrait.
-      final portrait = await _renderPortrait(name, gen.generatedImagePrompt);
+      final portrait = await renderPortrait(name, gen.generatedImagePrompt);
       final saved = await _characters.persistNewCard(
         card,
         portraitBytes: portrait,

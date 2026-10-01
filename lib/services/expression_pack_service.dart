@@ -22,6 +22,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
 import 'package:front_porch_ai/services/character_repository.dart';
+import 'package:front_porch_ai/services/expression_pack_base_check.dart';
 import 'package:front_porch_ai/services/storage_service.dart';
 import 'package:front_porch_ai/services/image_prompt/expression_prompts.dart';
 
@@ -33,8 +34,34 @@ import 'package:front_porch_ai/services/image_prompt/expression_prompts.dart';
 /// output size from the reference image — the base must literally BE the
 /// generation size. Shared by the Studio pack dialog and the creator's
 /// Portrait & Avatars panel. Returns null when the bytes can't be decoded.
-({Uint8List bytes, int width, int height})? normalizePackBase(Uint8List raw) {
-  final decoded = img.decodeImage(raw);
+/// This takes a PNG only; a JPEG or WebP is made into one first by
+/// [preparePackBase], which is what callers use.
+///
+/// The bytes are judged before any decoder sees them ([inspectPackBase]): only
+/// a PNG, not an animated one, nothing over about 40 megapixels, none that
+/// inflates past its size. Then null is returned, and
+/// [onRefused] (when the reason is one to show) is given the refusal. A decode
+/// that fails is null as well.
+({Uint8List bytes, int width, int height})? normalizePackBase(
+  Uint8List raw, {
+  void Function(PackBaseRefusal refusal)? onRefused,
+}) {
+  final verdict = inspectPackBase(raw);
+  if (verdict.size == null) {
+    final refusal = verdict.refusal;
+    if (refusal != null) onRefused?.call(refusal);
+    return null;
+  }
+  try {
+    return _normalized(raw);
+  } catch (e) {
+    debugPrint('[ExpressionPack] base picture could not be decoded: $e');
+    return null;
+  }
+}
+
+({Uint8List bytes, int width, int height})? _normalized(Uint8List raw) {
+  final decoded = img.decodePng(raw);
   if (decoded == null) return null;
   final isLandscape = decoded.width >= decoded.height;
   final scale = 768 / (isLandscape ? decoded.width : decoded.height);
@@ -145,7 +172,9 @@ class ExpressionPackSession extends ChangeNotifier {
     required PackSlotGenerator generate,
     int? seed, // fixed shared seed; default = random positive int
     bool editMode = false,
+    void Function()? onCancel,
   }) : _basePrompt = basePrompt,
+       _onCancel = onCancel,
        _negativePrompt = negativePrompt,
        _denoise = denoise,
        _generate = generate,
@@ -159,6 +188,11 @@ class ExpressionPackSession extends ChangeNotifier {
   final String _negativePrompt;
   final double _denoise;
   final PackSlotGenerator _generate;
+
+  /// Called when a run that is under way is cancelled, so the caller can stop
+  /// the picture being made (a cancel here only stops the pack before the
+  /// next one).
+  final void Function()? _onCancel;
 
   /// When true an instruction-edit model is driving generation, so each slot's
   /// positive prompt is an EDIT INSTRUCTION off the base portrait (identity kept
@@ -254,6 +288,7 @@ class ExpressionPackSession extends ChangeNotifier {
     }
     if (denoiseOverride != null) slot.customDenoise = denoiseOverride;
     if (newSeed) slot.customSeed = Random().nextInt(1 << 31);
+    _cancelRequested = false;
     _running = true;
     notifyListeners();
     await _generateSlot(slot, slot.customSeed ?? _seed);
@@ -264,8 +299,11 @@ class ExpressionPackSession extends ChangeNotifier {
 
   /// Finish the in-flight slot, then stop; remaining slots stay pending
   /// (a later [run] resumes them).
+  /// Once per cancel: a second call does not interrupt ComfyUI again.
   void cancel() {
+    if (_cancelRequested) return;
     _cancelRequested = true;
+    if (_running) _onCancel?.call();
   }
 
   void setKeep(int index, bool value) {
@@ -305,6 +343,9 @@ class ExpressionPackSession extends ChangeNotifier {
     if (result != null) {
       slot.bytes = result;
       slot.state = ExpressionSlotState.done;
+    } else if (_cancelRequested) {
+      // Stopped on purpose: not a failure, and Resume makes it again.
+      slot.state = ExpressionSlotState.pending;
     } else {
       slot.state = ExpressionSlotState.failed;
       slot.error = error;
