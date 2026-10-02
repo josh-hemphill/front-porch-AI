@@ -3,7 +3,7 @@
 These notes feed the in-app "Update Available" dialog for Rawhide / cutting-edge builds.
 **Only list what landed after the last shipped nightly.** Clear this section when a new nightly goes out — delete the old bullets; do not accumulate them.
 
-Last shipped nightly: `rawhide.20260921.f50f22e`. Everything below is unreleased.
+Last shipped nightly: `rawhide.20261001.06827b2`. Everything below is unreleased.
 
 ## Recent improvements (unreleased — ships in the next build)
 
@@ -18,31 +18,7 @@ Last shipped nightly: `rawhide.20260921.f50f22e`. Everything below is unreleased
 - 🖼️ **A photo the phone can't read is no longer dropped quietly** — your text and photo stay put with a note.
 
 - 🤖 **xAI is a chat backend** — pick xAI in Settings → Backend (or Model Settings) and sign in with SuperGrok to use your subscription allowance instead of paid API credits. The sign-in is unofficial and at your own risk; an xAI API key also works. The sign-in borrows xAI's own Grok CLI login, so xAI may block it at any time. If your allowance runs out, chat says so in plain words. Same on the phone.
-- 🍽️ **Hunger and bladder follow the beat** — a few minutes is a small drop, a long stretch is a real one, and the story decides the size. A meal or a bathroom still fills them. The same moment, Continue, and a clock that is off do not invent a drop. The other needs still move only when the scene itself does. Same on the phone.
-- 🌍 **A place can take lore from a character** — Create or Edit World → From character. Pick the card, then tick the entries to copy. The rest stay on the card. Same on the phone.
-- 📚 **A character’s lorebook can be saved on its own** — Edit Character → Lorebook → Export file writes a world-info file. Import file on that tab reads it back.
-- 🔎 **You can name exactly what gets looked up** — end a line with `/search -- the name` or `/wiki -- the name`, or type those words in the regenerate box. The words after `--` are the search. A bare `/search` does not guess. Web shows up in regenerate only when Web Search is on. Wiki is greyed out until this chat has one. Same on the phone.
-- 🔄 **Reprocess Needs only lists the needs that are on** for that speaker — disabled ones stay hidden. Same on the phone.
-- ⏱️ **A normal send always moves the story clock** — at least a minute or two, and a ⏱ chip names it. Same moment only when the scene is one continuous instant. Passage of Time is the only driver (Realism off still ticks). Continue does not tick. Hunger and bladder follow the beat the clock just named. The other needs stay put unless the scene itself moves them; a short no-action turn says “No needs affected.” Same on the phone.
-- ⏱️ **Forking from the opening greeting goes back to Day 1 of that chat’s start** — not the day you had reached later in the parent chat. Forking the latest reply still keeps that day. Same on the phone.
-- ⏱️ **Older replies keep their own day** — swipe or fork a Day 2 line and you land on Day 2, not whatever day the chat has reached now. Same on the phone.
-- ⏱️ **Porch Life off means the clock does not move** — including when you fork. Same on the phone.
-- ⏱️ **The ⏱ chip matches the time that reply covers** — if someone was away and the clock kept moving, the chip names the whole span, not just the last beat. Same on the phone.
-- 👥 **A group member without a saved face no longer breaks the chat** — they show as a letter, and the conversation still opens. Same on the phone.
 
-- 🛠️ **Waifu Coder can use the same recipe cards as chat** — drop JSON in the library `tools` folder, opt in from the Waifu harness, and they show up as tools. Skills are a separate Waifu-only drawer (`skills/<name>/SKILL.md`). Not Docker, not extra MCP servers. Same on Porch Life.
-
-- 🖼️ **Comfy Create rides Comfy’s own templates** — Z-Image Turbo, Qwen-Image, and Flux/Krea use the graphs Comfy ships (or a replaceable starter / your uploaded workflow), not a Porch-owned copy we have to rewrite every model bump. Pick the family, fill the model drawers, Generate. Expression packs on ComfyUI run your Edit graph, and say what is missing when it is not ready instead of quietly using the Create graph; backends with no Edit path still use img2img. Same on the phone.
-- 🖼️ **Cancelling an expression pack stops the picture ComfyUI is making** — it used to stop only the wait, and the next picture queued behind the old one. A stopped picture is made again on Resume. The phone can now start a pack, watch it, cancel it, and import the pictures you keep.
-- 🖼️ **Saved ComfyUI image workflows keep their own model drawers** — Create and Edit distinguish your saved workflow from a built-in template with the same name. GGUF loaders show the files ComfyUI offers for those loaders, and workflow lists wait for discovery before opening. Edit can select saved workflows directly. The web panel has the same workflow settings.
-- 🖼️ **Nano-GPT Image Studio lists current image models** — Qwen Image 2.1/3, GPT Image 2.5, FLUX.2, Ideogram V4, Midjourney, and the rest of today’s Nano image page (subscription ones still marked included). Same on the phone.
-- 🖼️ **Image Studio Remote API: Nano or OpenRouter** — pick the host with chips (each uses the key you already saved in Settings → Backend). Search the model list; Nano rows say Pro vs paid. Switching Studio chips does not change chat’s backend. Same on the phone.
-- 🖼️ **Expression packs on Nano no longer send a leftover Comfy checkpoint** — the pack (and Edit) need a Nano edit id such as Qwen Image Max Edit. A `.ckpt` sitting in the Edit slot is cleared instead of billed as an invalid model. Same on the phone.
-- 🖼️ **Nano Create waits up to 10 minutes** — slow remote image models no longer fail at two minutes with a raw timeout dump. You’ll see “try again or a faster model” if it still runs long. Same on the phone.
-- 🖼️ **Image Studio stacks up to eight LoRAs** — four pickers, and More LoRAs for the rest. The list matches the checkpoint you have loaded. Draw Things can use them. Same on the phone.
-
-- 🔎 **Web search only reads the line you just sent** — it decides whether to look something up, then the character still answers from the chat. Wiki looks a little further: the previous thing you said, the reply, and the line you just sent. Recipe cards still see the scene. Same on the phone.
-- ⚡ **Long chats stay quicker on the next reply** — character growth, the fading opening scenario, and lore now sit after the transcript. When those change, only that tail is read again. Same on the phone.
-- ✍️ **Impersonate in a group answers the person who just spoke.** Same on the phone.
-- 📖 **“Where we are” is saved with the chat** — leave, switch models, or quit, and the recap is still there when you come back. Same on the phone.
-- ⏱️ **The wait line on oMLX shows how long you have been waiting** until real progress arrives. Same on the phone.
+- 🧑 **A brand-new chat starts as your default persona** — left-clicking a character you've never opened now begins the chat with your default "Speak as", instead of carrying over the persona from the chat you were just in. Chats you've already opened keep their own persona. Same on the phone.
+- 🖼️ **Saved ComfyUI edit workflows get the real prompt** — a chained or multi-step prompt now flows into your saved Edit workflow instead of being dropped, and Qwen image-edit keeps the denoise strength you set instead of snapping back to a default. Same on the phone.
+- 🖼️ **Image before/after comparisons wait until both sides are done** — Image Studio no longer posts a half-finished ComfyUI comparison; an incomplete compare is skipped instead of shown broken.
