@@ -7,6 +7,7 @@
 import { useCallback, useState } from 'react';
 import { api } from '../../api/client';
 import { type ChatThemeOverrides, type Message } from '../../components/chatTypes';
+import { joinMessageEdit } from '../../components/messageEdit';
 import { postChatSend } from '../chatSend';
 import { describeActionFailure } from './chatActionError';
 
@@ -137,8 +138,10 @@ export function useChatSend(refresh: () => Promise<void>) {
       failed('delete that message', e);
     }
   }, [refresh, failed]);
+  // `text` arrives think-stripped; rejoin the reasoning so the editor shows
+  // it and Save does not erase it from the stored message.
   const beginEdit = useCallback((m: Message) => {
-    setEditTarget({ index: m.index, text: m.text });
+    setEditTarget({ index: m.index, text: joinMessageEdit(m.thinkingContent ?? '', m.text) });
   }, []);
   // The editor stays open until the desktop has the new text: on failure this
   // throws a plain-English Error the modal shows above the user's draft.
