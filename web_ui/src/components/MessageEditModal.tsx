@@ -15,30 +15,15 @@ import {
   useState,
   type UIEvent,
 } from 'react';
+import { useBackDismiss } from '../hooks/useBackDismiss';
 import { renderRpInline } from './rpText';
 import { joinMessageEdit, splitMessageForEdit } from './messageEdit';
-
-/** History marker so the phone back gesture closes this sheet and nothing else. */
-const EDIT_MARKER = 'open';
 
 function coarsePointer(): boolean {
   return (
     typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
   );
 }
-
-function historyBase(): Record<string, unknown> {
-  const state = window.history.state as Record<string, unknown> | null;
-  return state !== null && typeof state === 'object' ? { ...state } : {};
-}
-
-function editMarkerOpen(): boolean {
-  return historyBase().fpMessageEdit === EDIT_MARKER;
-}
-
-// StrictMode runs the history effect twice. The cleanup of the first pass must
-// not pop the entry the second pass still owns.
-let editSheetEpoch = 0;
 
 export function MessageEditModal({
   initialText,
@@ -67,7 +52,6 @@ export function MessageEditModal({
   const onCancelRef = useRef(onCancel);
   onCancelRef.current = onCancel;
   const overlayRef = useRef<HTMLDivElement>(null);
-  const popEditHistory = useRef<() => void>(() => {});
 
   // The modal unmounts on success; a failure leaves the draft in place.
   const save = useCallback(async () => {
@@ -110,58 +94,15 @@ export function MessageEditModal({
   }, []);
 
   // Same URL and the router's idx/key, so HashRouter does not leave the chat.
-  useEffect(() => {
-    const mine = ++editSheetEpoch;
-    let ignorePop = false;
-    let pushed = false;
-
-    const pushMarker = () => {
-      window.history.pushState({ ...historyBase(), fpMessageEdit: EDIT_MARKER }, '');
-      pushed = true;
-    };
-    const popMarker = () => {
-      if (!pushed || !editMarkerOpen()) {
-        pushed = false;
-        return;
-      }
-      pushed = false;
-      ignorePop = true;
-      window.history.back();
-    };
-
-    if (editMarkerOpen()) pushed = true;
-    else pushMarker();
-
-    const onPop = () => {
-      if (ignorePop) {
-        ignorePop = false;
-        return;
-      }
-      pushed = false;
-      if (dirtyRef.current && !window.confirm('Discard unsaved changes?')) {
-        pushMarker();
-        return;
-      }
-      onCancelRef.current();
-    };
-    window.addEventListener('popstate', onPop);
-    popEditHistory.current = popMarker;
-
-    return () => {
-      window.removeEventListener('popstate', onPop);
-      popEditHistory.current = () => {};
-      queueMicrotask(() => {
-        if (editSheetEpoch !== mine) return;
-        popMarker();
-      });
-    };
-  }, []);
-
-  const requestCancel = useCallback(() => {
-    if (dirty && !window.confirm('Discard unsaved changes?')) return;
-    popEditHistory.current();
-    onCancel();
-  }, [dirty, onCancel]);
+  // A dirty back gesture re-pushes the marker when the confirm is declined.
+  const requestCancel = useBackDismiss(
+    'fpMessageEdit',
+    () => onCancelRef.current(),
+    () => {
+      if (!dirtyRef.current) return true;
+      return window.confirm('Discard unsaved changes?');
+    },
+  );
 
   // Escape cancels (with discard confirm when dirty); Ctrl/Cmd+Enter saves.
   useEffect(() => {

@@ -44,6 +44,55 @@
 }
 .chat-header-avatar.group { display: grid; place-items: center; font-size: 1rem; }
 
+/* In-chat model chip. The sheet reuses the #330 phone pattern (messages.css
+   message editor): visual-viewport box, safe-area padding, never 100dvh. */
+.model-switch-chip {
+  display: inline-flex; align-items: center; max-width: 11rem; min-width: 0;
+  padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); font: inherit;
+  font-size: 0.75rem; font-weight: 600; line-height: 1.3; cursor: pointer;
+}
+.model-switch-chip-text {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.model-switch-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.model-switch-title { font-weight: 700; }
+.model-switch-body {
+  display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto;
+}
+.model-switch-sheet { overflow-wrap: anywhere; }
+a.model-switch-settings {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 10px 14px; border-radius: 10px; background: var(--accent);
+  color: var(--accent-ink); font-weight: 600; text-decoration: none; text-align: center;
+}
+[data-layout="phone"] .model-switch-chip { max-width: 8.5rem; }
+[data-layout="phone"] .drawer-backdrop.model-switch-overlay {
+  top: var(--fp-vv-top, 0px);
+  left: var(--fp-vv-left, 0px);
+  right: auto;
+  bottom: auto;
+  width: var(--fp-vvw, 100%);
+  height: var(--fp-vvh, 100%);
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+[data-layout="phone"] .model-switch-sheet {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  border-radius: 0;
+  overflow: hidden;
+  padding-top: calc(14px + var(--fp-safe-top, env(safe-area-inset-top)));
+  padding-right: calc(16px + var(--fp-safe-right, env(safe-area-inset-right)));
+  padding-bottom: calc(12px + var(--fp-safe-bottom, env(safe-area-inset-bottom)));
+  padding-left: calc(16px + var(--fp-safe-left, env(safe-area-inset-left)));
+}
+
 /* ── Expression portrait (insight panel) ──────────────────────── */
 .portrait-wrap { position: relative; align-self: center; }
 .portrait {

@@ -14,6 +14,7 @@ import { ChatThemeSettings } from '../components/ChatThemeSettings';
 import { ProcessingOverlay } from '../components/ProcessingOverlay';
 import { type Realism } from '../components/chatTypes';
 import { useLayout } from '../hooks/useBreakpoint';
+import { ChatModelSwitcher } from './chat/ChatModelSwitcher';
 import { ChatNotices } from './chat/ChatNotices';
 import { ChatOverlays } from './chat/ChatOverlays';
 import { useChatSend } from './chat/useChatSend';
@@ -229,6 +230,7 @@ export function ChatPage() {
             <span className="chat-title">{title}</span>
           </div>
           <div className="chat-header-actions">
+            <ChatModelSwitcher />
             {editId && (
               <button
                 className="link-btn"
