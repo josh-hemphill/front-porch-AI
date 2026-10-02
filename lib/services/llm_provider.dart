@@ -284,7 +284,9 @@ class LLMProvider extends ChangeNotifier {
   ) {
     _storageService.backendSettings.bearerOverlay = superGrok.bearerFor;
     superGrok.addListener(_syncFromStorage);
-    unawaited(superGrok.load());
+    // Prefs are still null until storage init binds them; loading earlier
+    // reads no session and every launch looks signed out.
+    unawaited(_storageService.initialized.then((_) => superGrok.load()));
     _syncFromStorage();
     _storageService.addListener(_syncFromStorage);
     _koboldService.addListener(_onServiceChanged);
