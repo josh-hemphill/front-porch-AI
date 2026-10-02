@@ -81,4 +81,24 @@ describe('overlay hit-testing', () => {
     expect(rule).not.toBeNull();
     expect(rule![1]).not.toMatch(/z-index/);
   });
+
+  // #330 follow-up: a 100dvh sheet centered in the overlay slides under the
+  // iOS status bar once the keyboard pans the layout viewport. The phone
+  // sheet tracks the visual viewport and pads every safe-area edge.
+  it('the phone message editor is not a centered 100dvh sheet (#330)', () => {
+    const css = ['messages.css', 'places.css']
+      .map((name) => readFileSync(join(SRC, 'styles', name), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))
+      .join('\n');
+    expect(css).not.toMatch(/\.msg-edit-modal[^{]*\{[^}]*100dvh/);
+    expect(css).toMatch(
+      /\[data-layout="phone"\]\s+\.drawer-backdrop\.msg-edit-overlay\s*\{[^}]*align-items:\s*flex-start/,
+    );
+    expect(css).toMatch(/height:\s*var\(--fp-vvh,\s*100%\)/);
+    expect(css).toMatch(/top:\s*var\(--fp-vv-top,\s*0px\)/);
+    expect(css).toMatch(/var\(--fp-safe-top,\s*env\(safe-area-inset-top\)\)/);
+    expect(css).toMatch(/var\(--fp-safe-bottom,\s*env\(safe-area-inset-bottom\)\)/);
+    expect(css).toMatch(/var\(--fp-safe-left,\s*env\(safe-area-inset-left\)\)/);
+    expect(css).toMatch(/var\(--fp-safe-right,\s*env\(safe-area-inset-right\)\)/);
+    expect(css).toMatch(/\.msg-edit-scroll\s*\{[^}]*min-height:\s*0/);
+  });
 });

@@ -6,9 +6,39 @@
 // section (no raw <think> tags); the body uses the same RP dialogue/action
 // coloring as the composer.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type UIEvent,
+} from 'react';
 import { renderRpInline } from './rpText';
 import { joinMessageEdit, splitMessageForEdit } from './messageEdit';
+
+/** History marker so the phone back gesture closes this sheet and nothing else. */
+const EDIT_MARKER = 'open';
+
+function coarsePointer(): boolean {
+  return (
+    typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
+  );
+}
+
+function historyBase(): Record<string, unknown> {
+  const state = window.history.state as Record<string, unknown> | null;
+  return state !== null && typeof state === 'object' ? { ...state } : {};
+}
+
+function editMarkerOpen(): boolean {
+  return historyBase().fpMessageEdit === EDIT_MARKER;
+}
+
+// StrictMode runs the history effect twice. The cleanup of the first pass must
+// not pop the entry the second pass still owns.
+let editSheetEpoch = 0;
 
 export function MessageEditModal({
   initialText,
@@ -32,6 +62,12 @@ export function MessageEditModal({
   const dirty =
     thinking.trim() !== initial.thinking || body !== initial.body;
   const charCount = joined.length;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const popEditHistory = useRef<() => void>(() => {});
 
   // The modal unmounts on success; a failure leaves the draft in place.
   const save = useCallback(async () => {
@@ -46,13 +82,93 @@ export function MessageEditModal({
     }
   }, [saving, onSave, joined]);
 
+  // iOS pans the layout viewport when the keyboard opens; 100dvh does not
+  // shrink. Pin the sheet to the visual viewport so the header stays on screen.
+  useLayoutEffect(() => {
+    const el = overlayRef.current;
+    const vv = window.visualViewport;
+    if (!el || !vv) return;
+    const apply = () => {
+      el.style.setProperty('--fp-vvh', `${vv.height}px`);
+      el.style.setProperty('--fp-vvw', `${vv.width}px`);
+      el.style.setProperty('--fp-vv-top', `${vv.offsetTop}px`);
+      el.style.setProperty('--fp-vv-left', `${vv.offsetLeft}px`);
+    };
+    apply();
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    window.addEventListener('scroll', apply);
+    return () => {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+      window.removeEventListener('scroll', apply);
+      el.style.removeProperty('--fp-vvh');
+      el.style.removeProperty('--fp-vvw');
+      el.style.removeProperty('--fp-vv-top');
+      el.style.removeProperty('--fp-vv-left');
+    };
+  }, []);
+
+  // Same URL and the router's idx/key, so HashRouter does not leave the chat.
+  useEffect(() => {
+    const mine = ++editSheetEpoch;
+    let ignorePop = false;
+    let pushed = false;
+
+    const pushMarker = () => {
+      window.history.pushState({ ...historyBase(), fpMessageEdit: EDIT_MARKER }, '');
+      pushed = true;
+    };
+    const popMarker = () => {
+      if (!pushed || !editMarkerOpen()) {
+        pushed = false;
+        return;
+      }
+      pushed = false;
+      ignorePop = true;
+      window.history.back();
+    };
+
+    if (editMarkerOpen()) pushed = true;
+    else pushMarker();
+
+    const onPop = () => {
+      if (ignorePop) {
+        ignorePop = false;
+        return;
+      }
+      pushed = false;
+      if (dirtyRef.current && !window.confirm('Discard unsaved changes?')) {
+        pushMarker();
+        return;
+      }
+      onCancelRef.current();
+    };
+    window.addEventListener('popstate', onPop);
+    popEditHistory.current = popMarker;
+
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      popEditHistory.current = () => {};
+      queueMicrotask(() => {
+        if (editSheetEpoch !== mine) return;
+        popMarker();
+      });
+    };
+  }, []);
+
+  const requestCancel = useCallback(() => {
+    if (dirty && !window.confirm('Discard unsaved changes?')) return;
+    popEditHistory.current();
+    onCancel();
+  }, [dirty, onCancel]);
+
   // Escape cancels (with discard confirm when dirty); Ctrl/Cmd+Enter saves.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (dirty && !window.confirm('Discard unsaved changes?')) return;
-        onCancel();
+        requestCancel();
         return;
       }
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -62,7 +178,7 @@ export function MessageEditModal({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dirty, onCancel, save]);
+  }, [requestCancel, save]);
 
   const syncScroll = (e: UIEvent<HTMLTextAreaElement>) => {
     const b = backdropRef.current;
@@ -72,13 +188,12 @@ export function MessageEditModal({
     }
   };
 
-  const requestCancel = () => {
-    if (dirty && !window.confirm('Discard unsaved changes?')) return;
-    onCancel();
-  };
-
   return (
-    <div className="drawer-backdrop center msg-edit-overlay" onClick={requestCancel}>
+    <div
+      className="drawer-backdrop center msg-edit-overlay"
+      ref={overlayRef}
+      onClick={requestCancel}
+    >
       <div
         className="modal msg-edit-modal"
         role="dialog"
@@ -121,31 +236,33 @@ export function MessageEditModal({
             <span className="muted small">Edit model reasoning (no tags needed)</span>
           )}
         </button>
-        {thinkingOpen && (
-          <textarea
-            className="msg-edit-thinking"
-            value={thinking}
-            onChange={(e) => setThinking(e.target.value)}
-            placeholder="Model reasoning / chain-of-thought…"
-            rows={5}
-            spellCheck
-          />
-        )}
+        <div className="msg-edit-scroll">
+          {thinkingOpen && (
+            <textarea
+              className="msg-edit-thinking"
+              value={thinking}
+              onChange={(e) => setThinking(e.target.value)}
+              placeholder="Model reasoning / chain-of-thought…"
+              rows={5}
+              spellCheck
+            />
+          )}
 
-        <label className="msg-edit-body-label">Message</label>
-        <div className="msg-edit-body-area">
-          <div className="msg-edit-backdrop" ref={backdropRef} aria-hidden="true">
-            {renderRpInline(body.endsWith('\n') ? body : `${body}\n`, 'edit', false)}
+          <label className="msg-edit-body-label">Message</label>
+          <div className="msg-edit-body-area">
+            <div className="msg-edit-backdrop" ref={backdropRef} aria-hidden="true">
+              {renderRpInline(body.endsWith('\n') ? body : `${body}\n`, 'edit', false)}
+            </div>
+            <textarea
+              className="msg-edit-body"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              onScroll={syncScroll}
+              placeholder={'Message text…  "dialogue" and *actions* are highlighted'}
+              autoFocus={!coarsePointer()}
+              spellCheck
+            />
           </div>
-          <textarea
-            className="msg-edit-body"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            onScroll={syncScroll}
-            placeholder={'Message text…  "dialogue" and *actions* are highlighted'}
-            autoFocus
-            spellCheck
-          />
         </div>
 
         <div className="msg-edit-modal-foot">

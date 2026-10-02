@@ -75,10 +75,32 @@ test.describe.serial('a conversation', () => {
 
   test('edit a message and save it (#330)', async ({ page }) => {
     await openPorchChat(page);
+    const phone = test.info().project.name.startsWith('phone');
+    if (phone) {
+      // env(safe-area-inset-*) is 0 in this browser. The sheet reads these
+      // custom properties first, so the notch padding is real for the hit test.
+      await page.addStyleTag({
+        content:
+          'html{--fp-safe-top:59px;--fp-safe-right:0px;--fp-safe-bottom:34px;--fp-safe-left:0px}',
+      });
+    }
     const mine = rows(page).filter({ hasText: 'The swing creaks as I sit down.' });
     await action(mine, 'Edit').click();
     const editor = page.getByRole('dialog', { name: 'Edit message' });
     await expect(editor).toBeVisible();
+    if (phone) {
+      const cancel = editor.getByRole('button', { name: 'Cancel' });
+      const box = await cancel.boundingBox();
+      const vp = page.viewportSize();
+      if (!box || !vp) throw new Error('Edit sheet Cancel is not in the layout');
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(vp.height);
+      const hit = await page.evaluate(({ x, y }) => {
+        const el = document.elementFromPoint(x, y);
+        return el?.closest('button')?.textContent?.trim() ?? '';
+      }, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+      expect(hit).toBe('Cancel');
+    }
     await editor.locator('textarea.msg-edit-body').fill('I sit on the porch swing instead.');
     await editor.getByRole('button', { name: 'Save' }).click();
     await expect(editor).toBeHidden();
