@@ -35,9 +35,13 @@ const kSuperGrokUnofficialWarning =
 /// Backend tab, xAI host: sign in with a SuperGrok subscription instead of
 /// pasting an API key.
 class SuperGrokCard extends StatelessWidget {
-  const SuperGrokCard({super.key, required this.auth});
+  const SuperGrokCard({super.key, required this.auth, this.onUseApiKey});
 
   final SuperGrokAuth auth;
+
+  /// Reveals the xAI API key box. Sign-in is the main path; the key is the
+  /// fallback, so it stays tucked away until asked for.
+  final VoidCallback? onUseApiKey;
 
   @override
   Widget build(BuildContext context) {
@@ -117,9 +121,15 @@ class SuperGrokCard extends StatelessWidget {
     const SizedBox(height: 6),
     Text(
       'Uses your SuperGrok or X Premium+ allowance instead of paid API '
-      'credits. Or paste an xAI API key below.',
+      'credits.',
       style: TextStyle(fontSize: 12, color: AppColors.textTertiary(context)),
     ),
+    if (onUseApiKey != null)
+      TextButton(
+        key: const Key('super-grok-use-key'),
+        onPressed: onUseApiKey,
+        child: const Text('Use an xAI API key instead'),
+      ),
   ];
 
   List<Widget> _waiting(BuildContext context) => [

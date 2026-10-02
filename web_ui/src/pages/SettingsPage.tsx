@@ -152,6 +152,7 @@ export function SettingsPage() {
   const [testing, setTesting] = useState(false);
   const [testMsg, setTestMsg] = useState('');
   const [superGrokSignedIn, setSuperGrokSignedIn] = useState(false);
+  const [xaiKeyOpen, setXaiKeyOpen] = useState(false);
 
   const [legacy, setLegacy] = useState<LegacyModels | null>(null);
   const [reclaiming, setReclaiming] = useState(false);
@@ -337,7 +338,10 @@ export function SettingsPage() {
   const showKeyField =
     selectedId === 'openrouter' ||
     selectedId === 'nanogpt' ||
-    (selectedId === 'xai' && !superGrokSignedIn) ||
+    // xAI: sign-in first; the key box only once asked for or already saved.
+    (selectedId === 'xai' &&
+      !superGrokSignedIn &&
+      (xaiKeyOpen || urlHasStoredApiKey(s.remoteApiUrl, s.remoteApiUrlsWithKeys))) ||
     selectedId === 'custom';
 
   return (
@@ -390,6 +394,7 @@ export function SettingsPage() {
             )}
             {selectedId === 'xai' && (
               <SuperGrokCard
+                onUseApiKey={showKeyField ? undefined : () => setXaiKeyOpen(true)}
                 onChange={(st) => {
                   if (st.signedIn !== superGrokSignedIn) void load();
                   setSuperGrokSignedIn(st.signedIn);

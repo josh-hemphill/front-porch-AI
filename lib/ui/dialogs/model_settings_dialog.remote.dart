@@ -82,10 +82,12 @@ extension _ModelSettingsRemoteSection on _ModelSettingsDialogState {
       url: storage.backendSettings.remoteApiUrl,
     );
     final showUrl = remoteProviderShowsUrlField(kind);
-    final viaSuperGrok =
-        kind == RemoteProviderKind.xai && llm.superGrok.isSignedIn;
+    final isXai = kind == RemoteProviderKind.xai;
+    final viaSuperGrok = isXai && llm.superGrok.isSignedIn;
     final needsKey = remoteProviderNeedsApiKey(kind) && !viaSuperGrok;
     final hasKey = storage.backendSettings.remoteApiKey.isNotEmpty;
+    // xAI: sign-in first; the key box only once asked for or already saved.
+    final showKey = needsKey && (!isXai || hasKey || _xaiKeyOpen);
     final model = _modelNameController.text.trim();
     final ready = model.isNotEmpty && (!needsKey || hasKey);
 
@@ -113,18 +115,16 @@ extension _ModelSettingsRemoteSection on _ModelSettingsDialogState {
           ),
           const SizedBox(height: 12),
         ],
-        if (viaSuperGrok) ...[
-          Text(
-            'Signed in with SuperGrok (unofficial). Manage it in Settings → '
-            'Backend.',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.textTertiary(context),
-            ),
+        if (isXai) ...[
+          SuperGrokCard(
+            auth: llm.superGrok,
+            onUseApiKey: showKey
+                ? null
+                : () => rebuildState(() => _xaiKeyOpen = true),
           ),
           const SizedBox(height: 12),
         ],
-        if (needsKey) ...[
+        if (showKey) ...[
           if (hasKey && !_showKeyEditor)
             _savedKeyRow()
           else
@@ -216,7 +216,9 @@ extension _ModelSettingsRemoteSection on _ModelSettingsDialogState {
                 ready
                     ? 'Ready'
                     : needsKey && !hasKey
-                    ? 'Needs an API key'
+                    ? (isXai
+                          ? 'Sign in with SuperGrok or add a key'
+                          : 'Needs an API key')
                     : 'Needs a model',
                 style: TextStyle(
                   fontSize: 13,

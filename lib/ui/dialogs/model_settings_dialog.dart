@@ -31,6 +31,7 @@ import 'package:front_porch_ai/services/optimization_service.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/ui/settings/widgets/widgets.dart';
 import 'package:front_porch_ai/ui/settings/tabs/backend/worker_backend_section.dart';
+import 'package:front_porch_ai/ui/settings/tabs/backend/super_grok_card.dart';
 import 'package:front_porch_ai/services/storage/settings/remote_provider.dart';
 import 'package:front_porch_ai/utils/utils.dart';
 
@@ -74,6 +75,7 @@ class _ModelSettingsDialogState extends State<ModelSettingsDialog> {
   String? _connectionStatus;
   bool _isTesting = false;
   bool _showKeyEditor = false;
+  bool _xaiKeyOpen = false;
 
   // Preset fields
   List<File> _localPresets = [];

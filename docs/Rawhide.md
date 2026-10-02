@@ -7,7 +7,7 @@ Last shipped nightly: `rawhide.20260921.f50f22e`. Everything below is unreleased
 
 ## Recent improvements (unreleased — ships in the next build)
 
-- 🤖 **xAI is a chat backend** — pick xAI in Settings → Backend and paste an xAI API key, or (unofficial, at your own risk) sign in with SuperGrok to use your subscription allowance instead of paid API credits. The sign-in borrows xAI's own Grok CLI login, so xAI may block it at any time. If your allowance runs out, chat says so in plain words. Same on the phone.
+- 🤖 **xAI is a chat backend** — pick xAI in Settings → Backend (or Model Settings) and sign in with SuperGrok to use your subscription allowance instead of paid API credits. The sign-in is unofficial and at your own risk; an xAI API key also works. The sign-in borrows xAI's own Grok CLI login, so xAI may block it at any time. If your allowance runs out, chat says so in plain words. Same on the phone.
 - 🍽️ **Hunger and bladder follow the beat** — a few minutes is a small drop, a long stretch is a real one, and the story decides the size. A meal or a bathroom still fills them. The same moment, Continue, and a clock that is off do not invent a drop. The other needs still move only when the scene itself does. Same on the phone.
 - 🌍 **A place can take lore from a character** — Create or Edit World → From character. Pick the card, then tick the entries to copy. The rest stay on the card. Same on the phone.
 - 📚 **A character’s lorebook can be saved on its own** — Edit Character → Lorebook → Export file writes a world-info file. Import file on that tab reads it back.

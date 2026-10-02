@@ -52,6 +52,7 @@ class RemoteApiSection extends StatefulWidget {
 class _RemoteApiSectionState extends State<RemoteApiSection> {
   bool _isFetchingModels = false;
   bool _isCheckingConnection = false;
+  bool _xaiKeyOpen = false;
 
   @override
   Widget build(BuildContext context) {
@@ -69,6 +70,13 @@ class _RemoteApiSectionState extends State<RemoteApiSection> {
     final superGrok = isXai
         ? Provider.of<LLMProvider>(context).superGrok
         : null;
+    // xAI: sign-in first; the key box only once asked for or already saved.
+    final showKey =
+        needsKey &&
+        (superGrok == null ||
+            (!superGrok.isSignedIn &&
+                (_xaiKeyOpen ||
+                    storageService.backendSettings.remoteApiKey.isNotEmpty)));
 
     final fields = <Widget>[
       RemoteReadyBadge(service: remote),
@@ -94,10 +102,15 @@ class _RemoteApiSectionState extends State<RemoteApiSection> {
         const SizedBox(height: 16),
       ],
       if (superGrok != null) ...[
-        SuperGrokCard(auth: superGrok),
+        SuperGrokCard(
+          auth: superGrok,
+          onUseApiKey: showKey
+              ? null
+              : () => setState(() => _xaiKeyOpen = true),
+        ),
         const SizedBox(height: 16),
       ],
-      if (needsKey && !(superGrok?.isSignedIn ?? false)) ...[
+      if (showKey) ...[
         Text(
           isXai ? 'xAI API Key' : 'API Key',
           style: theme.textTheme.bodySmall,

@@ -29,9 +29,12 @@ export const SUPER_GROK_WARNING =
 
 export function SuperGrokCard({
   onChange,
+  onUseApiKey,
 }: {
   /** Fires whenever the signed-in state may have changed. */
   onChange?: (status: SuperGrokStatus) => void;
+  /** Reveals the xAI API key box — the fallback to signing in. */
+  onUseApiKey?: () => void;
 }) {
   const [status, setStatus] = useState<SuperGrokStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -125,8 +128,17 @@ export function SuperGrokCard({
           </button>
           <p className="muted small">
             Uses your SuperGrok or X Premium+ allowance instead of paid API
-            credits. Or paste an xAI API key below.
+            credits.
           </p>
+          {onUseApiKey && (
+            <button
+              className="ghost"
+              data-testid="super-grok-use-key"
+              onClick={onUseApiKey}
+            >
+              Use an xAI API key instead
+            </button>
+          )}
         </>
       )}
 
