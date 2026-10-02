@@ -10,6 +10,7 @@ Last shipped nightly: `rawhide.20261001.06827b2`. Everything below is unreleased
 - 🔢 **Every message has a number** — shown under the avatar, starting at #1. The numbers on Journal and Growth Rings memories now match them (they used to start at #0), and tapping one lands on the start of that message instead of its middle. Same on the phone.
 - 💬 **Your messages are laid out like the character's** — your picture on the left, your name on top, edit, fork and delete at the top right.
 - 💞 **Generate reply now moves feelings and needs** — when your message is the last one (after deleting or stopping a reply, or forking at your line), Generate reply scores your message like a normal send, without counting it twice. Deleting the newest reply also undoes any quests it suggested. Group chats too, and the same on the phone.
+- 🔀 **The model button in a phone chat works** — the model list shows and can be tapped, and you can switch provider right there (OpenRouter, Nano-GPT, xAI, LM Studio, KoboldCpp and more). Switching provider asks for your web login password, like Settings does.
 - 💭 **Editing a message on the phone keeps its Thinking** — the editor's Thinking section now shows the reply's reasoning, and saving no longer erases it.
 - 📜 **Reading old messages no longer snaps you down** — opening a Thought, scrolling inside one, or scrolling up through a long chat keeps you where you are. Same on the phone.
 

@@ -18,6 +18,7 @@ interface Snap {
   remoteApiUrl: string;
   remoteModelName: string;
   loadedModel?: string;
+  remoteApiUrlsWithKeys?: string[];
 }
 
 const get = vi.fn<(path: string) => Promise<unknown>>();
@@ -218,5 +219,88 @@ describe('ChatModelSwitcher', () => {
     expect(css).toMatch(/var\(--fp-safe-bottom,\s*env\(safe-area-inset-bottom\)\)/);
     expect(css).toMatch(/var\(--fp-safe-left,\s*env\(safe-area-inset-left\)\)/);
     expect(css).toMatch(/var\(--fp-safe-right,\s*env\(safe-area-inset-right\)\)/);
+  });
+
+  it('switches provider with the password step-up and saves the new model', async () => {
+    get.mockResolvedValue(
+      snap({ remoteApiUrlsWithKeys: ['https://nano-gpt.com/api/v1'] }),
+    );
+    await renderSwitcher();
+    await openSheet();
+    const select = container.querySelector('.model-switch-provider select') as HTMLSelectElement;
+    expect(select.value).toBe('openrouter');
+    await act(async () => {
+      select.value = 'nanogpt';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const pw = container.querySelector('input[type="password"]') as HTMLInputElement;
+    expect(pw).toBeTruthy();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(pw, 'hunter2');
+      pw.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 500));
+    });
+    expect(post).toHaveBeenCalledWith(
+      '/api/backend/remote-models',
+      expect.objectContaining({ apiUrl: 'https://nano-gpt.com/api/v1', currentPassword: 'hunter2' }),
+    );
+    await act(async () => {
+      (container.querySelector('.model-picker-trigger') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (container.querySelector('.mp-option') as HTMLButtonElement).click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(post).toHaveBeenCalledWith('/api/settings', {
+      remoteModelName: 'glm-5',
+      backend: 'openRouter',
+      remoteApiUrl: 'https://nano-gpt.com/api/v1',
+      currentPassword: 'hunter2',
+    });
+    expect(dialog()).toBeNull();
+  });
+
+  it('switches to KoboldCpp without a password', async () => {
+    await renderSwitcher();
+    await openSheet();
+    const select = container.querySelector('.model-switch-provider select') as HTMLSelectElement;
+    await act(async () => {
+      select.value = 'kobold';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+    const btn = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Switch to KoboldCpp'),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      btn.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(post).toHaveBeenCalledWith('/api/settings', { backend: 'kobold' });
+  });
+
+  it('lays the model list out inside the sheet, not as a clipped dropdown', () => {
+    const css = readFileSync(join(__dirname, '../../styles/chat.css'), 'utf8').replace(
+      /\/\*[\s\S]*?\*\//g,
+      '',
+    );
+    expect(css).toMatch(/\.model-switch-body\s+\.model-picker-menu\s*\{[^}]*position:\s*static/);
+    expect(css).toMatch(/\.model-switch-body\s*\{[^}]*flex:\s*1/);
+  });
+
+  it('lists the current provider from its saved URL (localhost previews are refused)', async () => {
+    get.mockResolvedValue(snap({ remoteApiUrl: 'http://127.0.0.1:1234/v1' }));
+    await renderSwitcher();
+    await openSheet();
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 500));
+    });
+    const call = post.mock.calls.find(([path]) => path === '/api/backend/remote-models');
+    expect(call).toBeTruthy();
+    expect(call![1]).toEqual({});
+    expect(container.querySelector('input[type="password"]')).toBeNull();
   });
 });

@@ -193,3 +193,22 @@ test('edit a character, save, and nothing else on the card is lost', async ({ pa
   expect(after.alternateGreetings).toEqual(before.alternateGreetings);
   expect(after.firstMessage).toBe(before.firstMessage);
 });
+
+test('the chat model sheet lists models you can tap, and offers providers', async ({ page }) => {
+  await openPorchChat(page);
+  await page.locator('.model-switch-chip').click();
+  const sheet = page.getByRole('dialog', { name: 'Change model' });
+  await expect(sheet.locator('.model-switch-provider select')).toBeVisible();
+  await sheet.locator('.model-picker-trigger').click();
+  const option = sheet.locator('.mp-option').first();
+  await expect(option).toBeVisible({ timeout: 30_000 });
+  // A clipped dropdown still reports "visible"; hit-test the row instead.
+  const hit = await option.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!at && el.contains(at);
+  });
+  expect(hit).toBe(true);
+  await sheet.getByRole('button', { name: 'Close' }).click();
+  await expect(sheet).toHaveCount(0);
+});

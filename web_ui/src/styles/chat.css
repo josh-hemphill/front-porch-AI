@@ -60,8 +60,20 @@
 }
 .model-switch-title { font-weight: 700; }
 .model-switch-body {
-  display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow-y: auto;
 }
+/* The list sits in the sheet's own scroll. An absolute dropdown here was
+   clipped to the trigger's height, so phones showed only the filter box. */
+.model-switch-body .model-picker-menu {
+  position: static; max-height: none; box-shadow: none;
+}
+.model-switch-provider { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
+.model-switch-provider select,
+.model-switch-body input {
+  font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+}
+.model-switch-body label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
 .model-switch-sheet { overflow-wrap: anywhere; }
 a.model-switch-settings {
   display: inline-flex; align-items: center; justify-content: center;

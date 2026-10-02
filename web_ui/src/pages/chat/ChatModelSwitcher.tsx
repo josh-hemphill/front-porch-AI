@@ -9,6 +9,11 @@
 // uses for those. If the server asks for one anyway, the sheet says so and
 // links to Settings instead of failing quietly.
 //
+// The sheet also switches provider, like the desktop Model Settings dialog.
+// A provider with a different API URL is a credential-grade write, so the
+// sheet asks for the web login password inline (same rule as Settings) —
+// picking a model on the current provider never does.
+//
 // KoboldCpp (and any other backend ModelPicker does not apply to) has no
 // remote model list. The chip shows the backend name and the sheet links to
 // Settings, where the host model is chosen. The Settings links replace the
@@ -18,15 +23,22 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, ApiError } from '../../api/client';
 import { ModelPicker } from '../../components/ModelPicker';
+import { attachStepUp, StepUpFields } from '../../components/StepUpFields';
 import { useBackDismiss } from '../../hooks/useBackDismiss';
+import { BACKEND_OPTIONS, backendOptionId } from '../../backendOptions';
+import { urlHasStoredApiKey } from '../../remoteApiKeys';
 
 const MARKER_KEY = 'fpModelSwitch';
+/** Hosted providers that cannot list models without a saved key. */
+const KEYED_PROVIDERS = new Set(['openrouter', 'nanogpt', 'xai']);
 
 export interface ChatModelSnapshot {
   backend: string;
   remoteApiUrl: string;
   remoteModelName: string;
   loadedModel?: string;
+  remoteApiUrlsWithKeys?: string[];
+  omlxAvailable?: boolean;
 }
 
 const BACKEND_LABELS: Record<string, string> = {
@@ -86,7 +98,8 @@ function ModelSwitchSheet({
 }: {
   settings: ChatModelSnapshot;
   onClose: () => void;
-  onSaved: (next: ChatModelSnapshot) => void;
+  /** keepOpen: a host-local provider was saved; list its models next. */
+  onSaved: (next: ChatModelSnapshot, keepOpen?: boolean) => void;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState('');
@@ -119,27 +132,58 @@ function ModelSwitchSheet({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [requestDismiss]);
 
-  const canPick = modelPickerApplies(settings.backend);
+  const savedId = backendOptionId(settings.backend, settings.remoteApiUrl);
+  const [providerId, setProviderId] = useState(savedId);
+  const [password, setPassword] = useState('');
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
+  const provider = BACKEND_OPTIONS.find((o) => o.id === providerId) ?? BACKEND_OPTIONS[0];
+  const switching = providerId !== savedId;
+  // KoboldCpp has no remote URL; leaving it untouched keeps that switch
+  // out of the credential step-up.
+  const draftUrl =
+    switching && provider.kind === 'api' ? (provider.url ?? '') : settings.remoteApiUrl;
+  const urlChanges = draftUrl.trim() !== settings.remoteApiUrl.trim();
+  // The server will not preview an unsaved localhost URL (SSRF gate), so
+  // LM Studio / oMLX are saved first and listed from the stored URL after.
+  const hostLocal = switching && /^https?:\/\/(localhost|127\.0\.0\.1)[:/]/i.test(draftUrl);
+  const canPick = switching
+    ? provider.kind === 'api' && provider.id !== 'custom' && !hostLocal
+    : modelPickerApplies(settings.backend);
+  const missingKey =
+    canPick &&
+    KEYED_PROVIDERS.has(provider.id) &&
+    !urlHasStoredApiKey(draftUrl, settings.remoteApiUrlsWithKeys);
+  const providers = BACKEND_OPTIONS.filter(
+    (o) => o.id !== 'omlx' || settings.omlxAvailable === true || savedId === 'omlx',
+  );
 
-  const save = (id: string) => {
+  const post = (body: Record<string, unknown>, fallbackModel: string, keepOpen = false) => {
     if (saving) return;
     setSaving(true);
     setError('');
     setNeedsSettings(false);
     void (async () => {
       try {
-        const next = await api.post<ChatModelSnapshot>('/api/settings', {
-          remoteModelName: id,
-        });
-        onSaved({
-          ...settings,
-          ...next,
-          remoteModelName: next.remoteModelName || id,
-        });
+        const next = await api.post<ChatModelSnapshot>('/api/settings', body);
+        onSaved(
+          {
+            ...settings,
+            ...next,
+            remoteModelName: next.remoteModelName || fallbackModel,
+          },
+          keepOpen,
+        );
+        if (keepOpen && alive.current) setSaving(false);
       } catch (e) {
         if (!alive.current) return;
         setSaving(false);
         if (e instanceof ApiError && e.payload.totpRequired === true) {
+          if (urlChanges) {
+            setTotpEnabled(true);
+            setError('Enter your two-factor code to switch provider.');
+            return;
+          }
           setNeedsSettings(true);
           setError('Saving the model needs your web login. Open Settings to confirm it.');
           return;
@@ -147,6 +191,32 @@ function ModelSwitchSheet({
         setError(e instanceof ApiError ? e.message : 'Could not save the model');
       }
     })();
+  };
+
+  const save = (id: string) => {
+    const body: Record<string, unknown> = { remoteModelName: id };
+    if (switching) body.backend = provider.backend;
+    if (urlChanges) {
+      body.remoteApiUrl = draftUrl;
+      attachStepUp(body, password, totpEnabled, totpCode);
+    }
+    post(body, id);
+  };
+
+  const switchHost = () => {
+    const body: Record<string, unknown> = { backend: provider.backend };
+    if (urlChanges) {
+      body.remoteApiUrl = draftUrl;
+      body.remoteModelName = '';
+      attachStepUp(body, password, totpEnabled, totpCode);
+    }
+    post(body, '', provider.kind === 'api');
+  };
+
+  const pickProvider = (id: string) => {
+    setProviderId(id);
+    setError('');
+    setNeedsSettings(false);
   };
 
   return (
@@ -168,14 +238,71 @@ function ModelSwitchSheet({
           </button>
         </div>
         <div className="model-switch-body">
+          <label className="model-switch-provider">
+            Provider
+            <select value={providerId} onChange={(e) => pickProvider(e.target.value)}>
+              {providers.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {(canPick || hostLocal) && urlChanges && (
+            <StepUpFields
+              password={password}
+              onPassword={setPassword}
+              totpEnabled={totpEnabled}
+              totpCode={totpCode}
+              onTotp={setTotpCode}
+              reason={`Switching to ${provider.label} changes where your chats are sent. Confirm with your web login password.`}
+            />
+          )}
+          {missingKey && (
+            <p className="muted small">
+              No API key is saved for {provider.label} yet.{' '}
+              <Link to="/settings" replace>
+                Add it in Settings
+              </Link>
+            </p>
+          )}
           {canPick ? (
             <ModelPicker
-              apiUrl={settings.remoteApiUrl}
+              key={providerId}
+              apiUrl={urlChanges ? draftUrl : ''}
               apiKey=""
               savedApiUrl={settings.remoteApiUrl}
-              value={settings.remoteModelName}
+              currentPassword={urlChanges ? password : ''}
+              totpCode={totpCode}
+              totpEnabled={totpEnabled}
+              onTotpRequired={() => setTotpEnabled(true)}
+              value={switching ? '' : settings.remoteModelName}
               onChange={save}
             />
+          ) : switching && (provider.kind === 'local' || hostLocal) ? (
+            <>
+              <p className="muted small">
+                {provider.label} runs on the computer that hosts this chat.
+                {provider.kind === 'local'
+                  ? ' Its model is chosen in Settings.'
+                  : ' Switch first, then pick its model here.'}
+              </p>
+              <button
+                type="button"
+                className="primary"
+                disabled={saving || (urlChanges && !password.trim())}
+                onClick={switchHost}
+              >
+                Switch to {provider.label}
+              </button>
+            </>
+          ) : switching ? (
+            <>
+              <p className="muted small">A custom provider address is set in Settings.</p>
+              <Link to="/settings" replace className="model-switch-settings">
+                Open Settings
+              </Link>
+            </>
           ) : (
             <>
               <p className="muted small">
@@ -239,9 +366,9 @@ export function ChatModelSwitcher() {
         <ModelSwitchSheet
           settings={settings}
           onClose={() => setOpen(false)}
-          onSaved={(next) => {
+          onSaved={(next, keepOpen) => {
             setSettings(next);
-            setOpen(false);
+            if (!keepOpen) setOpen(false);
           }}
         />
       )}
