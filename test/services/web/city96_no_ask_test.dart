@@ -21,6 +21,7 @@ import 'package:front_porch_ai/services/web/facade/chat_facade.dart';
 import '../../helpers/reprocess_needs_harness.dart';
 import '../image/city96_test_loader.dart';
 import '../image/city96_test_probe.dart';
+import '../../helpers/real_temp_dir.dart';
 
 /// The scripted model, noting whether each call ran as a phone caller.
 class _ZoneSpyLlm extends RecordingLlm {
@@ -149,7 +150,7 @@ void main() {
       h.llm.mouth = 'a woman on a porch at dusk, warm light';
       final server = await _comfy();
       addTearDown(() => server.close(force: true));
-      final dir = Directory.systemTemp.createTempSync('chat-image-city96');
+      final dir = realTempDir('chat-image-city96');
       addTearDown(() => dir.deleteSync(recursive: true));
       final loader = File('${dir.path}/loader.py')
         ..writeAsStringSync(kStockCity96Loader);
@@ -202,7 +203,7 @@ void main() {
     HttpOverrides.global = null;
     final server = await _comfy();
     addTearDown(() => server.close(force: true));
-    final dir = Directory.systemTemp.createTempSync('chargen-city96');
+    final dir = realTempDir('chargen-city96');
     addTearDown(() => dir.deleteSync(recursive: true));
     final loader = File('${dir.path}/loader.py')
       ..writeAsStringSync(kStockCity96Loader);

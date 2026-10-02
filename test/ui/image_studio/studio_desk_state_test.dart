@@ -26,6 +26,7 @@ import 'package:front_porch_ai/ui/image_studio/studio_desk.dart';
 
 import '../../services/image/city96_test_loader.dart';
 import '../../services/image/city96_test_probe.dart';
+import '../../helpers/real_temp_dir.dart';
 
 const _kleinId = 'comfy:default:image_flux2_klein_text_to_image';
 const _kleinFile =
@@ -196,7 +197,7 @@ void main() {
   setUp(() {
     HttpOverrides.global = null;
     SharedPreferences.setMockInitialValues({});
-    dir = Directory.systemTemp.createTempSync('desk-state');
+    dir = realTempDir('desk-state');
     addTearDown(() => dir.deleteSync(recursive: true));
     storage = StorageService.sandbox(dir.path);
   });

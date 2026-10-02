@@ -19,6 +19,7 @@ import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/image/studio_model_roots.dart';
 import 'package:front_porch_ai/ui/image_studio/studio_civitai_get.dart';
 import 'package:front_porch_ai/ui/image_studio/studio_civitai_install.dart';
+import '../../helpers/real_temp_dir.dart';
 
 typedef _Answer = ({int status, String body});
 
@@ -136,7 +137,7 @@ void main() {
 
   setUp(() {
     calls = [];
-    models = Directory.systemTemp.createTempSync('civitai-sheet');
+    models = realTempDir('civitai-sheet');
     addTearDown(() => models.deleteSync(recursive: true));
     SharedPreferences.setMockInitialValues({
       kStudioModelRootsKey: encodeModelRoots({'comfyui': models.path}),
@@ -386,8 +387,9 @@ void main() {
       calls.single.done.complete(results('Maou (Both Forms)'));
       await _flush(tester);
       await tester.tap(find.text('Download'));
-      // The folder check and the plan touch the disk for real.
-      for (var i = 0; i < 40 && !reached.isCompleted; i++) {
+      // The folder check and the plan touch the disk for real — slower on
+      // macOS than on the Linux runner, so allow up to ten seconds.
+      for (var i = 0; i < 200 && !reached.isCompleted; i++) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 50)),
         );
@@ -467,7 +469,7 @@ void main() {
     testWidgets(
       'a config folder that is not a models folder offers Use this folder',
       (tester) async {
-        final outside = Directory.systemTemp.createTempSync('civitai-outside');
+        final outside = realTempDir('civitai-outside');
         addTearDown(() => outside.deleteSync(recursive: true));
         final real = outside.resolveSymbolicLinksSync();
         await startDownload(tester);

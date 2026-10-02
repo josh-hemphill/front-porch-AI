@@ -20,6 +20,7 @@ import 'package:front_porch_ai/services/image/comfy_process_probe.dart';
 
 import 'city96_test_loader.dart';
 import 'city96_test_probe.dart';
+import '../../helpers/real_temp_dir.dart';
 
 const _url = 'http://127.0.0.1:8188';
 
@@ -40,7 +41,7 @@ void main() {
   late File loader;
 
   setUp(() {
-    dir = Directory.systemTemp.createTempSync('city96-harden');
+    dir = realTempDir('city96-harden');
     addTearDown(() => dir.deleteSync(recursive: true));
     loader = File(p.join(dir.path, 'loader.py'))
       ..writeAsStringSync(kStockCity96Loader);
@@ -570,10 +571,12 @@ void main() {
   });
 
   test('a scan reports the process id and owner of a real process', () async {
-    // A process whose command line looks like a ComfyUI server.
+    // A process whose command line looks like a ComfyUI server. The
+    // trailing `; true` keeps macOS sh from exec-ing into `sleep`, which
+    // would drop these arguments from the process list.
     final proc = await Process.start('sh', [
       '-c',
-      'sleep 30',
+      'sleep 30; true',
       'main.py',
       '--port',
       '8199',

@@ -18,6 +18,7 @@ import 'package:front_porch_ai/services/web/facade/image_facade.dart';
 
 import '../image/city96_test_loader.dart';
 import '../image/city96_test_probe.dart';
+import '../../helpers/real_temp_dir.dart';
 
 Future<HttpServer> _comfy() async {
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -57,7 +58,7 @@ void main() {
       HttpOverrides.global = null;
       final server = await _comfy();
       addTearDown(() => server.close(force: true));
-      final dir = Directory.systemTemp.createTempSync('facade-city96');
+      final dir = realTempDir('facade-city96');
       addTearDown(() => dir.deleteSync(recursive: true));
       final loader = File('${dir.path}/loader.py')
         ..writeAsStringSync(kStockCity96Loader);

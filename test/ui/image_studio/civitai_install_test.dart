@@ -20,6 +20,7 @@ import 'package:front_porch_ai/services/image/studio_model_roots.dart';
 import 'package:front_porch_ai/ui/image_studio/studio_civitai_install.dart';
 
 import '../../services/image/civitai_test_server.dart';
+import '../../helpers/real_temp_dir.dart';
 
 void main() {
   const file = 'MaouBigV1.2.safetensors';
@@ -122,7 +123,7 @@ void main() {
   File loraFile() => File(p.join(root.path, 'loras', file));
 
   setUp(() async {
-    root = Directory.systemTemp.createTempSync('civitai-install');
+    root = realTempDir('civitai-install');
     addTearDown(() => root.deleteSync(recursive: true));
     SharedPreferences.setMockInitialValues({
       kStudioModelRootsKey: encodeModelRoots({'comfyui': root.path}),
@@ -148,7 +149,7 @@ void main() {
   });
 
   test('the plan carries every models folder the person saved', () async {
-    final other = Directory.systemTemp.createTempSync('civitai-other');
+    final other = realTempDir('civitai-other');
     addTearDown(() => other.deleteSync(recursive: true));
     await rememberStudioModelRoot('a1111', other.path);
 

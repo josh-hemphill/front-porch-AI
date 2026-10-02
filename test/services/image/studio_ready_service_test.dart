@@ -23,6 +23,7 @@ import 'package:front_porch_ai/services/storage_service.dart';
 
 import 'city96_test_loader.dart';
 import 'city96_test_probe.dart';
+import '../../helpers/real_temp_dir.dart';
 
 const _kleinId = 'comfy:default:image_flux2_klein_text_to_image';
 const _kleinFile =
@@ -113,7 +114,7 @@ void main() {
 
   setUp(() {
     HttpOverrides.global = null;
-    dir = Directory.systemTemp.createTempSync('studio-ready');
+    dir = realTempDir('studio-ready');
     addTearDown(() => dir.deleteSync(recursive: true));
     storage = StorageService.sandbox(dir.path);
   });

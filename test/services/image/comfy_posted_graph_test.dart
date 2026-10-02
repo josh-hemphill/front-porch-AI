@@ -13,6 +13,7 @@ import 'package:front_porch_ai/services/image_gen_service.dart';
 import 'package:front_porch_ai/services/storage_service.dart';
 
 import 'city96_test_loader.dart';
+import '../../helpers/real_temp_dir.dart';
 
 /// A real loopback ComfyUI. Records the graph posted to `/prompt`.
 Future<HttpServer> _comfy(
@@ -105,7 +106,7 @@ void main() {
     Map<String, dynamic>? posted;
     final server = await _comfy((graph) => posted = graph);
     addTearDown(server.close);
-    final dir = Directory.systemTemp.createTempSync('comfy-post-create');
+    final dir = realTempDir('comfy-post-create');
     addTearDown(() => dir.deleteSync(recursive: true));
     final storage = StorageService.sandbox(dir.path);
     final settings = storage.imageGenSettings;
@@ -296,7 +297,7 @@ void main() {
     late List<City96Question> asked;
 
     setUp(() {
-      dir = Directory.systemTemp.createTempSync('comfy-post-city96');
+      dir = realTempDir('comfy-post-city96');
       addTearDown(() => dir.deleteSync(recursive: true));
       // A real ComfyUI layout, so custom_nodes above the loader is this
       // user's folder and not the root-owned system temp folder.
@@ -411,7 +412,7 @@ void main() {
         Map<String, dynamic>? posted;
         final server = await _comfy((graph) => posted = graph);
         addTearDown(server.close);
-        final home = Directory.systemTemp.createTempSync('comfy-post-saved');
+        final home = realTempDir('comfy-post-saved');
         addTearDown(() => home.deleteSync(recursive: true));
         final storage = StorageService.sandbox(home.path);
         final settings = storage.imageGenSettings;
@@ -447,7 +448,7 @@ Future<ImageGenService> _studio(
   required String workflowId,
   required Map<String, String> choices,
 }) async {
-  final dir = Directory.systemTemp.createTempSync('comfy-post-studio');
+  final dir = realTempDir('comfy-post-studio');
   addTearDown(() => dir.deleteSync(recursive: true));
   final storage = StorageService.sandbox(dir.path);
   final settings = storage.imageGenSettings;

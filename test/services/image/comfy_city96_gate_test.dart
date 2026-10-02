@@ -17,6 +17,7 @@ import 'package:front_porch_ai/services/image/comfy_model_paths.dart';
 
 import 'city96_test_loader.dart';
 import 'city96_test_probe.dart';
+import '../../helpers/real_temp_dir.dart';
 
 Map<String, dynamic> _graph({
   String unet = 'qwen-image-2.1-Q2_K.gguf',
@@ -67,7 +68,7 @@ void main() {
   }
 
   setUp(() {
-    dir = Directory.systemTemp.createTempSync('city96-gate');
+    dir = realTempDir('city96-gate');
     addTearDown(() => dir.deleteSync(recursive: true));
     loader = File(p.join(dir.path, 'loader.py'))
       ..writeAsStringSync(kStockCity96Loader);

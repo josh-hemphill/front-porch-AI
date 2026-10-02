@@ -19,6 +19,7 @@ import 'package:front_porch_ai/services/web/routes/civitai_routes.dart';
 
 import 'civitai_route_support.dart';
 import 'civitai_test_server.dart';
+import '../../helpers/real_temp_dir.dart';
 
 void main() {
   const file = 'dreamshaper_8.safetensors';
@@ -49,7 +50,7 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    final dir = Directory.systemTemp.createTempSync('civitai-kinds');
+    final dir = realTempDir('civitai-kinds');
     addTearDown(() => dir.deleteSync(recursive: true));
     root = Directory(p.join(dir.path, 'data'))..createSync();
     bigDrive = p.join(dir.path, 'big', 'checkpoints');
