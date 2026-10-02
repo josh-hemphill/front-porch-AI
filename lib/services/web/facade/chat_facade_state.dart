@@ -23,6 +23,7 @@ extension ChatFacadeState on ChatFacade {
   /// Full chat state payload (matches legacy `/api/chat/state`).
   Map<String, dynamic> state() {
     final activeChar = _chat.activeCharacter;
+    final base = _chat.historyBasePosition;
     final messages = _chat.messages.asMap().entries.map((e) {
       final m = e.value;
       final md = m.activeMetadata;
@@ -48,6 +49,9 @@ extension ChatFacadeState on ChatFacade {
         // Stable across prepend (same Dart object). Index shifts and
         // remounts every row — that resets the web scrollbar thumb.
         'rowKey': identityHashCode(m),
+        // Place in the whole chat (0-based) while older rows still load;
+        // `index` stays the action address.
+        'position': base + e.key,
         'sender': m.sender,
         'text': m.displayText,
         'isUser': m.isUser,

@@ -38,6 +38,8 @@ export interface Message {
   index: number;
   /** Stable row identity from the desktop object; falls back to index. */
   rowKey?: number;
+  /** 0-based place in the whole chat (additive — older apps omit it). */
+  position?: number;
   sender: string;
   text: string;
   isUser: boolean;

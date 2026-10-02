@@ -176,6 +176,9 @@ const TranscriptRows = memo(function TranscriptRows({
         return (
           <div key={m.rowKey ?? m.index} className="msg-row">
             {multiCast && speaker && <span className="msg-speaker">{speaker.name}</span>}
+            <span className={m.isUser ? 'msg-number user' : 'msg-number'}>
+              #{(m.position ?? m.index) + 1}
+            </span>
             {m.hasThinking && m.thinkingContent && (
               <details className="thinking">
                 <summary>💭 Thoughts</summary>

@@ -108,6 +108,13 @@ button.ghost.small, .ghost.small { font-size: 0.72rem; padding: 4px 8px; backgro
 /* Sticky so the speaker stays visible while scrolling through a long group
    message — you never lose track of who's talking. The --bg background hides the
    message text scrolling underneath it. */
+/* Message number (desktop shows it under the avatar). 1-based, matching
+   the Journal and Growth receipt chips. */
+.msg-number {
+  align-self: flex-start; font-size: 0.65rem; font-weight: 600;
+  color: var(--muted); margin: 0 6px 2px; user-select: none; -webkit-user-select: none;
+}
+.msg-number.user { align-self: flex-end; }
 .msg-speaker {
   position: sticky; top: 0; z-index: 2; align-self: flex-start;
   font-size: 0.7rem; font-weight: 600; color: var(--muted);

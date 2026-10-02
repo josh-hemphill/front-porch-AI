@@ -141,6 +141,11 @@ mixin ChatServiceFieldBag {
   bool _entrancesInFlight = false;
   bool _isLoadingSession = false;
   final _history = SessionHistoryWindow();
+
+  /// Saved position of `messages[0]`. Older rows still loading sit
+  /// before it, so a row's place in the whole chat is this plus its index.
+  /// A class member (not an extension) so test fakes can pin it.
+  int get historyBasePosition => _history.basePosition;
   bool _cancelRequested = false;
   int _generationEpoch = 0;
   String? _currentSessionId;
