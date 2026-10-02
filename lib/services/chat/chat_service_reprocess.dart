@@ -485,13 +485,11 @@ extension ChatServiceReprocess on ChatService {
         preGenLen: preGenLen,
       );
     } else if (_messages.last.isUser) {
-      // The last message is the user's prompt (e.g. the AI reply was deleted),
-      // so there is no swipe to add — generate a fresh response from it.
-      // 1:1 evals live in sendMessage, so this path does not re-tick needs.
-      // Group evals live inside _generateResponse; skipSpeakerEval keeps
-      // that dance from running a second time (Continue still LOADs).
-      _armForcedLookup(webQuery: webQuery, wikiQuery: wikiQuery);
-      await _generateResponse(GenerationMode.normal, skipSpeakerEval: true);
+      // No reply to swipe: rewind to the user line's stamp and score it again.
+      await _generateFromTrailingUserTurn(
+        webQuery: webQuery,
+        wikiQuery: wikiQuery,
+      );
     }
   }
 }

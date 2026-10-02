@@ -364,9 +364,10 @@ extension ChatServiceGeneration on ChatService {
 
       // SINGLE realism eval path (group trigger). 1:1 evals live in
       // sendMessage so regen/_generateResponse does not re-score the host.
-      // Continue and user-last/retry regen skip the dance (same as 1:1
-      // skipping sendMessage evals) but still LOAD this speaker's scalars.
-      // A normal new group turn still dances. Guests carry no realism.
+      // Continue, and user-last regen on a line from before per-speaker
+      // stamps, skip the dance but still LOAD this speaker's scalars. A new
+      // group turn and a stamped user-last regen (rewound first) dance.
+      // Guests carry no realism.
       if (guestSpeaker == null &&
           _activeGroup != null &&
           !_isLiteTurn(t) &&

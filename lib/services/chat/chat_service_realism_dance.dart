@@ -97,6 +97,7 @@ extension ChatServiceRealismDance on ChatService {
     // to run it BEFORE the scalar load below (the map write flows into the
     // load). 1:1 keeps its original sendMessage tick.
     if (_activeGroup != null && !_observerMode) {
+      _stampGroupUserTurnBaseline(charId);
       _applyMoodDecay();
     }
 
