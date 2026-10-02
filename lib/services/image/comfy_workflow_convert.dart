@@ -39,8 +39,10 @@ Map<String, dynamic>? ensureComfyApiGraph(
   Map<String, dynamic>? objectInfo,
 }) {
   if (isComfyApiWorkflow(raw)) {
-    return raw.map(
-      (k, v) => MapEntry(k, v is Map ? Map<String, dynamic>.from(v) : v),
+    return _withoutIncompleteTerminalCompare(
+      raw.map(
+        (k, v) => MapEntry(k, v is Map ? Map<String, dynamic>.from(v) : v),
+      ),
     );
   }
   if (isComfyUiWorkflow(raw)) {
@@ -89,7 +91,40 @@ Map<String, dynamic> convertComfyUiToApi(
     inputs.addAll(flat.values[n.id] ?? const {});
     out[n.id] = {'class_type': n.type, 'inputs': inputs};
   }
-  return out;
+  return _withoutIncompleteTerminalCompare(out);
+}
+
+/// Saved comparisons can be output nodes with an unfilled UI-only view input.
+/// Omit those only when no other node consumes them.
+Map<String, dynamic> _withoutIncompleteTerminalCompare(
+  Map<String, dynamic> graph,
+) {
+  final referenced = <String>{};
+  for (final node in graph.values.whereType<Map>()) {
+    final inputs = node['inputs'];
+    if (inputs is! Map) continue;
+    for (final value in inputs.values) {
+      if (value is List && value.length == 2 && value[1] is num) {
+        referenced.add('${value[0]}');
+      }
+    }
+  }
+  return {
+    for (final entry in graph.entries)
+      if (!_isIncompleteTerminalCompare(entry, referenced))
+        entry.key: entry.value,
+  };
+}
+
+bool _isIncompleteTerminalCompare(
+  MapEntry<String, dynamic> entry,
+  Set<String> referenced,
+) {
+  final node = entry.value;
+  if (node is! Map || node['class_type'] != 'ImageCompare') return false;
+  if (referenced.contains(entry.key)) return false;
+  final inputs = node['inputs'];
+  return inputs is! Map || inputs['compare_view'] == null;
 }
 
 (String, int)? _followReroute(
