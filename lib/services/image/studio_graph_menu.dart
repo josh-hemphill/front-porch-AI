@@ -80,6 +80,10 @@ bool savedGraphIsEdit(Map<String, dynamic> graph) {
   final types = workflowNodeTypes(graph);
   final loads = types.contains('LoadImage') || types.contains('LoadImageMask');
   if (!loads) return false;
+  // Qwen 2.1's source-latent edit encoder has no ImageEdit suffix.
+  if (types.contains('TextEncodeQwenImage21') && types.contains('VAEEncode')) {
+    return true;
+  }
   for (final type in types) {
     if (type.contains('ImageEdit') ||
         type.contains('Kontext') ||
