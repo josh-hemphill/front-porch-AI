@@ -7,6 +7,10 @@ Last shipped nightly: `rawhide.20261001.06827b2`. Everything below is unreleased
 
 ## Recent improvements (unreleased — ships in the next build)
 
+- 🔢 **Every message has a number** — shown under the avatar, starting at #1. The numbers on Journal and Growth Rings memories now match them (they used to start at #0), and tapping one lands on the start of that message instead of its middle. Same on the phone.
+- 💬 **Your messages are laid out like the character's** — your picture on the left, your name on top, edit, fork and delete at the top right.
+- 📜 **Reading old messages no longer snaps you down** — opening a Thought, scrolling inside one, or scrolling up through a long chat keeps you where you are. Same on the phone.
+
 - ✏️ **Editing a message works on the phone again** — Save, Cancel and the text box answer taps, and on a notched iPhone the buttons sit below the clock. If a save fails, the editor stays open with your text and says why.
 - 📱 **Phone taps that fail now say so** — regenerate, continue, swipe, fork, delete, switching chats, group settings and the rest show a plain reason instead of doing nothing.
 - 📱 **A screen that breaks on the phone shows a way out** — Reload or Back to library, instead of a blank page.
