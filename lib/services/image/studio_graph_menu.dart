@@ -3,15 +3,11 @@
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:front_porch_ai/services/comfy_ui_service.dart';
-import 'package:front_porch_ai/services/image/comfy_create_presets.dart';
-import 'package:front_porch_ai/services/image/comfy_edit_presets.dart';
-import 'package:front_porch_ai/services/image/comfy_gguf_loaders.dart';
-import 'package:front_porch_ai/services/image/comfy_template_index.dart';
-import 'package:front_porch_ai/services/image/model_family.dart';
-import 'package:front_porch_ai/services/image/studio_desk_logic.dart';
-import 'package:front_porch_ai/services/image/studio_readiness.dart';
-import 'package:front_porch_ai/utils/png_metadata_utils.dart';
+import 'package:front_porch_ai/services/image/image.dart';
+import 'package:front_porch_ai/utils/utils.dart';
 
 /// One row in Change graph. [title] is what a person reads. [id] is what
 /// the desk stores. [detail] says where the row came from.
@@ -74,17 +70,51 @@ Set<String> workflowNodeTypes(Map<String, dynamic> graph) {
 }
 
 /// True when a saved workflow is an edit: it loads a picture and then
-/// encodes that picture (an edit encoder, a reference latent, Kontext,
-/// or a VAE encode). A graph that only makes a new picture is Create.
+/// uses it for image-aware conditioning (an edit encoder, a reference
+/// latent, or Kontext). Ordinary img2img stays in Create.
 bool savedGraphIsEdit(Map<String, dynamic> graph) {
   final types = workflowNodeTypes(graph);
   final loads = types.contains('LoadImage') || types.contains('LoadImageMask');
   if (!loads) return false;
+  if (types.contains('TextEncodeQwenImage21') &&
+      _qwenEncoderTakesImages(graph)) {
+    return true;
+  }
   for (final type in types) {
     if (type.contains('ImageEdit') ||
         type.contains('Kontext') ||
         type == 'ReferenceLatent') {
       return true;
+    }
+  }
+  return false;
+}
+
+bool _qwenEncoderTakesImages(Map<String, dynamic> graph) {
+  final Map<String, dynamic>? api;
+  try {
+    api = ensureComfyApiGraph(graph);
+  } catch (error) {
+    debugPrint('ComfyUI: could not inspect Qwen image links: $error');
+    return false;
+  }
+  if (api == null) return false;
+  for (final node in api.values.whereType<Map>()) {
+    if (node['class_type'] != 'TextEncodeQwenImage21') continue;
+    final inputs = node['inputs'];
+    if (inputs is! Map) continue;
+    for (final entry in inputs.entries) {
+      final name = '${entry.key}';
+      if (name != 'images' && !name.startsWith('images.')) continue;
+      final value = entry.value;
+      if (value is List &&
+          value.length == 2 &&
+          value[0] is String &&
+          api[value[0]] is Map &&
+          value[1] is int &&
+          value[1] >= 0) {
+        return true;
+      }
     }
   }
   return false;
