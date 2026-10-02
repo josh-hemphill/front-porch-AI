@@ -28,6 +28,71 @@ const String _kNoListeners =
 /// nothing there looks like a local ComfyUI.
 typedef City96Target = ({File? loader, int? pid, String? refused});
 
+bool _desktopRelativeMain(ComfyProcessSnapshot proc, bool isWindows) =>
+    isWindows &&
+    proc.cwd == null &&
+    splitCommandLine(proc.command)
+            .where(
+              (arg) =>
+                  p.windows.normalize(arg).toLowerCase() == r'comfyui\main.py',
+            )
+            .length ==
+        1;
+
+bool _desktopEnv(String? executable) {
+  if (executable == null) return false;
+  final parts = p.windows.split(executable).map((part) => part.toLowerCase());
+  return parts.contains('standalone-env') || parts.contains('.venv');
+}
+
+/// Desktop inference is only for its environment layout. Portable and
+/// manual installs keep the main.py/working-directory lookup.
+Future<List<String?>> city96LoaderDirs(
+  ComfyProcessSnapshot proc, {
+  bool? isWindows,
+  Future<bool> Function(String)? exists,
+}) async {
+  final hints = comfyLaunchHints(
+    proc.command,
+    cwd: proc.cwd,
+    executable: proc.executable,
+  );
+  if (_desktopRelativeMain(proc, isWindows ?? Platform.isWindows) &&
+      _desktopEnv(proc.executable)) {
+    return [
+      await _desktopMainDir(proc, exists ?? (path) => File(path).exists()),
+    ];
+  }
+  return [hints.mainPyDir, proc.cwd];
+}
+
+/// Comfy Desktop runs `ComfyUI/main.py` from its install folder, while its
+/// Python executable lives in a sibling environment folder. CIM does not
+/// expose the working directory, so the executable's directory is not it.
+Future<String?> _desktopMainDir(
+  ComfyProcessSnapshot proc,
+  Future<bool> Function(String) exists,
+) async {
+  final executable = proc.executable;
+  if (executable == null || !p.windows.isAbsolute(executable)) return null;
+  if (!{
+    'python.exe',
+    'pythonw.exe',
+  }.contains(p.windows.basename(executable).toLowerCase())) {
+    return null;
+  }
+  final found = <String>[];
+  var dir = p.windows.dirname(executable);
+  for (var depth = 0; depth < 5; depth++) {
+    final main = p.windows.join(dir, 'ComfyUI', 'main.py');
+    if (await exists(main)) found.add(p.windows.dirname(main));
+    final parent = p.windows.dirname(dir);
+    if (parent == dir) break;
+    dir = parent;
+  }
+  return found.length == 1 ? found.single : null;
+}
+
 /// The running ComfyUI on [comfyUrl]'s port and its loader, and only that one:
 /// its command line names that port, this user owns it, and it is really the
 /// process listening there. Another user's process, or a look-alike that is
@@ -82,7 +147,8 @@ Future<City96Target> city96TargetForUrl(
       return (loader: null, pid: null, refused: _kNoListeners);
     }
     if (pid == null || !listeners.contains(pid)) continue;
-    for (final dir in [hints.mainPyDir, proc.cwd]) {
+    final dirs = await city96LoaderDirs(proc);
+    for (final dir in dirs) {
       if (dir == null || dir.isEmpty) continue;
       final loader = File(
         p.join(dir, 'custom_nodes', 'ComfyUI-GGUF', 'loader.py'),
