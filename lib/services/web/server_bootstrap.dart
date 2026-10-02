@@ -88,6 +88,13 @@ shelf.Handler buildWebHandler(WebServerDeps deps) {
       image: deps.imageFacade,
     );
   }
+  if (deps.backendFacade != null) {
+    XaiRoutes(
+      router,
+      auth: deps.auth,
+      superGrok: deps.backendFacade!.superGrok,
+    );
+  }
   if (deps.voiceFacade != null) WebVoiceRoutes(deps.voiceFacade!, router);
   if (deps.storyFacade != null) WebStoryRoutes(deps.storyFacade!, router);
   if (deps.storyExportFacade != null) {

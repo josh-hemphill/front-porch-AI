@@ -95,7 +95,7 @@ class _ModelSettingsDialogState extends State<ModelSettingsDialog> {
         .toString();
     // Remote settings
     _apiUrlController.text = storage.backendSettings.remoteApiUrl;
-    _apiKeyController.text = storage.backendSettings.remoteApiKey;
+    _apiKeyController.text = typedRemoteApiKey(storage.backendSettings);
     _modelNameController.text = storage.backendSettings.remoteModelName;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {

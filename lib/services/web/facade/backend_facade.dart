@@ -21,6 +21,7 @@ import 'dart:async';
 import 'package:front_porch_ai/services/capability/capability.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/utils/utils.dart';
+import 'package:front_porch_ai/services/xai/xai.dart';
 
 /// Web adapter for local-backend lifecycle, local-model switching, and the
 /// HuggingFace model browser/downloader. Reuses [LLMProvider]'s managed-backend
@@ -33,6 +34,9 @@ class BackendFacade {
   final StorageService _storage;
   final ModelManager _models;
   final HardwareService? _hardware;
+
+  /// Unofficial SuperGrok sign-in, relayed by `XaiRoutes`.
+  SuperGrokAuth get superGrok => _llm.superGrok;
 
   /// Live backend status for the web Models page (read-only).
   Map<String, dynamic> status() {

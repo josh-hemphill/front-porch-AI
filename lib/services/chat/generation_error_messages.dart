@@ -52,6 +52,13 @@ String friendlyGenerationError(String rawError) {
     errorMsg =
         'The worker model did not become ready after the GPU swap. '
         'Chat speech was put back. Try sending again.';
+  } else if (errorMsg.contains('need a Grok subscription') ||
+      errorMsg.contains('personal-team-blocked')) {
+    errorMsg =
+        'xAI says this account is out of credits for now. If you signed in '
+        'with SuperGrok, your allowance refills on xAI\'s schedule — try '
+        'again later. If you use an xAI API key, add credits at '
+        'console.x.ai.';
   } else if (errorMsg.contains('timed out') ||
       errorMsg.contains('TimeoutException')) {
     errorMsg =

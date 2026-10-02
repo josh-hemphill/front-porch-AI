@@ -23,6 +23,7 @@ import {
 } from '../components/GenerationSettingsFields';
 import { VoiceMediaSettings } from '../components/VoiceMediaSettings';
 import { WorkerBackendCard } from '../components/WorkerBackendCard';
+import { SuperGrokCard } from '../components/SuperGrokCard';
 import { isLmStudioUrl, urlHasStoredApiKey } from '../remoteApiKeys';
 
 // A single backend picker (replacing the old Backend + Provider dropdowns,
@@ -43,6 +44,7 @@ const BACKEND_OPTIONS: BackendOption[] = [
   { id: 'kobold', label: 'KoboldCpp', backend: 'kobold', kind: 'local' },
   { id: 'openrouter', label: 'OpenRouter', backend: 'openRouter', url: 'https://openrouter.ai/api/v1', kind: 'api' },
   { id: 'nanogpt', label: 'Nano-GPT', backend: 'openRouter', url: 'https://nano-gpt.com/api/v1', kind: 'api' },
+  { id: 'xai', label: 'xAI', backend: 'openRouter', url: 'https://api.x.ai/v1', kind: 'api' },
   { id: 'lmstudio', label: 'LM Studio', backend: 'openRouter', url: 'http://localhost:1234/v1', kind: 'api' },
   { id: 'omlx', label: 'oMLX', backend: 'omlx', url: 'http://localhost:8000/v1', kind: 'api' },
   { id: 'custom', label: 'Custom', backend: 'openRouter', url: '', kind: 'api' },
@@ -149,6 +151,7 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testMsg, setTestMsg] = useState('');
+  const [superGrokSignedIn, setSuperGrokSignedIn] = useState(false);
 
   const [legacy, setLegacy] = useState<LegacyModels | null>(null);
   const [reclaiming, setReclaiming] = useState(false);
@@ -334,6 +337,7 @@ export function SettingsPage() {
   const showKeyField =
     selectedId === 'openrouter' ||
     selectedId === 'nanogpt' ||
+    (selectedId === 'xai' && !superGrokSignedIn) ||
     selectedId === 'custom';
 
   return (
@@ -384,9 +388,17 @@ export function SettingsPage() {
                 />
               </label>
             )}
+            {selectedId === 'xai' && (
+              <SuperGrokCard
+                onChange={(st) => {
+                  if (st.signedIn !== superGrokSignedIn) void load();
+                  setSuperGrokSignedIn(st.signedIn);
+                }}
+              />
+            )}
             {showKeyField && (
               <label>
-                API key
+                {selectedId === 'xai' ? 'xAI API key' : 'API key'}
                 <input
                   data-testid="chat-api-key"
                   type="password"

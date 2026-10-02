@@ -36,6 +36,7 @@ import 'package:front_porch_ai/services/storage/settings/remote_api_key_vault.da
 import 'package:front_porch_ai/services/storage_service.dart';
 import 'package:front_porch_ai/services/worker_backend.dart';
 import 'package:front_porch_ai/services/worker_gpu_swap.dart';
+import 'package:front_porch_ai/services/xai/xai.dart';
 
 part 'llm_provider.worker.dart';
 
@@ -60,6 +61,13 @@ class LLMProvider extends ChangeNotifier {
   /// Dedicated OpenAI-compatible client for the worker lane. Never the
   /// mouth [_openRouterService] — configuring this must not flip chat speech.
   final OpenRouterService _workerRemote = OpenRouterService();
+
+  /// Unofficial SuperGrok sign-in; its token rides every api.x.ai request
+  /// through [BackendSettings.bearerOverlay].
+  late final SuperGrokAuth superGrok = SuperGrokAuth.inPrefs(
+    () => _storageService.backendSettings.prefs,
+    _storageService.backendSettings.k('xai_supergrok_session'),
+  );
   String? _lastWorkerIdentity;
 
   // ── Live generation status sources (truthful status bar) ────────────────
@@ -274,6 +282,9 @@ class LLMProvider extends ChangeNotifier {
     this._storageService,
     this._backendManager,
   ) {
+    _storageService.backendSettings.bearerOverlay = superGrok.bearerFor;
+    superGrok.addListener(_syncFromStorage);
+    unawaited(superGrok.load());
     _syncFromStorage();
     _storageService.addListener(_syncFromStorage);
     _koboldService.addListener(_onServiceChanged);
@@ -283,6 +294,12 @@ class LLMProvider extends ChangeNotifier {
   void dispose() {
     _storageService.removeListener(_syncFromStorage);
     _koboldService.removeListener(_onServiceChanged);
+    superGrok.removeListener(_syncFromStorage);
+    final backend = _storageService.backendSettings;
+    if (backend.bearerOverlay == superGrok.bearerFor) {
+      backend.bearerOverlay = null;
+    }
+    superGrok.dispose();
     _omlxPoller.stop();
     _lmStudioStreamer.stop();
     final occupancy =

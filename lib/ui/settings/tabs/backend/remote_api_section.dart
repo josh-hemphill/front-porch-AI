@@ -24,6 +24,7 @@ import 'package:front_porch_ai/services/storage/settings/remote_provider.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/ui/widgets/widgets.dart';
 import 'package:front_porch_ai/ui/settings/widgets/widgets.dart';
+import 'package:front_porch_ai/ui/settings/tabs/backend/super_grok_card.dart';
 
 /// Remote OpenAI-compatible API configuration (OpenRouter / Nano-GPT / any
 /// local server). Extracted from settings_page's Backend tab. Owns its own
@@ -64,6 +65,10 @@ class _RemoteApiSectionState extends State<RemoteApiSection> {
     );
     final showUrl = remoteProviderShowsUrlField(kind);
     final needsKey = remoteProviderNeedsApiKey(kind);
+    final isXai = kind == RemoteProviderKind.xai;
+    final superGrok = isXai
+        ? Provider.of<LLMProvider>(context).superGrok
+        : null;
 
     final fields = <Widget>[
       RemoteReadyBadge(service: remote),
@@ -88,8 +93,15 @@ class _RemoteApiSectionState extends State<RemoteApiSection> {
         ),
         const SizedBox(height: 16),
       ],
-      if (needsKey) ...[
-        Text('API Key', style: theme.textTheme.bodySmall),
+      if (superGrok != null) ...[
+        SuperGrokCard(auth: superGrok),
+        const SizedBox(height: 16),
+      ],
+      if (needsKey && !(superGrok?.isSignedIn ?? false)) ...[
+        Text(
+          isXai ? 'xAI API Key' : 'API Key',
+          style: theme.textTheme.bodySmall,
+        ),
         const SizedBox(height: 4),
         TextFormField(
           controller: widget.apiKeyController,
@@ -171,7 +183,7 @@ class _RemoteApiSectionState extends State<RemoteApiSection> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Works with OpenRouter, Nano-GPT, or any '
+                'Works with OpenRouter, Nano-GPT, xAI, or any '
                 'OpenAI-compatible endpoint.',
                 style: theme.textTheme.bodySmall?.copyWith(color: accent),
               ),

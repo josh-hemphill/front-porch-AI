@@ -82,7 +82,9 @@ extension _ModelSettingsRemoteSection on _ModelSettingsDialogState {
       url: storage.backendSettings.remoteApiUrl,
     );
     final showUrl = remoteProviderShowsUrlField(kind);
-    final needsKey = remoteProviderNeedsApiKey(kind);
+    final viaSuperGrok =
+        kind == RemoteProviderKind.xai && llm.superGrok.isSignedIn;
+    final needsKey = remoteProviderNeedsApiKey(kind) && !viaSuperGrok;
     final hasKey = storage.backendSettings.remoteApiKey.isNotEmpty;
     final model = _modelNameController.text.trim();
     final ready = model.isNotEmpty && (!needsKey || hasKey);
@@ -108,6 +110,17 @@ extension _ModelSettingsRemoteSection on _ModelSettingsDialogState {
             label: 'API URL',
             controller: _apiUrlController,
             onEditingComplete: _saveRemoteSettings,
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (viaSuperGrok) ...[
+          Text(
+            'Signed in with SuperGrok (unofficial). Manage it in Settings → '
+            'Backend.',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textTertiary(context),
+            ),
           ),
           const SizedBox(height: 12),
         ],

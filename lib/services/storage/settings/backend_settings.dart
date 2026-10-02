@@ -71,12 +71,17 @@ class BackendSettings with SettingsBase, WorkerBackendFields {
 
   /// Key for the *active* URL's vault slot. Image Studio, chat, and Check
   /// Connection must all read this — never a leftover parked on another host.
-  String get remoteApiKey => _remoteApiKeys.keyFor(_remoteApiUrl);
+  String get remoteApiKey => remoteApiKeyFor(_remoteApiUrl);
   String get remoteApiUrl => _remoteApiUrl;
   String get remoteModelName => _remoteModelName;
 
-  /// Key stored for [url], independent of the currently selected host.
-  String remoteApiKeyFor(String url) => _remoteApiKeys.keyFor(url);
+  /// Signed-in bearer for [url] (SuperGrok on api.x.ai). Wins over the
+  /// saved key and is never written into the vault.
+  String? Function(String url)? bearerOverlay;
+
+  /// Key for [url], independent of the currently selected host.
+  String remoteApiKeyFor(String url) =>
+      bearerOverlay?.call(url) ?? _remoteApiKeys.keyFor(url);
 
   /// Normalized URLs that have a non-empty saved key (web placeholder).
   List<String> get remoteApiUrlsWithKeys => _remoteApiKeys.urlsWithKeys;
@@ -243,6 +248,7 @@ class BackendSettings with SettingsBase, WorkerBackendFields {
   /// Write a key into [url]'s vault slot without changing the live mouth
   /// host. Worker settings reuse the same per-host keys.
   Future<void> setRemoteApiKeyFor(String url, String value) async {
+    if (value == bearerOverlay?.call(url)) return;
     _remoteApiKeys.put(url, value);
     if (normalizeRemoteApiUrl(url) == normalizeRemoteApiUrl(_remoteApiUrl)) {
       _remoteApiKey = value;
@@ -308,6 +314,7 @@ class BackendSettings with SettingsBase, WorkerBackendFields {
   }
 
   Future<void> setRemoteApiKey(String value) async {
+    if (value == bearerOverlay?.call(_remoteApiUrl)) return;
     _remoteApiKey = value;
     _remoteApiKeys.put(_remoteApiUrl, value);
     await prefs?.setString(k('remote_api_key'), value);
