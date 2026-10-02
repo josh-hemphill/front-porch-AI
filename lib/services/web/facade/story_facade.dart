@@ -125,6 +125,19 @@ class StoryFacade {
     return true;
   }
 
+  /// Record the reader's page without touching the rest of the project — a
+  /// full-project save from the reader would overwrite pipeline output or
+  /// desktop edits made since the reader loaded. Same write as the desktop
+  /// reader's page-flip.
+  Future<bool> saveReadingPosition(String id, int pageIndex) async {
+    await _ensureLoaded();
+    final project = _repo.getById(id);
+    if (project == null) return false;
+    project.lastReadPageIndex = pageIndex < 0 ? 0 : pageIndex;
+    await _repo.saveProject(project);
+    return true;
+  }
+
   Future<bool> delete(String id) async {
     await _ensureLoaded();
     if (_repo.getById(id) == null) return false;

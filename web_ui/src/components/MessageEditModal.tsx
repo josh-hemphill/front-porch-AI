@@ -6,7 +6,7 @@
 // section (no raw <think> tags); the body uses the same RP dialogue/action
 // coloring as the composer.
 
-import { useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { renderRpInline } from './rpText';
 import { joinMessageEdit, splitMessageForEdit } from './messageEdit';
 
@@ -17,18 +17,34 @@ export function MessageEditModal({
 }: {
   initialText: string;
   onCancel: () => void;
-  onSave: (text: string) => void;
+  /** Rejects with a user-facing message when the desktop didn't take it. */
+  onSave: (text: string) => Promise<void>;
 }) {
   const initial = useMemo(() => splitMessageForEdit(initialText), [initialText]);
   const [thinking, setThinking] = useState(initial.thinking);
   const [body, setBody] = useState(initial.body);
   const [thinkingOpen, setThinkingOpen] = useState(initial.thinking.length > 0);
   const backdropRef = useRef<HTMLDivElement>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const joined = joinMessageEdit(thinking, body);
   const dirty =
     thinking.trim() !== initial.thinking || body !== initial.body;
   const charCount = joined.length;
+
+  // The modal unmounts on success; a failure leaves the draft in place.
+  const save = useCallback(async () => {
+    if (saving) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await onSave(joined);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+      setSaving(false);
+    }
+  }, [saving, onSave, joined]);
 
   // Escape cancels (with discard confirm when dirty); Ctrl/Cmd+Enter saves.
   useEffect(() => {
@@ -41,12 +57,12 @@ export function MessageEditModal({
       }
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        onSave(joined);
+        void save();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dirty, joined, onCancel, onSave]);
+  }, [dirty, onCancel, save]);
 
   const syncScroll = (e: UIEvent<HTMLTextAreaElement>) => {
     const b = backdropRef.current;
@@ -62,7 +78,7 @@ export function MessageEditModal({
   };
 
   return (
-    <div className="drawer-backdrop center msg-edit-backdrop" onClick={requestCancel}>
+    <div className="drawer-backdrop center msg-edit-overlay" onClick={requestCancel}>
       <div
         className="modal msg-edit-modal"
         role="dialog"
@@ -77,11 +93,21 @@ export function MessageEditModal({
             <button type="button" className="ghost" onClick={requestCancel}>
               Cancel
             </button>
-            <button type="button" className="primary" onClick={() => onSave(joined)}>
-              Save
+            <button
+              type="button"
+              className="primary"
+              disabled={saving}
+              onClick={() => void save()}
+            >
+              {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
+        {saveError && (
+          <p className="error" role="alert">
+            ⚠️ {saveError} Your changes are still here.
+          </p>
+        )}
 
         <button
           type="button"

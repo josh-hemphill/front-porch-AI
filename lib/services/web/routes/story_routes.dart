@@ -35,6 +35,7 @@ class WebStoryRoutes {
     router.get('/api/stories/<id>', _get);
     router.post('/api/stories/<id>/run', _run);
     router.post('/api/stories/<id>/delete', _delete);
+    router.post('/api/stories/<id>/reading-position', _readingPosition);
     router.get('/api/stories/<id>/export', _export);
     router.get('/api/stories/<id>/chat-preview', _chatPreview);
     router.post('/api/stories/<id>', _save);
@@ -82,6 +83,14 @@ class WebStoryRoutes {
 
   Future<shelf.Response> _delete(shelf.Request r, String id) async {
     final ok = await _facade.delete(id);
+    if (!ok) return JsonResponse.error(404, 'Story not found');
+    return JsonResponse.ok({'status': 'ok'});
+  }
+
+  Future<shelf.Response> _readingPosition(shelf.Request r, String id) async {
+    final page = (await _json(r))['page'];
+    if (page is! int) return JsonResponse.badRequest('page is required');
+    final ok = await _facade.saveReadingPosition(id, page);
     if (!ok) return JsonResponse.error(404, 'Story not found');
     return JsonResponse.ok({'status': 'ok'});
   }

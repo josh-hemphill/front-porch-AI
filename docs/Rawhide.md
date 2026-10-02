@@ -7,6 +7,16 @@ Last shipped nightly: `rawhide.20260921.f50f22e`. Everything below is unreleased
 
 ## Recent improvements (unreleased — ships in the next build)
 
+- ✏️ **Editing a message works on the phone again** — Save, Cancel and the text box answer taps, and on a notched iPhone the buttons sit below the clock. If a save fails, the editor stays open with your text and says why.
+- 📱 **Phone taps that fail now say so** — regenerate, continue, swipe, fork, delete, switching chats, group settings and the rest show a plain reason instead of doing nothing.
+- 📱 **A screen that breaks on the phone shows a way out** — Reload or Back to library, instead of a blank page.
+- 📖 **Reading a story on the phone no longer overwrites it** — turning a page saves only your place, not an older copy of the story.
+- 📱 **Leaving a chat mid-reply keeps that reply out of the next chat.**
+- 📱 **With a chat theme picture, the Regenerate and version-picker windows cover the message box** like they do without one.
+- ⚡ **Long chats on the phone stay smooth while a reply streams in.**
+- ⌨️ **Japanese, Chinese and Korean keyboards no longer send mid-word** when Enter picks a character.
+- 🖼️ **A photo the phone can't read is no longer dropped quietly** — your text and photo stay put with a note.
+
 - 🤖 **xAI is a chat backend** — pick xAI in Settings → Backend (or Model Settings) and sign in with SuperGrok to use your subscription allowance instead of paid API credits. The sign-in is unofficial and at your own risk; an xAI API key also works. The sign-in borrows xAI's own Grok CLI login, so xAI may block it at any time. If your allowance runs out, chat says so in plain words. Same on the phone.
 - 🍽️ **Hunger and bladder follow the beat** — a few minutes is a small drop, a long stretch is a real one, and the story decides the size. A meal or a bathroom still fills them. The same moment, Continue, and a clock that is off do not invent a drop. The other needs still move only when the scene itself does. Same on the phone.
 - 🌍 **A place can take lore from a character** — Create or Edit World → From character. Pick the card, then tick the entries to copy. The rest stay on the card. Same on the phone.

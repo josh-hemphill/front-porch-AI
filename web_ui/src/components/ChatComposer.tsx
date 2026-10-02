@@ -179,11 +179,13 @@ export function ChatComposer({
 
   const [photo, setPhoto] = useState<{ file: File; preview: string } | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState('');
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   const clearPhoto = () => {
     if (photo) URL.revokeObjectURL(photo.preview);
     setPhoto(null);
+    setPhotoError('');
   };
 
   const send = () => {
@@ -201,13 +203,23 @@ export function ChatComposer({
       return;
     }
     setPhotoBusy(true);
+    setPhotoError('');
+    // A photo that can't be read must not quietly become a text-only send:
+    // hand both back and say so.
     void prepareChatPhotoBase64(pending.file)
-      .then((b64) => onSend(text, b64))
-      .catch(() => onSend(text))
-      .finally(() => {
+      .then((b64) => {
         URL.revokeObjectURL(pending.preview);
-        setPhotoBusy(false);
-      });
+        onSend(text, b64);
+      })
+      .catch((e) => {
+        console.warn('[chat] photo could not be prepared', e);
+        setDraft((d) => d || text);
+        setPhoto(pending);
+        setPhotoError(
+          "That photo couldn't be read, so nothing was sent. Try a different photo, or remove it to send just your text.",
+        );
+      })
+      .finally(() => setPhotoBusy(false));
   };
 
   return (
@@ -232,6 +244,11 @@ export function ChatComposer({
           setPhoto({ file, preview: URL.createObjectURL(file) });
         }}
       />
+      {photoError && (
+        <p className="error" role="alert">
+          ⚠️ {photoError}
+        </p>
+      )}
       {photo && (
         <div className="composer-photo-chip">
           <img src={photo.preview} alt="" />
@@ -330,7 +347,10 @@ export function ChatComposer({
               setSlashDismissed(true);
               return;
             }
-            if (e.key === 'Enter' && !e.shiftKey) {
+            // Enter that confirms an IME candidate (Japanese, Chinese,
+            // Korean…) is not a send. Safari flags it only via keyCode 229.
+            const composing = e.nativeEvent.isComposing || e.keyCode === 229;
+            if (e.key === 'Enter' && !e.shiftKey && !composing) {
               e.preventDefault();
               send();
             }

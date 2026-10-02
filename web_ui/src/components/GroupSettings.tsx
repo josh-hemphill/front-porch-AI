@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { describeActionFailure } from '../pages/chat/chatActionError';
 import { AltGreetingsEditor } from './AltGreetingsEditor';
 import { type GreetingSeed, compactGreetingPairs } from './realism/realismTypes';
 
@@ -54,13 +55,27 @@ export function GroupSettings({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId]);
 
+  // Each field saves on blur. A failed save used to vanish silently; the
+  // text is still in its box, so say so and let the next blur retry.
+  const [saveError, setSaveError] = useState('');
   const save = (fields: Record<string, unknown>) =>
-    void api.post(`/api/groups/${groupId}/settings`, fields).catch(() => {});
+    void api
+      .post(`/api/groups/${groupId}/settings`, fields)
+      .then(() => setSaveError(''))
+      .catch((e) => {
+        console.warn('[group] settings save failed', e);
+        setSaveError(describeActionFailure('save the group settings', e));
+      });
 
   return (
     <details className="tool-section">
       <summary>Group settings</summary>
       <div className="tool-body">
+        {saveError && (
+          <p className="error" role="alert">
+            ⚠️ {saveError} Your text is still here — tap out of the box again to retry.
+          </p>
+        )}
         <div className="tool-row">
           <span className="muted small">Turn order:</span>
           <button

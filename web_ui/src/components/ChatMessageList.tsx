@@ -6,7 +6,7 @@
 // the per-message action toolbar) plus the live streaming bubble. Message edit
 // is a fullscreen modal owned by ChatPage (MessageEditModal).
 
-import { memo, useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   classifyTranscriptGrowth,
   followTranscriptWhileStreaming,
@@ -124,6 +124,7 @@ type TranscriptProps = {
   greetCount?: number;
   greetingIndex?: number;
   onVariantPicked?: () => void;
+  onActionFailed?: (what: string, e: unknown) => void;
   /** Fired when a generated chat image finishes loading (late height). */
   onChatImageLoad?: () => void;
 };
@@ -153,6 +154,7 @@ const TranscriptRows = memo(function TranscriptRows({
   greetCount,
   greetingIndex,
   onVariantPicked,
+  onActionFailed,
   onChatImageLoad,
 }: TranscriptProps) {
   const userHasReplied = messages.some((m) => m.isUser);
@@ -230,6 +232,7 @@ const TranscriptRows = memo(function TranscriptRows({
               onEdit={() => onBeginEdit(m)}
               onDelete={() => onDelete(m.index)}
               onVariantPicked={onVariantPicked}
+              onActionFailed={onActionFailed}
             />
           </div>
         );
@@ -285,7 +288,10 @@ export function ChatMessageList({
   trackedFull.current = full.length;
   spanTip.current = fullTip;
   spanSession.current = sessionId ?? null;
-  const visible = full.slice(spanRef.current.start, spanRef.current.end);
+  // Memoized so token frames (which re-render this list) hand TranscriptRows
+  // the same array — a fresh slice each frame defeated its memo.
+  const { start: spanStart, end: spanEnd } = spanRef.current;
+  const visible = useMemo(() => full.slice(spanStart, spanEnd), [full, spanStart, spanEnd]);
   const pinSelf = useCallback((el: HTMLDivElement) => {
     selfScroll.current = true;
     try {
@@ -350,6 +356,10 @@ export function ChatMessageList({
   useLayoutEffect(() => {
     if (streaming && !followStreamingReplies) stickToLatest.current = false;
   }, [streaming, followStreamingReplies]);
+  // Stable for TranscriptRows: repinIfStuck changes with `streaming`.
+  const repinRef = useRef(repinIfStuck);
+  repinRef.current = repinIfStuck;
+  const onChatImageLoad = useCallback(() => repinRef.current(), []);
   useLayoutEffect(() => {
     const content = contentRef.current;
     if (!content || typeof ResizeObserver === 'undefined') return;
@@ -383,7 +393,7 @@ export function ChatMessageList({
         <TranscriptRows
           {...transcript}
           messages={visible}
-          onChatImageLoad={repinIfStuck}
+          onChatImageLoad={onChatImageLoad}
         />
       </div>
       {streaming && (() => {

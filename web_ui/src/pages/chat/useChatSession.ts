@@ -15,6 +15,7 @@ import { type SessionSummary } from '../../components/ConversationsDrawer';
 import { useAuth } from '../../auth/AuthContext';
 import { describeChatLoadFailure } from '../chatLoad';
 import { type ChatState } from './chatState';
+import { LiveTokenGate } from './liveTokenGate';
 
 export function useChatSession() {
   const [searchParams] = useSearchParams();
@@ -23,6 +24,7 @@ export function useChatSession() {
   const [state, setState] = useState<ChatState | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const tokenSessionRef = useRef<string | null>(null);
+  const tokenGate = useRef(new LiveTokenGate()).current;
   // Why the chat could not be loaded — shown instead of a spinner that would
   // otherwise never resolve.
   const [loadError, setLoadError] = useState('');
@@ -69,6 +71,7 @@ export function useChatSession() {
       return;
     }
     setLoadError('');
+    if (!s.isGenerating) tokenGate.replyOver();
     setState(s);
     sessionIdRef.current = s.sessionId;
     // Recover the Chance Time modal after a reconnect — a phone may have slept
@@ -127,6 +130,7 @@ export function useChatSession() {
         setImpersonateFill(null);
         void refresh();
       } else if (e.event === 'token' && e.data) {
+        if (!tokenGate.accepts()) return;
         if (!tokenSessionRef.current) {
           tokenSessionRef.current = sessionIdRef.current;
         }
@@ -144,6 +148,7 @@ export function useChatSession() {
         // two are identical text, so it swaps seamlessly with no flash/gap (the
         // old order cleared the bubble, leaving the message blank until the GET
         // returned ~100-300ms later).
+        tokenGate.replyOver();
         setGenStatus(null);
         void refresh().finally(() => {
           setStreaming('');
@@ -232,6 +237,7 @@ export function useChatSession() {
         // it (setStreaming(prev => prev + …)), garbling the live reply.
         // Same for the gen-status bubble — a missed {active:false} would
         // strand it forever.
+        tokenGate.replyOver();
         setStreaming('');
         setGenStatus(null);
         void refresh();
@@ -304,6 +310,7 @@ export function useChatSession() {
   // the `connected` handler above; the chance-time modal belongs to the chat
   // being left, too.
   const clearLiveTurnUi = () => {
+    tokenGate.leaveChat(!!state?.isGenerating || streaming !== '');
     setStreaming('');
     setGenStatus(null);
     setImageProg(null);

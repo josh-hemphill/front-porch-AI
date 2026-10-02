@@ -88,15 +88,18 @@ export function BookReader({ id, project }: { id: string; project: StoryProject 
     setPage((p) => Math.min(p, Math.max(0, totalPages - 1)));
   }, [totalPages]);
 
-  // Persist reading progress (debounced, fire-and-forget — no reload).
+  // Persist reading progress (debounced, no reload). Only the page goes up —
+  // posting the whole project here overwrote anything the desktop wrote to the
+  // story after this reader loaded it.
   useEffect(() => {
     if (!restoredRef.current) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      api.post(`/api/stories/${id}`, { ...project, last_read_page_index: page }).catch(() => {});
+      api
+        .post(`/api/stories/${id}/reading-position`, { page })
+        .catch((e) => console.warn('[story] reading position not saved', e));
     }, 900);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, id]);
 
   // Keyboard flips.

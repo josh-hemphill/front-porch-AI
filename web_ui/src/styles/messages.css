@@ -73,7 +73,7 @@
 .swipe { display: inline-flex; align-items: center; gap: 2px; user-select: none; -webkit-user-select: none; }
 .swipe-count { font-size: 0.72rem; color: var(--muted); min-width: 30px; text-align: center; }
 /* Fullscreen message editor (desktop MessageEditDialog parity) */
-.msg-edit-backdrop { z-index: 80; }
+.msg-edit-overlay { z-index: 80; }
 .msg-edit-modal {
   width: min(920px, 96vw);
   height: min(88vh, 900px);

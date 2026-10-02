@@ -150,6 +150,9 @@
   .msg-edit-modal {
     width: 100vw; height: 100dvh; max-height: 100dvh;
     border-radius: 0; min-height: 100dvh;
+    /* Full-bleed under viewport-fit=cover: keep Save/Cancel out of the notch. */
+    padding-top: calc(14px + env(safe-area-inset-top));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
   .msg-edit-body-area { min-height: 40vh; }
 }
