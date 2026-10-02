@@ -381,14 +381,29 @@ export function ChatMessageList({
     nearTop.current = atTop;
     wasNearTop.current = atTop;
     if (!enteredTop) return;
+    // The prepend hold is new height minus this. A Thought opened or an
+    // image decoded since the last render would otherwise count too.
+    prevHeight.current = el.scrollHeight;
     if (revealOlderSpan(spanRef.current, trackedFull.current)) {
       bump((n) => n + 1);
       return;
     }
     onScroll?.();
   };
+  // A tap that opens a Thought, or a wheel inside its own box, never
+  // scrolls the list, so it would otherwise leave the open stick armed.
+  const readerTookOver = () => {
+    stickToLatest.current = false;
+  };
   return (
-    <div className="chat-messages" ref={scrollRef} onScroll={handleScroll}>
+    <div
+      className="chat-messages"
+      ref={scrollRef}
+      onScroll={handleScroll}
+      onPointerDown={readerTookOver}
+      onWheel={readerTookOver}
+      onTouchStart={readerTookOver}
+    >
       <div ref={contentRef}>
         <TranscriptRows
           {...transcript}
