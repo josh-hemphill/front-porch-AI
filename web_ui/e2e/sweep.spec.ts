@@ -12,6 +12,7 @@
 import type { Page, TestInfo } from '@playwright/test';
 import { expect, openRoute, test } from './support/fixtures';
 import {
+  CONTROLS,
   brokenImages,
   clippedControls,
   horizontalOverflow,
@@ -19,6 +20,9 @@ import {
   overlayCount,
   untappableControls,
 } from './support/probes';
+
+/** Running total of visible controls. A sparse screen is fine. */
+let controlsSeen = 0;
 
 const SKIP =
   /delet|remov|sign ?out|log ?out|revoke|reset|wipe|purge|clear|restart|stop|shut ?down|install|download|export|import|upload|backup|restore|disable|unlink|publish|submit|send|generat|continu|imperson|fork|swipe|regen|reprocess|revert|tailscale|pair|connect|scan|retest|spin|accept|attach|photo|mic\b|record|speak|play|save|apply|create|new|duplicat|move|start|run|write|enhanc|merge|extract|promot|join|exit|copy|share|pick a file|browse|choose file|refresh|reload|retry|try again|cancel all|pause|resume/i;
@@ -111,6 +115,27 @@ async function settle(page: Page) {
   await page.waitForTimeout(150);
 }
 
+/**
+ * React has committed the signed-in shell and blocking loaders are gone.
+ * Tagging before this sees an empty `#root` (or only the boot spinner) and
+ * the sweep passes without touching the screen. A `spinner small` may stay.
+ * Sparse screens are allowed; zero controls across the whole sweep fails.
+ */
+async function waitForRendered(page: Page) {
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await expect(page.locator('#root')).not.toBeEmpty();
+  await expect(
+    page.locator('#root .spinner:not(.small), #root [aria-label="Loading"]:not(.small)'),
+  ).toHaveCount(0);
+  controlsSeen += await page.locator(CONTROLS).locator('visible=true').count();
+}
+
+/** Open [route] and wait until the screen has rendered. */
+async function show(page: Page, route: string) {
+  await openRoute(page, route);
+  await waitForRendered(page);
+}
+
 /** Check the topmost overlay, then close it the way a finger would. */
 async function checkAndCloseOverlay(
   page: Page,
@@ -161,8 +186,7 @@ async function checkAndCloseOverlay(
 
 async function sweep(page: Page, route: string, info: TestInfo): Promise<string[]> {
   const found: string[] = [];
-  await openRoute(page, route);
-  await expect(page.locator('#root')).not.toBeEmpty();
+  await show(page, route);
 
   for (const p of await untappableControls(page)) found.push(`${route}: ${p}`);
   for (const p of await brokenImages(page)) found.push(`${route}: ${p}`);
@@ -189,19 +213,19 @@ async function sweep(page: Page, route: string, info: TestInfo): Promise<string[
       const blocker = await tap(el);
       if (blocker !== true) {
         found.push(`${route}: "${name}" cannot be tapped — ${blocker || 'timed out'}`);
-        await openRoute(page, route);
+        await show(page, route);
         next = await tag(page, 0);
         continue;
       }
     }
     await settle(page);
     if (page.url() !== url) {
-      await openRoute(page, route);
+      await show(page, route);
       next = await tag(page, 0);
       continue;
     }
     if ((await overlayCount(page)) > overlays && !(await checkAndCloseOverlay(page, name, route, found))) {
-      await openRoute(page, route); // stuck open: start the screen over
+      await show(page, route); // stuck open: start the screen over
       next = await tag(page, 0);
       continue;
     }
@@ -211,6 +235,10 @@ async function sweep(page: Page, route: string, info: TestInfo): Promise<string[
 }
 
 test.describe('sweep', () => {
+  test.afterAll(() => {
+    expect(controlsSeen, 'controls found across the whole sweep').toBeGreaterThan(0);
+  });
+
   for (const [n, route] of ROUTES.entries()) {
     test(`screen ${n + 1}: every control works`, async ({ page }, info) => {
       const r = route(await ids(page));

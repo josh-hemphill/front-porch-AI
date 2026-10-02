@@ -140,6 +140,9 @@ extension ChatServiceReprocess on ChatService {
       _isPostGenerating = false;
       _clearPostGenAbortFlags();
       _applyTipClock();
+      // Listeners (web isSettlingTurn → chat_updated) only see the clear
+      // through a notification. The flag alone does not broadcast.
+      notifyListeners();
     }
   }
 

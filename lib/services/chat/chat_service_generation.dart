@@ -488,6 +488,9 @@ extension ChatServiceGeneration on ChatService {
         _postGenAbortRequested = false;
         _isCancellingRealismEval = false;
         _realismEvalCancelled = false;
+        // Listeners (web isSettlingTurn → chat_updated) only see the clear
+        // through a notification. The flag alone does not broadcast.
+        notifyListeners();
       }
     }
   }

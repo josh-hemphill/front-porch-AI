@@ -14,6 +14,7 @@
 // Run it with (once: `cd web_ui && npm ci && npx playwright install chromium webkit`):
 //   flutter test integration_test/web_ui/browser_test.dart -d macos
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -59,26 +60,154 @@ Directory _repoRoot() {
   }
 }
 
+/// The one in-flight [WidgetTester.pump]. A second guarded call before this
+/// future completes throws "Guarded function conflict" — a slow Linux frame
+/// used to outlast the idle cap and the next loop iteration pumped again.
 Future<void>? _pumping;
 
-/// Let the app run for a beat while something outside drives it. A frame is
-/// requested but not awaited past a second: a slow or occluded test window
-/// may take longer to draw, and a pump that never returns would hang the wait
-/// loop. Only one pump is ever in flight — WidgetTester refuses overlapping
-/// pumps ("Guarded function conflict"), which a slow CI frame triggered.
+/// Advance one frame, or wait on the frame already in flight.
+///
+/// The slot is taken before [WidgetTester.pump] so a re-entrant call cannot
+/// start another pump. The returned future may cap at one second (a frame
+/// that never draws must not wedge the caller's deadline); the pump itself
+/// stays in [_pumping] until it finishes.
 Future<void> _idle(WidgetTester tester) {
-  _pumping ??= tester
-      .pump(const Duration(milliseconds: 200))
-      .whenComplete(() => _pumping = null);
-  return Future.any([
-    _pumping!,
+  final inFlight = _pumping;
+  if (inFlight != null) {
+    return Future.any<void>([
+      inFlight,
+      Future<void>.delayed(const Duration(seconds: 1)),
+    ]);
+  }
+  final gate = Completer<void>();
+  _pumping = gate.future;
+  final Future<void> pump;
+  try {
+    pump = tester.pump(const Duration(milliseconds: 200));
+  } catch (e, st) {
+    _pumping = null;
+    gate.completeError(e, st);
+    return gate.future;
+  }
+  pump
+      .then<void>(
+        (_) {
+          if (!gate.isCompleted) gate.complete();
+        },
+        onError: (Object e, StackTrace st) {
+          if (!gate.isCompleted) gate.completeError(e, st);
+        },
+      )
+      .whenComplete(() {
+        if (identical(_pumping, gate.future)) _pumping = null;
+      });
+  return Future.any<void>([
+    gate.future,
     Future<void>.delayed(const Duration(seconds: 1)),
   ]);
 }
 
-/// Let a still-running pump finish before the test tears down.
-Future<void> _settlePump() async {
-  await _pumping?.timeout(const Duration(seconds: 15), onTimeout: () {});
+/// Block until the in-flight pump's guard has released. Giving up and
+/// returning while it is still running makes the framework's post-test
+/// pump throw "Guarded function conflict".
+Future<void> _awaitPumpDone() async {
+  final pending = _pumping;
+  if (pending == null) return;
+  try {
+    await pending;
+  } catch (_) {
+    // The test body reports the pump error. Teardown still has to finish.
+  }
+}
+
+const _playwrightArgs = [
+  'playwright',
+  'test',
+  '--config',
+  'e2e/playwright.config.ts',
+];
+
+/// Playwright, started so teardown can signal the whole child tree.
+///
+/// On POSIX, `perl` calls `setsid` and execs npx: the returned pid leads a
+/// new process group (npx → node → playwright). Without perl, npx is a
+/// normal child and teardown walks `pgrep -P` instead.
+Future<Process> _startPlaywright(
+  Directory webUi,
+  Map<String, String> env,
+) async {
+  if (!Platform.isWindows) {
+    try {
+      return await Process.start(
+        'perl',
+        [
+          '-e',
+          r'use POSIX qw(setsid); POSIX::setsid(); exec @ARGV or die $!',
+          '--',
+          'npx',
+          ..._playwrightArgs,
+        ],
+        workingDirectory: webUi.path,
+        environment: env,
+      );
+    } on ProcessException {
+      // perl is not installed; the pgrep fallback still reaps children.
+    }
+  }
+  return Process.start(
+    'npx',
+    _playwrightArgs,
+    workingDirectory: webUi.path,
+    runInShell: Platform.isWindows,
+    environment: env,
+  );
+}
+
+/// Signal [proc] and, where the platform allows, its children.
+void _signalTree(Process proc, ProcessSignal sig) {
+  if (Platform.isWindows) {
+    try {
+      Process.runSync('taskkill', ['/F', '/T', '/PID', '${proc.pid}']);
+    } on ProcessException {
+      proc.kill();
+    }
+    return;
+  }
+  // Negative pid is the process group. Succeeds when the child called setsid.
+  if (Process.killPid(-proc.pid, sig)) return;
+  _signalDescendants(proc.pid, sig);
+  proc.kill(sig);
+}
+
+void _signalDescendants(int pid, ProcessSignal sig) {
+  final ProcessResult result;
+  try {
+    result = Process.runSync('pgrep', ['-P', '$pid']);
+  } on ProcessException {
+    return;
+  }
+  if (result.exitCode != 0 || result.stdout is! String) return;
+  for (final line in (result.stdout as String).split('\n')) {
+    final child = int.tryParse(line.trim());
+    if (child == null) continue;
+    _signalDescendants(child, sig);
+    Process.killPid(child, sig);
+  }
+}
+
+/// SIGTERM the tree, then SIGKILL if it is still alive.
+Future<void> _stopProcess(Process proc) async {
+  _signalTree(proc, ProcessSignal.sigterm);
+  try {
+    await proc.exitCode.timeout(const Duration(seconds: 5));
+  } on TimeoutException {
+    _signalTree(proc, ProcessSignal.sigkill);
+    try {
+      await proc.exitCode.timeout(const Duration(seconds: 5));
+    } on TimeoutException {
+      // The caller's exit-code expectation reports a hang.
+    }
+  }
 }
 
 void main() {
@@ -98,6 +227,53 @@ void main() {
     final sandbox = Directory.systemTemp.createTempSync('fpai_webui_');
     PathProviderPlatform.instance = SandboxPathProvider(sandbox.path);
     final backend = await FakeBackendServer.start(replyPieces: _kReplyPieces);
+    WebServerHost? host;
+    Process? playwright;
+    HttpClient? http;
+    Future<void>? cleanupRun;
+    Future<void> cleanup() => cleanupRun ??= () async {
+      try {
+        // Release the widget-tester guard before the framework pumps again.
+        // A refresh that never finishes must fail the test, not hang until
+        // the CI job timeout. Teardown below still reaps the browser.
+        await _awaitPumpDone().timeout(
+          const Duration(seconds: 20),
+          onTimeout: () {
+            throw TimeoutException(
+              'Timed out after 20s waiting for in-flight screen refresh '
+              'to finish during shutdown',
+            );
+          },
+        );
+      } finally {
+        final proc = playwright;
+        playwright = null;
+        if (proc != null) await _stopProcess(proc);
+        final running = host;
+        host = null;
+        if (running != null) {
+          try {
+            await running.stop();
+          } catch (e) {
+            debugPrint('[web-e2e] web server stop failed: $e');
+          }
+        }
+        try {
+          await backend.close();
+        } catch (e) {
+          debugPrint('[web-e2e] stand-in backend close failed: $e');
+        }
+        http?.close(force: true);
+        http = null;
+        try {
+          sandbox.deleteSync(recursive: true);
+        } on FileSystemException {
+          // A straggler may still be writing; not a failure.
+        }
+      }
+    }();
+    addTearDown(cleanup);
+
     SharedPreferences.setMockInitialValues({
       'update_auto_check': false,
       'import_llmerta_porch_memories': false,
@@ -108,140 +284,135 @@ void main() {
       'web_server_enabled': false,
     });
 
-    // ── Boot ────────────────────────────────────────────────────────────
-    app.main(const []);
-    await pumpUntilFound(tester, find.byType(MainLayout));
     try {
-      // Same placement as every other suite: an occluded window stops
-      // drawing frames, and every pump then waits forever.
-      await windowManager.setAlwaysOnTop(true);
-      await windowManager.setSize(const Size(1200, 800));
-      await windowManager.setAlignment(Alignment.bottomRight);
-      await windowManager.blur();
-    } catch (e) {
-      debugPrint('[e2e] window_manager placement skipped: $e');
-    }
-    await tester.pump(const Duration(seconds: 2));
+      // ── Boot ────────────────────────────────────────────────────────────
+      app.main(const []);
+      await pumpUntilFound(tester, find.byType(MainLayout));
+      try {
+        // Same placement as every other suite: an occluded window stops
+        // drawing frames, and every pump then waits forever.
+        await windowManager.setAlwaysOnTop(true);
+        await windowManager.setSize(const Size(1200, 800));
+        await windowManager.setAlignment(Alignment.bottomRight);
+        await windowManager.blur();
+      } catch (e) {
+        debugPrint('[e2e] window_manager placement skipped: $e');
+      }
+      await tester.pump(const Duration(seconds: 2));
 
-    // The library is seeded by the suite itself, through the web API
-    // (web_ui/e2e/support/globalSetup.ts), the way a phone user creates cards.
-    final ctx = tester.element(find.byType(MainLayout));
+      // The library is seeded by the suite itself, through the web API
+      // (web_ui/e2e/support/globalSetup.ts), the way a phone user creates cards.
+      final ctx = tester.element(find.byType(MainLayout));
 
-    // ── Server + web login ──────────────────────────────────────────────
-    // ignore: use_build_context_synchronously — root MainLayout element.
-    final host = Provider.of<WebServerHost>(ctx, listen: false);
-    await host.start(0);
-    await pumpUntilTrue(
-      tester,
-      () => host.isRunning,
-      describe: () => 'the web server to report running',
-    );
-    final base = 'http://127.0.0.1:${host.port}';
-    final http = HttpClient();
-    final req = await http.postUrl(Uri.parse('$base/api/auth/setup'));
-    req.headers.contentType = ContentType.json;
-    req.write(jsonEncode({'username': _kUser, 'password': _kPassword}));
-    final res = await req.close();
-    final setupBody = await utf8.decoder.bind(res).join();
-    expect(res.statusCode, 200, reason: 'POST /api/auth/setup: $setupBody');
-
-    // Boot syncs the stand-in backend from prefs a beat after the UI is up;
-    // a first message sent before that goes to the default backend and comes
-    // back empty. Start the browsers once the app is pointed at the stand-in.
-    // Re-apply through the settings API: the setters announce the change, so
-    // the provider switches now instead of on the next unrelated save.
-    // ignore: use_build_context_synchronously — root MainLayout element.
-    final storage = Provider.of<StorageService>(ctx, listen: false);
-    await storage.backendSettings.setRemoteApiUrl('${backend.baseUrl}/v1');
-    await storage.backendSettings.setRemoteModelName('smoke-model');
-    await storage.backendSettings.setBackendType('openRouter');
-    // ignore: use_build_context_synchronously — root MainLayout element.
-    final llm = Provider.of<LLMProvider>(ctx, listen: false);
-    await pumpUntilTrue(
-      tester,
-      () =>
-          llm.activeBackend == BackendType.openRouter &&
-          llm.openRouterService.apiUrl == '${backend.baseUrl}/v1',
-      describe: () =>
-          'the app to switch to the stand-in backend '
-          '(now ${llm.activeBackend} at ${llm.openRouterService.apiUrl})',
-    );
-    http.close(force: true);
-
-    final env = {
-      'FPAI_BASE_URL': base,
-      'FPAI_USER': _kUser,
-      'FPAI_PASSWORD': _kPassword,
-      'FPAI_REPLY': _kReplyPieces.join(),
-    };
-
-    // ── Hold mode: serve the sandboxed app for manual / iterative runs ───
-    // FPAI_E2E_HOLD=1 skips Playwright, writes the connection details to
-    // web_ui/e2e/.auth/server.json, and serves until web_ui/e2e/.auth/stop
-    // appears (`touch` it) — then run `npm run e2e` against it as often as
-    // you like, or open the URL in a browser and sign in.
-    if (Platform.environment['FPAI_E2E_HOLD'] == '1') {
-      final auth = Directory(p.join(webUi.path, 'e2e', '.auth'))
-        ..createSync(recursive: true);
-      final stop = File(p.join(auth.path, 'stop'));
-      if (stop.existsSync()) stop.deleteSync();
-      File(p.join(auth.path, 'server.json')).writeAsStringSync(jsonEncode(env));
-      debugPrint(
-        '[web-e2e] holding at $base (user $_kUser) — touch ${stop.path} to end',
+      // ── Server + web login ──────────────────────────────────────────────
+      // ignore: use_build_context_synchronously — root MainLayout element.
+      host = Provider.of<WebServerHost>(ctx, listen: false);
+      await host!.start(0);
+      await pumpUntilTrue(
+        tester,
+        () => host!.isRunning,
+        describe: () => 'the web server to report running',
       );
-      final until = DateTime.now().add(const Duration(hours: 3));
-      while (!stop.existsSync() && DateTime.now().isBefore(until)) {
+      final base = 'http://127.0.0.1:${host!.port}';
+      http = HttpClient();
+      final req = await http!.postUrl(Uri.parse('$base/api/auth/setup'));
+      req.headers.contentType = ContentType.json;
+      req.write(jsonEncode({'username': _kUser, 'password': _kPassword}));
+      final res = await req.close();
+      final setupBody = await utf8.decoder.bind(res).join();
+      expect(res.statusCode, 200, reason: 'POST /api/auth/setup: $setupBody');
+
+      // Boot syncs the stand-in backend from prefs a beat after the UI is up;
+      // a first message sent before that goes to the default backend and comes
+      // back empty. Start the browsers once the app is pointed at the stand-in.
+      // Re-apply through the settings API: the setters announce the change, so
+      // the provider switches now instead of on the next unrelated save.
+      // ignore: use_build_context_synchronously — root MainLayout element.
+      final storage = Provider.of<StorageService>(ctx, listen: false);
+      await storage.backendSettings.setRemoteApiUrl('${backend.baseUrl}/v1');
+      await storage.backendSettings.setRemoteModelName('smoke-model');
+      await storage.backendSettings.setBackendType('openRouter');
+      // ignore: use_build_context_synchronously — root MainLayout element.
+      final llm = Provider.of<LLMProvider>(ctx, listen: false);
+      await pumpUntilTrue(
+        tester,
+        () =>
+            llm.activeBackend == BackendType.openRouter &&
+            llm.openRouterService.apiUrl == '${backend.baseUrl}/v1',
+        describe: () =>
+            'the app to switch to the stand-in backend '
+            '(now ${llm.activeBackend} at ${llm.openRouterService.apiUrl})',
+      );
+      http!.close(force: true);
+      http = null;
+
+      final env = {
+        'FPAI_BASE_URL': base,
+        'FPAI_USER': _kUser,
+        'FPAI_PASSWORD': _kPassword,
+        'FPAI_REPLY': _kReplyPieces.join(),
+      };
+
+      // ── Hold mode: serve the sandboxed app for manual / iterative runs ───
+      // FPAI_E2E_HOLD=1 skips Playwright, writes the connection details to
+      // web_ui/e2e/.auth/server.json, and serves until web_ui/e2e/.auth/stop
+      // appears (`touch` it) — then run `npm run e2e` against it as often as
+      // you like, or open the URL in a browser and sign in.
+      if (Platform.environment['FPAI_E2E_HOLD'] == '1') {
+        final auth = Directory(p.join(webUi.path, 'e2e', '.auth'))
+          ..createSync(recursive: true);
+        final stop = File(p.join(auth.path, 'stop'));
+        if (stop.existsSync()) stop.deleteSync();
+        File(
+          p.join(auth.path, 'server.json'),
+        ).writeAsStringSync(jsonEncode(env));
+        debugPrint(
+          '[web-e2e] holding at $base (user $_kUser) — touch ${stop.path} to end',
+        );
+        final until = DateTime.now().add(const Duration(hours: 3));
+        while (!stop.existsSync() && DateTime.now().isBefore(until)) {
+          await _idle(tester);
+        }
+        return;
+      }
+
+      // ── Playwright ──────────────────────────────────────────────────────
+      final proc = playwright = await _startPlaywright(webUi, env);
+      final output = StringBuffer();
+      void relay(Stream<List<int>> s) =>
+          s.transform(utf8.decoder).listen((chunk) {
+            output.write(chunk);
+            stdout.write(chunk);
+          });
+      relay(proc.stdout);
+      relay(proc.stderr);
+
+      // Keep the app's frames running while the browser drives the server.
+      int? code;
+      proc.exitCode.then((c) => code = c);
+      final deadline = DateTime.now().add(
+        Duration(minutes: 25 * kCiTimeoutScale),
+      );
+      while (code == null && DateTime.now().isBefore(deadline)) {
         await _idle(tester);
       }
-      await _settlePump();
-      await host.stop();
-      await backend.close();
-      return;
+      if (code == null) {
+        await _stopProcess(proc);
+        code = await proc.exitCode.timeout(
+          const Duration(seconds: 1),
+          onTimeout: () => -1,
+        );
+      }
+
+      expect(
+        code,
+        0,
+        reason:
+            'Playwright web UI suite failed (see output above and '
+            'web_ui/e2e/report/index.html):\n${output.toString().split('\n').reversed.take(60).toList().reversed.join('\n')}',
+      );
+    } finally {
+      await cleanup();
     }
-
-    // ── Playwright ──────────────────────────────────────────────────────
-    final proc = await Process.start(
-      'npx',
-      ['playwright', 'test', '--config', 'e2e/playwright.config.ts'],
-      workingDirectory: webUi.path,
-      runInShell: Platform.isWindows,
-      environment: env,
-    );
-    final output = StringBuffer();
-    void relay(Stream<List<int>> s) =>
-        s.transform(utf8.decoder).listen((chunk) {
-          output.write(chunk);
-          stdout.write(chunk);
-        });
-    relay(proc.stdout);
-    relay(proc.stderr);
-
-    // Keep the app's frames running while the browser drives the server.
-    int? code;
-    proc.exitCode.then((c) => code = c);
-    final deadline = DateTime.now().add(
-      Duration(minutes: 25 * kCiTimeoutScale),
-    );
-    while (code == null && DateTime.now().isBefore(deadline)) {
-      await _idle(tester);
-    }
-    if (code == null) proc.kill();
-
-    await _settlePump();
-    await host.stop();
-    await backend.close();
-    try {
-      sandbox.deleteSync(recursive: true);
-    } on FileSystemException {
-      // A straggler may still be writing; not a failure.
-    }
-
-    expect(
-      code,
-      0,
-      reason:
-          'Playwright web UI suite failed (see output above and '
-          'web_ui/e2e/report/index.html):\n${output.toString().split('\n').reversed.take(60).toList().reversed.join('\n')}',
-    );
   }, timeout: const Timeout(Duration(hours: 4)));
 }
