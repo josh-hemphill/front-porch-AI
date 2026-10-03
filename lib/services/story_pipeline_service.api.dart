@@ -203,6 +203,7 @@ extension StoryPipelineApi on StoryPipelineService {
       if (project.acts.isEmpty) {
         await (_studio(project) ? _studioActs(project) : _quickActs(project));
       }
+      if (_studio(project)) await _studioArchiveMissed(project);
       var next = _nextUnfinished(project);
       if (next == null) {
         if (_studio(project)) {

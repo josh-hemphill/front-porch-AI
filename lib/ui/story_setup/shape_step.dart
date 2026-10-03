@@ -52,6 +52,16 @@ class ShapeStep extends StatelessWidget {
           ),
         ),
         SetupNote(pacing.summary),
+        if (draft.lengthWarning != null)
+          Text(
+            draft.lengthWarning!,
+            key: const ValueKey('story-length-warning'),
+            style: StudioType.ui(
+              context,
+              size: 12,
+              color: StudioColors.honeyOf(context),
+            ),
+          ),
       ],
     );
     final format = StoryCard(

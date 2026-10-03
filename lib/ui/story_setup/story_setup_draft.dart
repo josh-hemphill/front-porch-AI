@@ -90,6 +90,11 @@ class StorySetupDraft {
   /// step hides both pickers and nothing picked earlier is saved.
   bool get toneFromChat => chatSource?.faithful ?? false;
 
+  /// Shown under Length when a faithful chat is too small for it.
+  String? get lengthWarning => toneFromChat
+      ? chatLengthWarning(chatSource!.messageCount, proseLength)
+      : null;
+
   void dispose() {
     titleController.dispose();
     conceptController.dispose();
@@ -160,6 +165,12 @@ class StorySetupDraft {
     useChatHistory = true;
     selectedCharacterIds.add(source.characterId);
     characterRoles.putIfAbsent(source.characterId, () => 'Protagonist');
+    // Fit the length to the chat unless one was already chosen.
+    if (source.faithful &&
+        source.messageCount > 0 &&
+        proseLength == 'Standard') {
+      proseLength = suggestedLengthForChat(source.messageCount);
+    }
     if (conceptController.text.trim().isEmpty) {
       conceptController.text = source.faithful
           ? 'A faithful novelization of the roleplay between '

@@ -56,6 +56,27 @@ extension StoryPipelineStudioMemory on StoryPipelineService {
     }
   }
 
+  /// A Stop (or a failed call) between a scene's last beat and its archive
+  /// leaves a written scene the ledgers never heard about: no summary, no
+  /// continuity facts, no relationship moves. Later scenes would then be
+  /// written from its plan, not from what it actually said. Catch those up
+  /// before writing on.
+  Future<void> _studioArchiveMissed(StoryProject project) async {
+    for (final ref in project.orderedScenes) {
+      final count =
+          project
+              .beats[StoryProjectShape.sceneKey(ref.act, ref.index)]
+              ?.length ??
+          0;
+      if (count == 0 ||
+          project.beatsWritten(ref.act, ref.index) < count ||
+          ref.scene.summary.isNotEmpty) {
+        continue;
+      }
+      await _studioArchive(project, ref.act, ref.index);
+    }
+  }
+
   /// Once every scene of a sequence is written, condense it to a paragraph
   /// so later stages carry one line of history instead of a dozen.
   Future<void> _studioSequenceSummary(StoryProject project, int number) async {

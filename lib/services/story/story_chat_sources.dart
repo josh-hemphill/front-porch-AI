@@ -24,6 +24,32 @@ const int kShortChatMessages = 20;
 /// How many chats the picker lists at once; search narrows the rest.
 const int kChatSourcePageSize = 50;
 
+/// Roughly how many chat messages each length needs before a faithful
+/// retelling stops being mostly invented. Estimates, not measurements: the
+/// shortest length is still a 30,000-word novella.
+const Map<String, int> kChatMessagesForLength = {
+  'Short': 60,
+  'Standard': 150,
+  'Epic': 400,
+};
+
+/// The length a faithful retelling of a chat with [messages] starts on.
+String suggestedLengthForChat(int messages) =>
+    messages < kChatMessagesForLength['Standard']! ? 'Short' : 'Standard';
+
+/// Plain words for a chat too small for the chosen [length], or null when
+/// it fits. [messages] 0 means the size is not known.
+String? chatLengthWarning(int messages, String length) {
+  final needed = kChatMessagesForLength[length];
+  if (messages <= 0 || needed == null || messages >= needed) return null;
+  final count = '$messages message${messages == 1 ? '' : 's'}';
+  return length == 'Short'
+      ? 'This chat has $count. Even the shortest length is a 30,000-word '
+            'novella, so most of the story will be invented around the chat.'
+      : 'This chat has $count. A story this long will be mostly invented. '
+            'A shorter length stays closer to the chat.';
+}
+
 /// One 1:1 chat a story can start from.
 class StoryChatSourceRow {
   const StoryChatSourceRow({

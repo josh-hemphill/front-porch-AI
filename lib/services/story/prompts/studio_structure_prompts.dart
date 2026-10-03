@@ -241,6 +241,7 @@ PASS when the breakdown is sound; note small suggestions without failing. FAIL o
       if (canon.isNotEmpty)
         '<canon_events> are the spine: scenes dramatise the events that fall '
             'in this sequence, in order.',
+      if (p.faithfulMode) StudioContext.noNewPeople,
     ];
     return StudioContext.join([
       scenesRole,

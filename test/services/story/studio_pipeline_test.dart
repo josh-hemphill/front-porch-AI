@@ -385,6 +385,48 @@ void main() {
     await h.dispose();
   });
 
+  test('a scene stopped before its archive is archived when writing '
+      'resumes', () async {
+    late StoryPipelineService pipeline;
+    var stopOnArchive = true;
+    final h = await _harness((stage, n, prompt) {
+      if (stage == 'archivist' && stopOnArchive) {
+        stopOnArchive = false;
+        pipeline.requestStop();
+        return '';
+      }
+      return switch (stage) {
+        'acts' => _acts(),
+        'sequences' => _sequences(),
+        'scenes' => _scenes(2),
+        'beats' => _beats(3),
+        'write' => _prose(n),
+        'archivist' => _archive,
+        'summary' =>
+          '<response><story_so_far>Two scenes passed.</story_so_far></response>',
+        _ => _pass,
+      };
+    });
+    pipeline = h.pipeline;
+    final p = await _studioProject(h.repo);
+    p.cast = [StoryCastMember(name: 'Wren Hale', role: 'Protagonist')];
+    await h.pipeline.runActStructurer(p);
+    await h.pipeline.planSequenceScenes(p, 1);
+
+    // Stop lands on the archivist: every beat of 1.1 is written, but the
+    // scene's summary and facts never were.
+    await h.pipeline.writeNextScene(p);
+    final first = p.scenes[0]!.first;
+    expect(p.beatsWritten(0, 0), 3);
+    expect(first.summary, isEmpty);
+
+    await h.pipeline.writeNextScene(p);
+
+    expect(first.summary, 'They talked on the porch.');
+    expect(p.beatsWritten(0, 1), 3, reason: 'and writing carried on');
+    await h.dispose();
+  });
+
   test('Stop ends the run quietly at the next model call', () async {
     late StoryPipelineService pipeline;
     final h = await _harness((stage, n, prompt) {

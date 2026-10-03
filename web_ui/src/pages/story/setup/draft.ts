@@ -150,7 +150,30 @@ export function adoptChat(d: Draft, source: ChatSource, userName: string): Draft
     : source.faithful
       ? `A faithful novelization of the roleplay between ${source.characterName} and ${userName}: the real events of their chat, retold as prose.`
       : `A story inspired by the roleplay between ${source.characterName} and ${userName}.`;
-  return { ...d, chatSource: source, useChatHistory: true, castIds, roles, concept };
+  // Fit the length to the chat unless one was already chosen.
+  const proseLength = source.faithful && source.messageCount > 0 && d.proseLength === 'Standard'
+    ? suggestedLengthForChat(source.messageCount)
+    : d.proseLength;
+  return { ...d, chatSource: source, useChatHistory: true, castIds, roles, concept, proseLength };
+}
+
+/** Roughly how many chat messages each length needs before a faithful retelling stops being mostly invented. Twin of kChatMessagesForLength. */
+export const CHAT_MESSAGES_FOR_LENGTH: Record<string, number> = { Short: 60, Standard: 150, Epic: 400 };
+
+/** The length a faithful retelling of a chat this size starts on. */
+export function suggestedLengthForChat(messages: number): string {
+  return messages < CHAT_MESSAGES_FOR_LENGTH.Standard ? 'Short' : 'Standard';
+}
+
+/** Plain words for a faithful chat too small for the chosen length, or null when it fits (0 messages = size unknown). */
+export function lengthWarning(d: Draft): string | null {
+  const messages = d.chatSource?.messageCount ?? 0;
+  const needed = CHAT_MESSAGES_FOR_LENGTH[d.proseLength];
+  if (!toneFromChat(d) || messages <= 0 || needed === undefined || messages >= needed) return null;
+  const count = `${messages} message${messages === 1 ? '' : 's'}`;
+  return d.proseLength === 'Short'
+    ? `This chat has ${count}. Even the shortest length is a 30,000-word novella, so most of the story will be invented around the chat.`
+    : `This chat has ${count}. A story this long will be mostly invented. A shorter length stays closer to the chat.`;
 }
 
 /** A faithful retelling takes its genre and mood from the chat: the Shape step hides both pickers and nothing picked earlier is saved. */

@@ -102,6 +102,7 @@ abstract final class StudioProsePrompts {
       'Do not draw a straight line from start to finish. Invent the small '
           'events in between: a deflection, a discovery, a pause that says '
           'too much, a shift in who holds the room.',
+      if (p.faithfulMode) StudioContext.noNewPeople,
       'Beats are linked by cause ("therefore", "but"), never just sequence. '
           'A new beat starts when someone changes tactic.',
       'Say who does what to whom. Each beat names its initiator, the reactor '

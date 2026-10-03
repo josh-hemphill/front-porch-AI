@@ -9,7 +9,7 @@ import { api } from '../../../api/client';
 import {
   DIALOGUE_LABELS, GENRES, MATURITY_LABELS, MOODS, PACE_LABELS, POV_LABELS, TARGET_LENGTHS, WRITING_STYLES,
 } from '../../../storyTypes';
-import { targetWordsFor, toneFromChat, type Draft } from './draft';
+import { lengthWarning, targetWordsFor, toneFromChat, type Draft } from './draft';
 import { ChipRow, Field, Note, Segmented } from './primitives';
 
 const LENGTHS = Object.fromEntries(TARGET_LENGTHS.map((t) => [t.key, t.label]));
@@ -41,6 +41,9 @@ export function ShapeStep({ draft, set }: { draft: Draft; set: (next: Draft) => 
               onSelect={(v) => set({ ...draft, proseLength: v })} />
           </Field>
           {summary && <Note>{summary}</Note>}
+          {lengthWarning(draft) && (
+            <span className="s-small" style={{ color: 'var(--studio-honey)' }} data-testid="story-length-warning">{lengthWarning(draft)}</span>
+          )}
         </div>
         <div className="s-card">
           <Field label="Format">

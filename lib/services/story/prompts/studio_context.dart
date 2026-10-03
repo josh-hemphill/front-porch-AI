@@ -29,6 +29,13 @@ abstract final class StudioContext {
       'fences, no commentary before or after. Wrap the whole answer in '
       '<response>…</response>.';
 
+  /// Faithful retellings: planning may connect the chat's events, but not
+  /// by bringing in people the chat never had.
+  static const noNewPeople =
+      'This is a faithful retelling. Every named character must already be '
+      'in the cast. Do not introduce new named people; an unnamed passer-by '
+      'who does not affect events is the most a scene may add.';
+
   static String block(String tag, String body) =>
       body.trim().isEmpty ? '' : '<$tag>\n${body.trim()}\n</$tag>';
 

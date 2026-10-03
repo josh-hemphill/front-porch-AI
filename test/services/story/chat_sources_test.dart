@@ -121,6 +121,24 @@ void main() {
     expect(rows.last.isShort, isFalse);
   });
 
+  test('a small chat starts on the shortest length and is warned about '
+      'longer ones', () {
+    expect(suggestedLengthForChat(13), 'Short');
+    expect(suggestedLengthForChat(149), 'Short');
+    expect(suggestedLengthForChat(150), 'Standard');
+
+    expect(chatLengthWarning(13, 'Standard'), contains('13 messages'));
+    expect(chatLengthWarning(13, 'Standard'), contains('mostly invented'));
+    // Even the shortest length is a novella: a tiny chat is told so.
+    expect(chatLengthWarning(13, 'Short'), contains('30,000-word'));
+    expect(chatLengthWarning(1, 'Short'), contains('1 message.'));
+    expect(chatLengthWarning(60, 'Short'), isNull);
+    expect(chatLengthWarning(200, 'Standard'), isNull);
+    expect(chatLengthWarning(200, 'Epic'), isNotNull);
+    // Size unknown (a story reopened from the shelf): say nothing.
+    expect(chatLengthWarning(0, 'Epic'), isNull);
+  });
+
   test('search needs every word, across character and chat name', () {
     StoryChatSourceRow row(String character, String chat) => StoryChatSourceRow(
       characterId: character,
