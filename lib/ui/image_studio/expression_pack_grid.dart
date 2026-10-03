@@ -238,7 +238,12 @@ class ExpressionPackGrid extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: AppColors.borderOf(context))),
       ),
-      child: Row(mainAxisAlignment: MainAxisAlignment.end, children: buttons),
+      child: Wrap(
+        alignment: WrapAlignment.end,
+        spacing: 8,
+        runSpacing: 8,
+        children: buttons,
+      ),
     );
   }
 }
