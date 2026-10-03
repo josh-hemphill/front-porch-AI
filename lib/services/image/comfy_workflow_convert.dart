@@ -351,11 +351,14 @@ _UiNode _readNode(Map raw, String id, String prefix) {
   if (wv is List) widgets.addAll(wv);
   final inputs = <_UiIn>[];
   final rawIns = raw['inputs'];
+  // A Reroute's only input is legitimately nameless; _followReroute needs
+  // it to carry the wire through. Nameless inputs elsewhere are UI-only.
+  final isReroute = raw['type'] == 'Reroute';
   if (rawIns is List) {
     for (final inp in rawIns) {
       if (inp is! Map) continue;
       final name = inp['name']?.toString() ?? '';
-      if (name.isEmpty) continue;
+      if (name.isEmpty && !isReroute) continue;
       final link = inp['link'];
       inputs.add(_UiIn(name, link is num ? '$prefix${link.toInt()}' : null));
     }
