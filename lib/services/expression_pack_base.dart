@@ -5,7 +5,7 @@ import 'dart:typed_data';
 
 import 'package:front_porch_ai/services/services.dart';
 
-/// Expressions workspace explicitly starts from the card's current portrait.
+/// Reads the card's current portrait from its stored image path.
 Future<Uint8List?> packCurrentPortraitImage(
   CharacterRepository repository,
   StorageService storage,
