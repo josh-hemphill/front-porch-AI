@@ -43,6 +43,18 @@ extension _ModelSettingsRemoteSection on _ModelSettingsDialogState {
     }
   }
 
+  /// Key for a probe of [apiUrl]: what is typed in the box, else what the
+  /// app itself would send there. The box stays blank on a SuperGrok
+  /// sign-in, so the typed text alone probes api.x.ai with no credentials.
+  String _probeKeyFor(String apiUrl) {
+    final typed = _apiKeyController.text.trim();
+    if (typed.isNotEmpty) return typed;
+    return Provider.of<StorageService>(
+      context,
+      listen: false,
+    ).backendSettings.remoteApiKeyFor(apiUrl);
+  }
+
   Future<void> _testConnection() async {
     rebuildState(() {
       _isTesting = true;
@@ -60,7 +72,7 @@ extension _ModelSettingsRemoteSection on _ModelSettingsDialogState {
     // fetchAvailableModels doc note).
     final result = await openRouter.testConnection(
       apiUrl: apiUrl,
-      apiKey: _apiKeyController.text.trim(),
+      apiKey: _probeKeyFor(apiUrl),
     );
     if (mounted) {
       rebuildState(() {
