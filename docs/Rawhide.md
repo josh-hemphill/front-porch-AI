@@ -24,6 +24,7 @@ Last shipped nightly: `rawhide.20261001.06827b2`. Everything below is unreleased
 - ⚡ **Long chats on the phone stay smooth while a reply streams in.**
 - ⌨️ **Japanese, Chinese and Korean keyboards no longer send mid-word** when Enter picks a character.
 - 🖼️ **A photo the phone can't read is no longer dropped quietly** — your text and photo stay put with a note.
+- 💡 **Suggested actions stay in the chat they were made for** — tapping Suggest actions and then opening another character no longer shows those suggestions (or the "Thinking…" spinner) under that chat's last message.
 
 - 🤖 **xAI is a chat backend** — pick xAI in Settings → Backend (or Model Settings) and sign in with SuperGrok to use your subscription allowance instead of paid API credits. The sign-in is unofficial and at your own risk; an xAI API key also works. The sign-in borrows xAI's own Grok CLI login, so xAI may block it at any time. If your allowance runs out, chat says so in plain words. Same on the phone.
 

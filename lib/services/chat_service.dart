@@ -171,8 +171,8 @@ class ChatService extends ChangeNotifier
   ImageGenService? _imageGenService;
   MemoryService? _memoryService;
 
-  List<String> get suggestedActions => _suggestedActions;
-  bool get isGeneratingActions => _isGeneratingActions;
+  List<String> get suggestedActions => _anchoredSuggestedActions;
+  bool get isGeneratingActions => _anchoredIsGeneratingActions;
 
   Objective? get primaryObjective =>
       _activeObjectives.where((o) => o.isPrimary).firstOrNull;

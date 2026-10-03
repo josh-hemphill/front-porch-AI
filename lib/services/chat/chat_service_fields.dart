@@ -29,6 +29,11 @@ mixin ChatServiceFieldBag {
   // Action suggestions
   List<String> _suggestedActions = [];
   bool _isGeneratingActions = false;
+  // The message the suggestions (or the in-flight generation) were made for.
+  // Every chat switch / load / fork / tail-delete path rebuilds `_messages`,
+  // so "anchor is still the last message" is the one check that keeps
+  // suggestions from leaking onto another chat's latest bubble (#329).
+  ChatMessage? _suggestedActionsAnchor;
   // Objective/quest system
   List<Objective> _activeObjectives = [];
 
