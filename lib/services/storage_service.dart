@@ -102,6 +102,7 @@ class StorageService extends ChangeNotifier {
 
   /// Cache directory for downscaled web-UI avatar thumbnails (derived data).
   Directory get webThumbnailCacheDir => directories.webThumbnailCacheDir;
+  Directory get stoopAssetCacheDir => directories.stoopAssetCacheDir;
 
   // Public accessors to extracted domain settings (post-Stage 7).
   // Callers use storage.generationSettings.systemPrompt etc.

@@ -14,6 +14,8 @@ import 'package:provider/provider.dart';
 
 import 'package:front_porch_ai/providers/auth_state.dart';
 import 'package:front_porch_ai/services/backporch/backporch.dart';
+import 'package:front_porch_ai/services/storage_service.dart';
+import 'package:front_porch_ai/ui/pages/repository/stoop_avatar.dart';
 import 'package:front_porch_ai/ui/pages/repository/stoop_card_tile.dart';
 import 'package:front_porch_ai/ui/pages/repository/stoop_detail_top.dart';
 
@@ -55,8 +57,11 @@ StoopCardDetail _detail() => StoopCardDetail(
 
 Future<void> _pump(WidgetTester tester, Widget child) async {
   await tester.pumpWidget(
-    ChangeNotifierProvider<AuthState>(
-      create: (_) => _SignedIn(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AuthState>(create: (_) => _SignedIn()),
+        ChangeNotifierProvider<StorageService>(create: (_) => StorageService()),
+      ],
       child: MaterialApp(
         home: Scaffold(body: SingleChildScrollView(child: child)),
       ),
@@ -66,11 +71,20 @@ Future<void> _pump(WidgetTester tester, Widget child) async {
   await tester.pump(const Duration(seconds: 1));
 }
 
-Image _art(WidgetTester tester) => tester.widget<Image>(find.byType(Image));
+// The outermost Image: on the card page that is the original, whose
+// stand-in (the thumb) only exists inside its builders.
+Image _art(WidgetTester tester) =>
+    tester.widget<Image>(find.byType(Image).first);
+
+StoopAssetImage _source(WidgetTester tester) =>
+    _art(tester).image as StoopAssetImage;
 
 double _artBoxRatio(WidgetTester tester) => tester
     .widget<AspectRatio>(
-      find.ancestor(of: find.byType(Image), matching: find.byType(AspectRatio)),
+      find.ancestor(
+        of: find.byType(Image).first,
+        matching: find.byType(AspectRatio),
+      ),
     )
     .aspectRatio;
 
@@ -91,6 +105,7 @@ void main() {
     expect(_artBoxRatio(tester), 1);
     expect(_art(tester).alignment, Alignment.topCenter);
     expect(_art(tester).fit, BoxFit.cover);
+    expect(_source(tester).thumb, isTrue, reason: 'tiles load the postcard');
   });
 
   testWidgets('world tile: 16:10 landscape box, art centred', (tester) async {
@@ -122,7 +137,15 @@ void main() {
     );
     expect(_art(tester).fit, BoxFit.fitWidth);
     expect(
-      find.ancestor(of: find.byType(Image), matching: find.byType(AspectRatio)),
+      _source(tester).thumb,
+      isFalse,
+      reason: 'the card page shows the original',
+    );
+    expect(
+      find.ancestor(
+        of: find.byType(Image).first,
+        matching: find.byType(AspectRatio),
+      ),
       findsNothing,
       reason: 'the hub shows the whole card image at its own height',
     );

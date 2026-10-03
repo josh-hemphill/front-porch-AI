@@ -108,6 +108,7 @@ class StoopDetailTop extends StatelessWidget {
           assetId: detail.primaryAssetId,
           width: double.infinity,
           fit: BoxFit.fitWidth,
+          thumb: false,
         ),
       ),
     );

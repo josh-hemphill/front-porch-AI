@@ -444,8 +444,13 @@ export const stoop = {
     (await call<{ message: StoopMessage }>('POST', '/api/stoop/me/messages', { body }))
       .message,
 
-  /** Authenticated avatar URL — the server attaches the remembered token. */
-  assetUrl: (assetId: string) => `/api/stoop/assets/${encodeURIComponent(assetId)}`,
+  /**
+   * Authenticated avatar URL — the server attaches the remembered token.
+   * `thumb` (the default) is the postcard WebP the hub shows on tiles; the
+   * card page asks for the original.
+   */
+  assetUrl: (assetId: string, opts: { thumb?: boolean } = {}) =>
+    `/api/stoop/assets/${encodeURIComponent(assetId)}${opts.thumb === false ? '' : '?v=thumb'}`,
 };
 
 /** Human messages for the upstream machine codes the UI commonly hits. */
