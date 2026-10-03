@@ -187,6 +187,9 @@ extension WebServerHostWiring on WebServerHost {
             streamHub,
             snapshotBuilder: snapshotBuilder,
             tts: _ttsService,
+            storage: _storage,
+            llm: _llmProvider,
+            imageGen: _imageGenService,
           )
         : null;
 

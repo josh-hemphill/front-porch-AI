@@ -17,11 +17,15 @@
 // along with Front Porch AI. If not, see <https://www.gnu.org/licenses/>.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/services.dart';
+import 'package:front_porch_ai/services/story/story.dart';
 import 'package:front_porch_ai/services/web/facade/story_snapshot_builder.dart';
 import 'package:front_porch_ai/services/web/streaming/stream_hub.dart';
+
+part 'story_facade.studio.dart';
 
 /// Web adapter for Porch Stories. The generator ([StoryPipelineService]) and the
 /// store ([StoryRepository]) are already fully headless, so this is a thin
@@ -34,14 +38,23 @@ class StoryFacade {
     this._hub, {
     StorySnapshotBuilder? snapshotBuilder,
     TtsService? tts,
+    StorageService? storage,
+    LLMProvider? llm,
+    ImageGenService? imageGen,
   }) : _snapshotBuilder = snapshotBuilder,
-       _tts = tts;
+       _tts = tts,
+       _storage = storage,
+       _llm = llm,
+       _imageGen = imageGen;
 
   final StoryRepository _repo;
   final StoryPipelineService _pipeline;
   final StreamHub? _hub;
   final StorySnapshotBuilder? _snapshotBuilder;
   final TtsService? _tts;
+  final StorageService? _storage;
+  final LLMProvider? _llm;
+  final ImageGenService? _imageGen;
 
   bool _loaded = false;
 
@@ -72,9 +85,24 @@ class StoryFacade {
         'genre': p.style.genre,
         'mood': p.style.mood,
         'tier': p.promptTier.name,
+        'engine': p.engineMode.name,
         'sceneCount': sceneCount,
         'proseCount': proseCount,
         'hasConcept': p.concept.trim().isNotEmpty,
+        // The shelf (sketch H): one wording for desktop and web.
+        'setupStep': p.setupStep,
+        'wordCount': p.wordCount,
+        'targetWords': p.targetWords,
+        'genreLine': storyGenreLine(p),
+        'shelf': () {
+          final st = storyShelfStatus(p);
+          return {
+            'status': st.status,
+            'fraction': st.fraction,
+            'done': st.done,
+            'setup': st.setup,
+          };
+        }(),
       };
     }).toList();
   }
@@ -129,11 +157,20 @@ class StoryFacade {
   /// full-project save from the reader would overwrite pipeline output or
   /// desktop edits made since the reader loaded. Same write as the desktop
   /// reader's page-flip.
-  Future<bool> saveReadingPosition(String id, int pageIndex) async {
+  Future<bool> saveReadingPosition(
+    String id,
+    int? pageIndex, {
+    String? mode,
+    double? scroll,
+  }) async {
     await _ensureLoaded();
     final project = _repo.getById(id);
     if (project == null) return false;
-    project.lastReadPageIndex = pageIndex < 0 ? 0 : pageIndex;
+    if (pageIndex != null) {
+      project.lastReadPageIndex = pageIndex < 0 ? 0 : pageIndex;
+    }
+    if (mode == 'book' || mode == 'scroll') project.readerMode = mode!;
+    if (scroll != null) project.readerScroll = scroll.clamp(0.0, 1.0);
     await _repo.saveProject(project);
     return true;
   }
@@ -148,9 +185,13 @@ class StoryFacade {
   /// Current pipeline progress (also pushed live over the hub during a run).
   Map<String, dynamic> status() => {
     'running': _pipeline.isRunning,
+    'stopping': _pipeline.stopRequested,
     'step': _pipeline.currentStep,
     'status': _pipeline.statusMessage,
     'tokens': _pipeline.tokenCount,
+    // The beat being written streams in place on the Write screen. The
+    // pipeline notifies every ~3 tokens, so this rides the same cadence.
+    'streamingText': _pipeline.streamingText,
   };
 
   /// Kick off one pipeline [stage] in the background. Progress streams as
@@ -163,11 +204,12 @@ class StoryFacade {
     int? actIndex,
     int? sceneIndex,
     int? beatIndex,
+    Map<String, dynamic> args = const {},
   }) async {
     await _ensureLoaded();
     final p = _repo.getById(id);
     if (p == null) return false;
-    final job = _dispatch(p, stage, actIndex, sceneIndex, beatIndex);
+    final job = _dispatch(p, stage, actIndex, sceneIndex, beatIndex, args);
     if (job == null) return false;
 
     // Scope the progress listener to this job's lifetime so nothing leaks across
@@ -195,8 +237,34 @@ class StoryFacade {
     int? a,
     int? s,
     int? b,
+    Map<String, dynamic> args,
   ) {
+    String text(String key) => args[key]?.toString() ?? '';
     switch (stage) {
+      case 'write-next':
+        return _pipeline.writeNextScene(p);
+      case 'plan-sequence':
+        final n = args['sequence'];
+        return n is int ? _pipeline.planSequenceScenes(p, n) : null;
+      case 'rewrite-beat':
+        return (a == null || s == null || b == null)
+            ? null
+            : _pipeline.rewriteBeat(p, a, s, b, directive: text('directive'));
+      case 'interview':
+        return text('name').isEmpty
+            ? null
+            : _pipeline.runCharacterInterview(p, text('name'));
+      case 'director-plan':
+        return text('directive').isEmpty
+            ? null
+            : _pipeline.runDirectorPlan(
+                p,
+                text('directive'),
+                protectWrittenProse: args['protect'] != false,
+                refinement: text('refinement'),
+              );
+      case 'director-apply':
+        return _pipeline.applyDirectorPlan(p);
       case 'chat-distiller':
         return _pipeline.runChatDistiller(p);
       case 'story-architect':
