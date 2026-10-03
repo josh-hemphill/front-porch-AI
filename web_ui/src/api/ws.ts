@@ -92,6 +92,9 @@ export class ChatSocket {
       }
     };
     ws.onclose = () => {
+      // A socket that was replaced or closed on purpose must not clear, or
+      // reconnect over, the one that came after it.
+      if (this.ws !== ws) return;
       this.ws = null;
       if (!this.closed) this.scheduleReconnect();
     };
@@ -112,7 +115,18 @@ export class ChatSocket {
 
   close(): void {
     this.closed = true;
-    this.ws?.close();
+    const ws = this.ws;
     this.ws = null;
+    if (!ws) return;
+    // Leaving a page before its socket has connected: closing it now makes
+    // Safari log "WebSocket is closed before the connection is established".
+    // Let it finish connecting, then close it.
+    if (ws.readyState === WebSocket.CONNECTING) {
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onopen = () => ws.close();
+      return;
+    }
+    ws.close();
   }
 }
