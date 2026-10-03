@@ -19,17 +19,22 @@ import 'package:front_porch_ai/ui/theme/app_colors.dart';
 /// Loads a Stoop card asset (avatar) by id. The asset endpoint serves only
 /// signed-in users, so the request carries the access token as a Bearer header.
 /// Falls back to a neutral placeholder while loading or on error.
+///
+/// Crops anchor to the top like the hub (`object-position: center top`):
+/// card art is portrait, and a centred crop in a square box takes the head.
 class StoopAvatar extends StatelessWidget {
   final String? assetId;
   final double? width;
   final double? height;
   final BoxFit fit;
+  final Alignment alignment;
   const StoopAvatar({
     super.key,
     required this.assetId,
     this.width,
     this.height,
     this.fit = BoxFit.cover,
+    this.alignment = Alignment.topCenter,
   });
 
   @override
@@ -42,34 +47,46 @@ class StoopAvatar extends StatelessWidget {
       width: width,
       height: height,
       fit: fit,
+      alignment: alignment,
       headers: {'Authorization': 'Bearer $token'},
       gaplessPlayback: true,
       errorBuilder: (_, _, _) => _placeholder(context),
-      loadingBuilder: (context, child, progress) =>
-          progress == null ? child : _placeholder(context, loading: true),
+      // frame is null until the first decoded frame — including the window
+      // before the first byte, where loadingBuilder's progress is also null
+      // and a natural-height image would lay out at zero height.
+      frameBuilder: (context, child, frame, _) =>
+          frame == null ? _placeholder(context, loading: true) : child,
     );
   }
 
   // Hub placeholder: a faint lantern on the inset ground (.hub-tile-art).
+  // With no height of its own (natural-height art, e.g. the detail page) it
+  // holds a portrait box so the layout does not collapse while loading;
+  // under a tight box (tiles) AspectRatio just fills it.
   Widget _placeholder(BuildContext context, {bool loading = false}) {
-    return Container(
+    final box = Container(
       width: width,
       height: height,
       color: stoopBg1(context),
       alignment: Alignment.center,
-      child: loading
-          ? const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: AppColors.stoopAmber,
-              ),
-            )
-          : const Opacity(
-              opacity: 0.35,
-              child: Text('🏮', style: TextStyle(fontSize: 30)),
-            ),
+      child: _placeholderMark(loading),
     );
+    return height == null ? AspectRatio(aspectRatio: 3 / 4, child: box) : box;
+  }
+
+  Widget _placeholderMark(bool loading) {
+    return loading
+        ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppColors.stoopAmber,
+            ),
+          )
+        : const Opacity(
+            opacity: 0.35,
+            child: Text('🏮', style: TextStyle(fontSize: 30)),
+          );
   }
 }
