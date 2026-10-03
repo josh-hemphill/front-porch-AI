@@ -46,6 +46,18 @@ export function regenerateBibleCopy(p: StoryProject): ConfirmCopy {
   };
 }
 
+export function rewriteArcCopy(p: StoryProject): ConfirmCopy {
+  const written = scenesWritten(p);
+  const scenes = written > 0 ? ` and ${written} written ${plural(written, 'scene', 'scenes')}` : '';
+  const kept = (p.acts ?? []).length > 0 ? ` Your acts${scenes} stay but may no longer match.` : '';
+  return {
+    title: 'Rewrite the arc?',
+    body: 'This rewrites the inciting incident, themes, twists and threads together, to fit your world and cast. '
+      + `The world, cast and interviews stay as they are.${kept}`,
+    confirmLabel: 'Rewrite',
+  };
+}
+
 export const redistillCopy: ConfirmCopy = {
   title: 'Redistill the chat?',
   body: 'The timeline is rebuilt from the chat. The bible is not changed; regenerate it afterwards if the timeline moved.',

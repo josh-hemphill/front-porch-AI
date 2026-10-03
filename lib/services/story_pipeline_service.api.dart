@@ -24,6 +24,53 @@ part of 'story_pipeline_service.dart';
 extension StoryPipelineApi on StoryPipelineService {
   bool _studio(StoryProject p) => p.engineMode == StoryEngineMode.studio;
 
+  /// Every 1:1 chat a story can start from, newest first. Chats where the
+  /// user never wrote anything are left out: a greeting alone is no story.
+  Future<List<StoryChatSourceRow>> chatSources() async {
+    final names = {
+      for (final c in await _db.select(_db.characters).get()) c.id: c.name,
+    };
+    final sessions = await _db.select(_db.sessions).get();
+    final mine = sessions
+        .where(
+          (s) =>
+              s.groupId == null &&
+              s.deletedAt == null &&
+              names.containsKey(s.characterId),
+        )
+        .toList();
+    final ids = [for (final s in mine) s.id];
+    final rows = <StoryChatSourceRow>[];
+    // Batched: one SQL variable per id, and libraries run to thousands.
+    const batch = 400;
+    final stats = <String, ({int count, int userCount})>{};
+    for (var i = 0; i < ids.length; i += batch) {
+      final part = await _db.getSessionListStats(
+        ids.sublist(i, (i + batch).clamp(0, ids.length)),
+      );
+      for (final e in part.entries) {
+        stats[e.key] = (count: e.value.count, userCount: e.value.userCount);
+      }
+    }
+    for (final s in mine) {
+      final stat = stats[s.id];
+      if (stat == null || stat.userCount == 0) continue;
+      rows.add(
+        StoryChatSourceRow(
+          characterId: s.characterId!,
+          characterName: names[s.characterId]!,
+          sessionId: s.id,
+          sessionName: s.name ?? '',
+          summary: s.summary ?? '',
+          createdAt: s.createdAt,
+          messageCount: stat.count,
+        ),
+      );
+    }
+    rows.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return rows;
+  }
+
   /// Stage 0: chat history → event timeline (both engines).
   Future<void> runChatDistiller(StoryProject project) =>
       _guard(() => _chatDistiller(project));
@@ -34,9 +81,11 @@ extension StoryPipelineApi on StoryPipelineService {
   );
 
   /// Bible → acts (and, in Studio, the eight sequences).
-  Future<void> runActStructurer(StoryProject project) => _guard(
-    () => _studio(project) ? _studioActs(project) : _quickActs(project),
-  );
+  Future<void> runActStructurer(StoryProject project) => _guard(() async {
+    if (!_studio(project)) return _quickActs(project);
+    await _finishBible(project);
+    await _studioActs(project);
+  });
 
   /// Act → scenes. In Studio every sequence of the act that has no scenes
   /// yet is planned; sequences already planned are left alone.

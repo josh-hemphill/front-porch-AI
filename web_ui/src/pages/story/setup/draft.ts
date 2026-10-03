@@ -153,6 +153,11 @@ export function adoptChat(d: Draft, source: ChatSource, userName: string): Draft
   return { ...d, chatSource: source, useChatHistory: true, castIds, roles, concept };
 }
 
+/** A faithful retelling takes its genre and mood from the chat: the Shape step hides both pickers and nothing picked earlier is saved. */
+export function toneFromChat(d: Draft): boolean {
+  return d.chatSource?.faithful ?? false;
+}
+
 export function dropChat(d: Draft): Draft {
   const source = d.chatSource;
   if (!source) return { ...d, useChatHistory: false };
@@ -266,8 +271,8 @@ export function applyDraft(base: StoryProject, d: Draft, chars: CharacterRow[], 
     user_persona_role: d.personaRole,
     pov: d.pov,
     act_count: d.engineMode === 'studio' ? STUDIO_ACT_COUNT : d.actCount,
-    selected_genres: [...d.genres],
-    selected_moods: [...d.moods],
+    selected_genres: toneFromChat(d) ? [] : [...d.genres],
+    selected_moods: toneFromChat(d) ? [] : [...d.moods],
     writing_style: d.writingStyle,
     prose_length: d.proseLength,
     narrative_pace: d.pace,

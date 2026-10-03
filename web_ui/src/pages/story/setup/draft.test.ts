@@ -26,9 +26,10 @@ describe('New Story draft ↔ project JSON', () => {
       reviewEnabled: false, lensesEnabled: false,
     };
     const p = applyDraft(blank, d, chars, 'Teodor');
+    // The chat is a faithful retelling, so the picked genre and mood are not saved.
     expect(p).toMatchObject({
       title: 'The Salt Road', engine_mode: 'quick', target_words: 120000, story_format: 'audioDrama', act_count: 4,
-      prompt_tier: 'smallLocal', pov: 'First Person', selected_genres: ['Fantasy'], selected_moods: ['Dark'],
+      prompt_tier: 'smallLocal', pov: 'First Person', selected_genres: [], selected_moods: [],
       writing_style: 'Gothic', prose_length: 'Epic', narrative_pace: 'Slow Burn', dialogue_density: 'Sparse',
       maturity_rating: 'Explicit', review_enabled: false, lenses_enabled: false, include_user_persona: true,
       user_persona_role: 'Mentor', use_chat_history: true, chat_history_character_ids: ['c1', 'c2'],
@@ -48,12 +49,19 @@ describe('New Story draft ↔ project JSON', () => {
   });
 
   it('round-trips through the project, roles and chat included', () => {
-    const d = { ...adoptChat(emptyDraft(), chat, 'Teodor'), genres: ['Fantasy', 'Horror'], roles: { c1: 'Mentor' } };
+    const d = { ...adoptChat(emptyDraft(), { ...chat, faithful: false }, 'Teodor'), genres: ['Fantasy', 'Horror'], roles: { c1: 'Mentor' } };
     const back = draftFromProject(applyDraft(blank, d, chars, 'Teodor'), chars);
     expect(back).toMatchObject({
       castIds: ['c1'], roles: { c1: 'Mentor' }, genres: ['Fantasy', 'Horror'], useChatHistory: true,
-      chatSource: { characterId: 'c1', sessionId: '1700', faithful: true },
+      chatSource: { characterId: 'c1', sessionId: '1700', faithful: false },
     });
+  });
+
+  it('a faithful retelling saves no picked genre or mood; "Inspired by" keeps them', () => {
+    const picked = { ...adoptChat(emptyDraft(), chat, 'Teodor'), genres: ['Horror'], moods: ['Dark'] };
+    expect(applyDraft(blank, picked, chars, 'Teodor')).toMatchObject({ selected_genres: [], selected_moods: [] });
+    const inspired = { ...picked, chatSource: { ...chat, faithful: false } };
+    expect(applyDraft(blank, inspired, chars, 'Teodor')).toMatchObject({ selected_genres: ['Horror'], selected_moods: ['Dark'] });
   });
 
   it('removing the chat takes its character out of the cast', () => {

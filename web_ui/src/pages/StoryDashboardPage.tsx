@@ -8,7 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useStory } from '../hooks/useStory';
-import { autopilotCopy, redistillCopy, regenerateBibleCopy } from './story/confirmCopy';
+import { autopilotCopy, redistillCopy, regenerateBibleCopy, rewriteArcCopy } from './story/confirmCopy';
 import { BibleCard } from './story/overview/BibleCard';
 import { CastCard, ChatCard, EngineCard, SoFarCard } from './story/overview/SideCards';
 import { UpNextCard } from './story/overview/UpNextCard';
@@ -69,7 +69,10 @@ export function StoryDashboardPage() {
           onAutopilot={() => ask(autopilotCopy(p), () => { void run('autopilot'); })} />
         <div className="s-over-cols">
           <BibleCard p={p} running={running} onSave={(patch) => { void save(patch); }}
-            onRegenerate={() => ask(regenerateBibleCopy(p), buildBible)} />
+            onRegenerate={() => ask(regenerateBibleCopy(p), buildBible)}
+            onRewriteArc={p.engine_mode === 'studio' && p.cast.length > 0
+              ? () => ask(rewriteArcCopy(p), () => { void run('story-arc'); })
+              : undefined} />
           <div className="s-col" style={{ gap: 12 }}>
             <CastCard id={id} p={p} onOpen={() => navigate(studioPath(id, 'cast'))} />
             {p.use_chat_history && <ChatCard p={p} running={running} onRedistill={redistill} />}

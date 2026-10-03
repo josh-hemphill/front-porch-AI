@@ -20,10 +20,12 @@ const FIELDS = [
 
 type FieldKey = typeof FIELDS[number]['key'];
 
-export function BibleCard({ p, running, onRegenerate, onSave }: {
+export function BibleCard({ p, running, onRegenerate, onRewriteArc, onSave }: {
   p: StoryProject;
   running: boolean;
   onRegenerate: () => void;
+  /** Studio only, once there is a cast: rerun the arc step on its own. */
+  onRewriteArc?: () => void;
   onSave: (patch: Partial<StoryProject>) => void;
 }) {
   const [editing, setEditing] = useState<FieldKey | null>(null);
@@ -34,6 +36,9 @@ export function BibleCard({ p, running, onRegenerate, onSave }: {
   return (
     <section className="s-card" data-testid="studio-bible">
       <CardHead label="Story bible">
+        {onRewriteArc && (
+          <button type="button" className="s-btn-ghost" data-testid="story-rewrite-arc" disabled={running} onClick={onRewriteArc}>⌁ Rewrite arc…</button>
+        )}
         <button type="button" className="s-btn-ghost" data-testid="story-regenerate-bible" disabled={running} onClick={onRegenerate}>↻ Regenerate…</button>
       </CardHead>
       {FIELDS.map(({ key, label }) => {

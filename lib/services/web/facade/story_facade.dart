@@ -269,6 +269,8 @@ class StoryFacade {
         return _pipeline.runChatDistiller(p);
       case 'story-architect':
         return _pipeline.runStoryArchitect(p);
+      case 'story-arc':
+        return _pipeline.runStoryArc(p);
       case 'act-structure':
         return _pipeline.runActStructurer(p);
       case 'scene-weaver':
@@ -325,6 +327,11 @@ class StoryFacade {
         .map((v) => {'id': v.id, 'name': v.name, 'engine': v.engine})
         .toList();
   }
+
+  /// The chats a story can start from: the desktop picker's own list.
+  Future<List<Map<String, dynamic>>> chatSources() async => [
+    for (final row in await _pipeline.chatSources()) row.toJson(),
+  ];
 
   /// Quick-concept archetype chips for the setup wizard (genre/style/concept
   /// seeds). Mirrors the desktop "Quick concepts" + Refresh.

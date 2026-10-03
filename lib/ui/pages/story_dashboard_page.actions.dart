@@ -58,6 +58,29 @@ extension _StoryDashboardActions on _StoryDashboardPageState {
     await _runStoryArchitect();
   }
 
+  Future<void> _rewriteArc(StoryProject project) async {
+    final written = project.orderedScenes
+        .where((s) => project.beatsWritten(s.act, s.index) > 0)
+        .length;
+    final ok = await showStoryConfirm(
+      context,
+      title: 'Rewrite the arc?',
+      body:
+          'This rewrites the inciting incident, themes, twists and threads '
+          'together, to fit your world and cast. The world, cast and '
+          'interviews stay as they are.'
+          '${project.acts.isEmpty ? '' : ' Your acts${written > 0 ? ' and $written written scene${written == 1 ? '' : 's'}' : ''} stay but may no longer match.'}',
+      confirmLabel: 'Rewrite',
+    );
+    if (!ok) return;
+    try {
+      await _pipeline.runStoryArc(project);
+      if (mounted) rebuildState(() {});
+    } catch (e) {
+      if (mounted) showAiErrorSnackBar(context, e);
+    }
+  }
+
   Future<void> _redistill(StoryProject project) async {
     final ok = await showStoryConfirm(
       context,

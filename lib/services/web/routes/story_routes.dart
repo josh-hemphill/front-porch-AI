@@ -32,6 +32,7 @@ class WebStoryRoutes {
     router.get('/api/stories/status', _status);
     router.get('/api/stories/voices', _voices);
     router.get('/api/stories/archetypes', _archetypes);
+    router.get('/api/stories/chat-sources', _chatSources);
     router.get('/api/stories/<id>', _get);
     router.post('/api/stories/<id>/run', _run);
     router.post('/api/stories/<id>/delete', _delete);
@@ -57,6 +58,9 @@ class WebStoryRoutes {
 
   shelf.Response _voices(shelf.Request r) =>
       JsonResponse.ok({'voices': _facade.voices()});
+
+  Future<shelf.Response> _chatSources(shelf.Request r) async =>
+      JsonResponse.ok({'chats': await _facade.chatSources()});
 
   shelf.Response _archetypes(shelf.Request r) {
     final n = int.tryParse(r.url.queryParameters['count'] ?? '') ?? 6;

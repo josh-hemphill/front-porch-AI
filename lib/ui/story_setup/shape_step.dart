@@ -23,6 +23,7 @@ import 'package:front_porch_ai/services/story/story.dart';
 import 'package:front_porch_ai/ui/story_setup/setup_widgets.dart';
 import 'package:front_porch_ai/ui/story_setup/story_setup_draft.dart';
 import 'package:front_porch_ai/ui/story_studio/story_studio.dart';
+import 'package:front_porch_ai/ui/theme/studio_colors.dart';
 
 /// Step 3 of 4 (sketch K): length, format, voice, genre, mood, style, pace,
 /// dialogue, maturity.
@@ -150,36 +151,53 @@ class ShapeStep extends StatelessWidget {
                 },
               ),
             ),
-            SetupField(
-              label: 'Genre',
-              hint: '(pick any)',
-              child: SetupChipRow(
-                multi: true,
-                options: {for (final g in storyGenreOptions) g: g},
-                selected: draft.selectedGenres,
-                onToggle: (v, on) {
-                  on
-                      ? draft.selectedGenres.add(v)
-                      : draft.selectedGenres.remove(v);
-                  onChanged();
-                },
+            if (draft.toneFromChat)
+              SetupField(
+                key: const ValueKey('story-tone-from-chat'),
+                label: 'Genre and mood',
+                child: Text(
+                  'Taken from the chat, because this is a faithful '
+                  'retelling. Choose "Inspired by" on the Idea step to set '
+                  'your own.',
+                  style: StudioType.ui(
+                    context,
+                    size: 12.5,
+                    color: StudioColors.mutedOf(context),
+                  ),
+                ),
+              )
+            else ...[
+              SetupField(
+                label: 'Genre',
+                hint: '(pick any)',
+                child: SetupChipRow(
+                  multi: true,
+                  options: {for (final g in storyGenreOptions) g: g},
+                  selected: draft.selectedGenres,
+                  onToggle: (v, on) {
+                    on
+                        ? draft.selectedGenres.add(v)
+                        : draft.selectedGenres.remove(v);
+                    onChanged();
+                  },
+                ),
               ),
-            ),
-            SetupField(
-              label: 'Mood',
-              hint: '(pick any)',
-              child: SetupChipRow(
-                multi: true,
-                options: {for (final m in storyMoodOptions) m: m},
-                selected: draft.selectedMoods,
-                onToggle: (v, on) {
-                  on
-                      ? draft.selectedMoods.add(v)
-                      : draft.selectedMoods.remove(v);
-                  onChanged();
-                },
+              SetupField(
+                label: 'Mood',
+                hint: '(pick any)',
+                child: SetupChipRow(
+                  multi: true,
+                  options: {for (final m in storyMoodOptions) m: m},
+                  selected: draft.selectedMoods,
+                  onToggle: (v, on) {
+                    on
+                        ? draft.selectedMoods.add(v)
+                        : draft.selectedMoods.remove(v);
+                    onChanged();
+                  },
+                ),
               ),
-            ),
+            ],
             SetupField(
               label: 'Writing style',
               child: SetupChipRow(

@@ -207,35 +207,40 @@ class StorySegmented extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       clipBehavior: Clip.antiAlias,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final e in options.entries)
-            InkWell(
-              key: ValueKey('story-seg-${e.key}'),
-              onTap: () => onSelect(e.key),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                color: selected == e.key ? amber : null,
-                child: Text(
-                  e.value,
-                  style: StudioType.ui(
-                    context,
-                    size: 12.5,
-                    weight: selected == e.key
-                        ? FontWeight.w600
-                        : FontWeight.w400,
-                    color: selected == e.key
-                        ? StudioColors.amberInkOf(context)
-                        : StudioColors.mutedOf(context),
+      // A narrow card shrinks the control to fit; it never overflows.
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final e in options.entries)
+              InkWell(
+                key: ValueKey('story-seg-${e.key}'),
+                onTap: () => onSelect(e.key),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  color: selected == e.key ? amber : null,
+                  child: Text(
+                    e.value,
+                    style: StudioType.ui(
+                      context,
+                      size: 12.5,
+                      weight: selected == e.key
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                      color: selected == e.key
+                          ? StudioColors.amberInkOf(context)
+                          : StudioColors.mutedOf(context),
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

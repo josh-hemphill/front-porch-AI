@@ -60,6 +60,12 @@ abstract final class StoryPrompts {
     parts.add('Dialogue Density: ${project.dialogueDensity}');
     parts.add('Maturity Rating: ${project.maturityRating}');
     parts.add('Number of Acts: ${project.actCount}');
+    if (project.useChatHistory) {
+      parts.add(
+        'Genre, mood and style shape HOW the chat\'s events are told. They '
+        'never change what happened; where they clash, the events win.',
+      );
+    }
     return 'USER PREFERENCES:\n${parts.join("\n")}';
   }
 

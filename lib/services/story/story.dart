@@ -28,6 +28,8 @@ export 'prompts/studio_context.dart';
 export 'prompts/studio_prose_prompts.dart';
 export 'prompts/studio_structure_prompts.dart';
 export 'story_archetypes.dart';
+export 'story_chat_memory.dart';
+export 'story_chat_sources.dart';
 export 'story_context.dart';
 export 'story_continuity.dart';
 export 'story_director.dart';

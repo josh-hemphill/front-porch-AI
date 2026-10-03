@@ -65,11 +65,24 @@ abstract final class StudioBiblePrompts {
             'exactly how they combine into one specific voice.',
       if (cards.isNotEmpty)
         'The people in <required_cast> are the core cast. Keep their names, '
-            'personalities and bonds true to their definitions. You may add '
-            'supporting characters around them.',
+            'personalities and bonds true to their definitions. '
+            '${p.faithfulMode && canon.isNotEmpty ? 'This is a faithful retelling: the only other people you may add are ones who actually appear in <canon_events>. Do not invent anyone.' : 'You may add supporting characters around them.'}',
+      if (canon.isNotEmpty)
+        'Take each core character\'s lie, longing and way of speaking from '
+            'how they actually behaved in <canon_events>. Do not give them '
+            'traits those events contradict.',
       if (canon.isNotEmpty)
         '<canon_events> really happened. The world and cast you describe must '
             'be the ones those events happened to.',
+      if (canon.isNotEmpty)
+        p.selectedGenres.isEmpty && p.selectedMoods.isEmpty
+            ? 'No genre or mood was chosen: take both from <canon_events>, as '
+                  'the chat itself played.'
+            : 'The genre and mood in <author_preferences> are the lens '
+                  '<canon_events> are told through. They never change what '
+                  'happened. Write a genre contract and tone those events can '
+                  'honestly be told in; where a preference cannot fit the '
+                  'events, the events win.',
       overusedNames,
     ];
     return StudioContext.join([

@@ -86,6 +86,10 @@ class StorySetupDraft {
 
   int get targetWords => targetWordsForLength(proseLength);
 
+  /// A faithful retelling takes its genre and mood from the chat: the Shape
+  /// step hides both pickers and nothing picked earlier is saved.
+  bool get toneFromChat => chatSource?.faithful ?? false;
+
   void dispose() {
     titleController.dispose();
     conceptController.dispose();
@@ -210,8 +214,8 @@ class StorySetupDraft {
     project.actCount = engineMode == StoryEngineMode.studio
         ? StoryPacing.actCount
         : actCount;
-    project.selectedGenres = selectedGenres.toList();
-    project.selectedMoods = selectedMoods.toList();
+    project.selectedGenres = toneFromChat ? [] : selectedGenres.toList();
+    project.selectedMoods = toneFromChat ? [] : selectedMoods.toList();
     project.writingStyle = writingStyle;
     project.proseLength = proseLength;
     project.narrativePace = narrativePace;

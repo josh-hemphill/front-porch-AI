@@ -9,7 +9,7 @@ import { api } from '../../../api/client';
 import {
   DIALOGUE_LABELS, GENRES, MATURITY_LABELS, MOODS, PACE_LABELS, POV_LABELS, TARGET_LENGTHS, WRITING_STYLES,
 } from '../../../storyTypes';
-import { targetWordsFor, type Draft } from './draft';
+import { targetWordsFor, toneFromChat, type Draft } from './draft';
 import { ChipRow, Field, Note, Segmented } from './primitives';
 
 const LENGTHS = Object.fromEntries(TARGET_LENGTHS.map((t) => [t.key, t.label]));
@@ -57,14 +57,24 @@ export function ShapeStep({ draft, set }: { draft: Draft; set: (next: Draft) => 
           <ChipRow testid="story-pov" options={POV_LABELS} selected={[draft.pov]}
             onToggle={(v) => set({ ...draft, pov: v })} />
         </Field>
-        <Field label="Genre" hint="(pick any)">
-          <ChipRow testid="story-genres" options={GENRE_OPTIONS} selected={draft.genres}
-            onToggle={(v, on) => set({ ...draft, genres: toggle(draft.genres, v, on) })} />
-        </Field>
-        <Field label="Mood" hint="(pick any)">
-          <ChipRow testid="story-moods" options={MOOD_OPTIONS} selected={draft.moods}
-            onToggle={(v, on) => set({ ...draft, moods: toggle(draft.moods, v, on) })} />
-        </Field>
+        {toneFromChat(draft) ? (
+          <Field label="Genre and mood">
+            <div className="s-muted s-small" data-testid="story-tone-from-chat">
+              Taken from the chat, because this is a faithful retelling. Choose "Inspired by" on the Idea step to set your own.
+            </div>
+          </Field>
+        ) : (
+          <>
+            <Field label="Genre" hint="(pick any)">
+              <ChipRow testid="story-genres" options={GENRE_OPTIONS} selected={draft.genres}
+                onToggle={(v, on) => set({ ...draft, genres: toggle(draft.genres, v, on) })} />
+            </Field>
+            <Field label="Mood" hint="(pick any)">
+              <ChipRow testid="story-moods" options={MOOD_OPTIONS} selected={draft.moods}
+                onToggle={(v, on) => set({ ...draft, moods: toggle(draft.moods, v, on) })} />
+            </Field>
+          </>
+        )}
         <Field label="Writing style">
           <ChipRow testid="story-style" options={STYLE_OPTIONS} selected={[draft.writingStyle]}
             onToggle={(v, on) => set({ ...draft, writingStyle: on ? v : '' })} />

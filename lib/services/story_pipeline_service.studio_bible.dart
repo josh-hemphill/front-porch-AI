@@ -24,53 +24,28 @@ extension StoryPipelineStudioBible on StoryPipelineService {
   /// one up front; anyone else can be interviewed from the Cast screen.
   static const interviewCap = 6;
 
-  Future<void> _studioBible(StoryProject project) async {
+  /// With [resume], only what an interrupted run left undone is built: the
+  /// world and cast and finished interviews are kept.
+  Future<void> _studioBible(StoryProject project, {bool resume = false}) async {
     _isRunning = true;
     try {
       final canon = await _studioCanon(project);
       final cards = StoryContext.characterCards(project);
 
-      final foundation = await _agent(
-        project,
-        stage: 'World & Cast',
-        status: 'Building the world and the people in it…',
-        params: StoryStageParams.bible,
-        validate: StudioParse.checkFoundation,
-        prompt: (previous, feedback) => StudioBiblePrompts.foundation(
-          project,
-          cards: cards,
-          canon: canon,
-          previous: previous,
-          feedback: feedback,
-        ),
-      );
-      StudioParse.applyFoundation(project, foundation);
-      await _repository.saveProject(project);
+      if (!resume || project.cast.isEmpty) {
+        await _studioFoundation(project, canon: canon, cards: cards);
+      }
 
       final leads = project.cast
           .where((c) => c.role.toLowerCase() != 'supporting')
           .take(interviewCap)
           .toList();
       for (final member in leads.isEmpty ? project.cast.take(1) : leads) {
+        if (resume && member.interview.trim().isNotEmpty) continue;
         await _interview(project, member);
       }
 
-      final arc = await _agent(
-        project,
-        stage: 'Story Arc',
-        status: 'Finding what breaks this world, and what the story argues…',
-        params: StoryStageParams.bible,
-        validate: StudioParse.checkArc,
-        prompt: (previous, feedback) => StudioBiblePrompts.arc(
-          project,
-          canon: canon,
-          previous: previous,
-          feedback: feedback,
-        ),
-        review: (output) => StudioBiblePrompts.arcReview(project, output),
-      );
-      StudioParse.applyArc(project, arc);
-      await _repository.saveProject(project);
+      await _studioArc(project, canon);
       _setStatus('Story Arc', 'Story bible created!');
     } catch (e) {
       _setStatus('Story Bible', 'Error: $e');
@@ -79,6 +54,73 @@ extension StoryPipelineStudioBible on StoryPipelineService {
       _isRunning = false;
       _notify();
     }
+  }
+
+  /// The arc step on its own: inciting incident, themes, twists, threads and
+  /// character arcs, written together against the world and cast.
+  Future<void> _studioArc(StoryProject project, String canon) async {
+    final arc = await _agent(
+      project,
+      stage: 'Story Arc',
+      status: 'Finding what breaks this world, and what the story argues…',
+      params: StoryStageParams.bible,
+      validate: StudioParse.checkArc,
+      prompt: (previous, feedback) => StudioBiblePrompts.arc(
+        project,
+        canon: canon,
+        previous: previous,
+        feedback: feedback,
+      ),
+      review: (output) => StudioBiblePrompts.arcReview(project, output),
+    );
+    StudioParse.applyArc(project, arc);
+    await _repository.saveProject(project);
+  }
+
+  /// Rewrite the arc and nothing else. The world, cast and interviews stay.
+  Future<void> runStoryArc(StoryProject project) => _guard(() async {
+    if (!_studio(project) || project.cast.isEmpty) return;
+    _isRunning = true;
+    try {
+      await _studioArc(project, await _studioCanon(project));
+      _setStatus('Story Arc', 'Arc rewritten!');
+    } catch (e) {
+      _setStatus('Story Arc', 'Error: $e');
+      rethrow;
+    } finally {
+      _isRunning = false;
+      _notify();
+    }
+  });
+
+  Future<void> _studioFoundation(
+    StoryProject project, {
+    required String canon,
+    required String cards,
+  }) async {
+    final foundation = await _agent(
+      project,
+      stage: 'World & Cast',
+      status: 'Building the world and the people in it…',
+      params: StoryStageParams.bible,
+      validate: StudioParse.checkFoundation,
+      prompt: (previous, feedback) => StudioBiblePrompts.foundation(
+        project,
+        cards: cards,
+        canon: canon,
+        previous: previous,
+        feedback: feedback,
+      ),
+    );
+    StudioParse.applyFoundation(project, foundation);
+    await _repository.saveProject(project);
+  }
+
+  /// Finish a bible whose arc never landed, before anything is planned on
+  /// top of it. Acts built without an arc have no threads to carry.
+  Future<void> _finishBible(StoryProject project) async {
+    if (!StudioParse.arcMissing(project)) return;
+    await _studioBible(project, resume: true);
   }
 
   Future<void> _interview(StoryProject project, StoryCastMember member) async {

@@ -259,6 +259,71 @@ void main() {
     await h.dispose();
   });
 
+  test('a bible that died before its arc is finished before the acts, '
+      'without redoing the world or the interviews', () async {
+    var arcWorks = false;
+    final h = await _harness(
+      (stage, n, prompt) => switch (stage) {
+        'foundation' => _foundation(),
+        'interview' => _interview(),
+        'arc' => arcWorks ? _arc() : '',
+        'acts' => _acts(),
+        'sequences' => _sequences(),
+        _ => _pass,
+      },
+    );
+    final p = await _studioProject(h.repo);
+    await expectLater(h.pipeline.runStoryArchitect(p), throwsA(anything));
+    expect(p.cast, isNotEmpty);
+    expect(p.incitingIncident, isEmpty);
+
+    arcWorks = true;
+    await h.pipeline.runActStructurer(p);
+
+    expect(p.incitingIncident, contains('flickers'));
+    expect(p.themes, contains('refusing to live'));
+    expect(p.threads.length, 2);
+    expect(p.acts.length, 3);
+    expect(h.llm.calls['foundation'], 1);
+    expect(h.llm.calls['interview'], 1);
+    final arcAt = h.llm.prompts.lastIndexWhere(
+      (t) => t.contains(StudioBiblePrompts.arcRole),
+    );
+    final actsAt = h.llm.prompts.indexWhere(
+      (t) => t.contains(StudioStructurePrompts.actsRole),
+    );
+    expect(arcAt, lessThan(actsAt), reason: 'acts are planned on the arc');
+    await h.dispose();
+  });
+
+  test('Rewrite arc reruns the arc alone: the world, cast and interviews '
+      'are kept', () async {
+    var take = 1;
+    final h = await _harness(
+      (stage, n, prompt) => switch (stage) {
+        'foundation' => _foundation(),
+        'interview' => _interview(),
+        'arc' =>
+          take == 1 ? _arc() : _arc().replaceAll('flickers', 'goes dark with'),
+        _ => _pass,
+      },
+    );
+    final p = await _studioProject(h.repo);
+    await h.pipeline.runStoryArchitect(p);
+    final interview = p.cast.first.interview;
+    expect(p.incitingIncident, contains('flickers'));
+
+    take = 2;
+    await h.pipeline.runStoryArc(p);
+
+    expect(p.incitingIncident, contains('goes dark with'));
+    expect(p.threads.length, 2);
+    expect(p.cast.first.interview, interview);
+    expect(h.llm.calls['foundation'], 1);
+    expect(h.llm.calls['interview'], 1);
+    await h.dispose();
+  });
+
   test('Studio act: sequences, scenes, beats, prose with a continuity slip '
       'patched in place, and the archive', () async {
     final h = await _harness(

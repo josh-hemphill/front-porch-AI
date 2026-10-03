@@ -320,6 +320,8 @@ Output ONLY the prose text for this single beat, nothing else. No labels, no hea
       }
       if (project.acts.isEmpty) {
         await runActStructurer(project);
+      } else if (_studio(project)) {
+        await _finishBible(project);
       }
       // One scene at a time through the same path as "Continue writing",
       // so Stop lands between scenes and nothing written is touched.

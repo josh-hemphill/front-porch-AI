@@ -115,12 +115,29 @@ extension _StoryDashboardOverview on _StoryDashboardPageState {
         Row(
           children: [
             const Expanded(child: StoryKeyLabel('Story bible')),
-            StoryButton.ghost(
-              'Regenerate…',
-              icon: Icons.refresh,
-              onPressed: pipeline.isRunning
-                  ? null
-                  : () => _regenerateBible(project),
+            Flexible(
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                children: [
+                  if (project.engineMode == StoryEngineMode.studio &&
+                      project.cast.isNotEmpty)
+                    StoryButton.ghost(
+                      'Rewrite arc…',
+                      key: const ValueKey('story-rewrite-arc'),
+                      icon: Icons.timeline,
+                      onPressed: pipeline.isRunning
+                          ? null
+                          : () => _rewriteArc(project),
+                    ),
+                  StoryButton.ghost(
+                    'Regenerate…',
+                    icon: Icons.refresh,
+                    onPressed: pipeline.isRunning
+                        ? null
+                        : () => _regenerateBible(project),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

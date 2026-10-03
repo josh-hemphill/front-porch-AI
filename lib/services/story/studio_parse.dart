@@ -204,6 +204,15 @@ abstract final class StudioParse {
     return null;
   }
 
+  /// The bible stopped after World & Cast (a failed call, a Stop): the
+  /// foundation is there but the arc never landed, so the story has no
+  /// inciting incident, themes or threads.
+  static bool arcMissing(StoryProject p) =>
+      p.cast.isNotEmpty &&
+      p.statusQuo.trim().isNotEmpty &&
+      p.incitingIncident.trim().isEmpty &&
+      p.threads.isEmpty;
+
   static void applyArc(StoryProject p, String text) {
     final argument = StoryXml.tag(text, 'core_thematic_argument');
     final from = StoryXml.tag(text, 'starting_value_state');
