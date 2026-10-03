@@ -66,8 +66,9 @@ export function StoopBadges({ card }: { card: StoopCard }) {
 
 export function StoopCardTile({ card }: { card: StoopCard }) {
   const navigate = useNavigate();
+  const world = card.type === 'WORLD';
   return (
-    <div className="lib-card stoop-tile">
+    <div className={`lib-card stoop-tile${world ? ' stoop-tile-world' : ''}`}>
       <button
         className="lib-open"
         onClick={() =>
