@@ -25,6 +25,7 @@ import 'package:path/path.dart' as path;
 import 'package:front_porch_ai/database/database.dart';
 import 'package:front_porch_ai/providers/app_state.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
+import 'package:front_porch_ai/ui/theme/studio_colors.dart';
 
 // Barrel imports (preferred during major refactor per project guidelines)
 import 'package:front_porch_ai/models/models.dart';
@@ -183,6 +184,8 @@ class _HomePageState extends State<HomePage> {
     _koboldListened?.removeListener(_onKoboldUpdate);
     _charRepoListened?.removeListener(_onCharactersChanged);
     _appStateListened?.removeListener(_onAppStateChanged);
+    // A remounted Home opens on Chats, so the sidebar comes back with it.
+    _appStateListened?.setSidebarHidden(false, notify: false);
     super.dispose();
   }
 
@@ -204,8 +207,10 @@ class _HomePageState extends State<HomePage> {
             context,
             Column(
               children: [
-                // Radio toggle
-                _modeToggleBar(),
+                ColoredBox(
+                  color: StudioColors.sideOf(context),
+                  child: _modeToggleBar(),
+                ),
                 const Expanded(child: StoryHomeView()),
               ],
             ),

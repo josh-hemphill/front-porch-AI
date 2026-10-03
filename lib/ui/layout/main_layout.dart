@@ -111,7 +111,7 @@ class _MainLayoutState extends State<MainLayout> {
     return Scaffold(
       body: Row(
         children: [
-          const Sidebar(),
+          if (!appState.sidebarHidden) const Sidebar(),
           Expanded(
             child: Stack(
               children: [

@@ -26,10 +26,19 @@ extension _HomePageChrome on _HomePageState {
     return HomeModeToggle(
       showStories: _homeMode == HomeMode.stories,
       showWaifu: _homeMode == HomeMode.waifu,
-      onShowChats: () => applyState(() => _homeMode = HomeMode.chats),
-      onShowStories: () => applyState(() => _homeMode = HomeMode.stories),
-      onShowWaifu: () => applyState(() => _homeMode = HomeMode.waifu),
+      studio: _homeMode == HomeMode.stories,
+      onShowChats: () => _setHomeMode(HomeMode.chats),
+      onShowStories: () => _setHomeMode(HomeMode.stories),
+      onShowWaifu: () => _setHomeMode(HomeMode.waifu),
     );
+  }
+
+  void _setHomeMode(HomeMode mode) {
+    applyState(() => _homeMode = mode);
+    Provider.of<AppState>(
+      context,
+      listen: false,
+    ).setSidebarHidden(mode != HomeMode.chats);
   }
 
   /// Toggle row that shrinks instead of overflowing when the window is
