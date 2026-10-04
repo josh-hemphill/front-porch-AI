@@ -151,7 +151,11 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
     setStartProblem("");
     setStopped(false);
     startPack(body)
-      .then(setPack)
+      .then((view) => {
+        setPack(view);
+        setRules(null);
+        setEditingRules(null);
+      })
       .catch((e: unknown) =>
         setStartProblem(message(e, "Could not start the pack.")),
       )
@@ -329,7 +333,7 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
           </p>
           {pack.note ? <p>{pack.note}</p> : null}
           {pack.origin === "desktop" ? <p>Started on the computer.</p> : null}
-          {!running ? (
+          {!running && pack.origin === "phone" && pack.imported == null ? (
             <button
               type="button"
               disabled={busy}

@@ -4,8 +4,7 @@
 part of 'avatar_creation_controller.dart';
 
 extension AvatarCreationPromptRules on AvatarCreationController {
-  ExpressionPromptRules get packPromptRules =>
-      _packPromptRules ?? storage.expressionSettings.expressionPromptRules;
+  ExpressionPromptRules get packPromptRules => _packPromptRules;
 
   void setPackPromptRules(ExpressionPromptRules rules) {
     if (running) {

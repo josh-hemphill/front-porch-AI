@@ -77,11 +77,24 @@ extension ImageStudioPackRules on ImageFacade {
   }
 
   Map<String, Object?> updatePackPromptRules(Map<String, dynamic> f) {
-    final rules = _readPromptRules(f);
     final run = _board.run;
     if (run == null) {
       throw const DeskRefused('no_pack', 'No expression pack.', 404);
     }
+    if (run.origin != PackOrigin.phone) {
+      throw const DeskRefused(
+        'desktop_pack',
+        'Edit this pack on the computer.',
+        409,
+      );
+    }
+    if (!f.containsKey('promptRules')) {
+      throw const DeskRefused(
+        'bad_prompt_rules',
+        'Provide promptRules explicitly.',
+      );
+    }
+    final rules = _readPromptRules(f);
     try {
       for (var i = 0; i < run.session.slots.length; i++) {
         rules.apply(run.session.originalPromptFor(i));
