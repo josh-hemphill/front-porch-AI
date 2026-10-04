@@ -190,14 +190,14 @@ class City96Gate {
   /// This never writes a loader or claims its runtime support was detected.
   void setExistingSupport(String comfyUrl, {required bool confirmed}) {
     if (confirmed) {
-      _existingSupport.add(comfyUrl);
+      _existingSupport.add(normalizeImageServerUrl(comfyUrl));
     } else {
-      _existingSupport.remove(comfyUrl);
+      _existingSupport.remove(normalizeImageServerUrl(comfyUrl));
     }
   }
 
   bool hasExistingSupport(String comfyUrl) =>
-      _existingSupport.contains(comfyUrl);
+      _existingSupport.contains(normalizeImageServerUrl(comfyUrl));
 
   /// What was written to each loader, and when. ComfyUI reads the loader when
   /// it starts, so an update counts once a ComfyUI that started after the write
