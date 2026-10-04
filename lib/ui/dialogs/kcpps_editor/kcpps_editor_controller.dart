@@ -29,6 +29,7 @@ class KcppsEditorController extends ChangeNotifier {
     this.reloadChat,
     this.loadTrial,
     this.models = const [],
+    this.enginePath,
     Future<int> Function()? threads,
     Future<FreeMemoryMb?> Function()? readFree,
     Future<({GGUFModelInfo? info, int bytes})> Function(String path)? readModel,
@@ -55,6 +56,9 @@ class KcppsEditorController extends ChangeNotifier {
   /// The model files the app knows.
   final List<String> models;
 
+  /// The KoboldCpp binary, whose version keys what is learned about it.
+  final String? enginePath;
+
   /// Their sizes in bytes, as read.
   Map<String, int> modelSizes = const {};
   bool mmqTiming = false;
@@ -76,6 +80,11 @@ class KcppsEditorController extends ChangeNotifier {
   String? path;
   KcppsDraft draft = const KcppsDraft(name: '');
   String _saved = '';
+
+  /// The file as written, and the form's map when it was opened: a save
+  /// writes only what was edited over the file. Null for a new preset.
+  Map<String, dynamic>? _raw;
+  Map<String, dynamic>? _opened;
 
   /// The model's header and size; null while read or when unreadable.
   GGUFModelInfo? info;
@@ -107,9 +116,10 @@ class KcppsEditorController extends ChangeNotifier {
   }
 
   Future<void> init() async {
-    engineVersion = (await KoboldBinaryVersion.read(
-      storage.binDir.path,
-    )).version;
+    final engine = enginePath;
+    engineVersion = engine == null
+        ? null
+        : await KoboldBinaryVersion.versionFor(engine);
     free = await _freeMemory();
     presets = await library.list();
     modelSizes = {for (final m in models) m: ?await _size(m)};
@@ -165,6 +175,8 @@ class KcppsEditorController extends ChangeNotifier {
       recurrent: recurrent,
     );
     await _readDraftModel();
+    _raw = Map<String, dynamic>.of(read.raw);
+    _opened = _map();
     _saved = _snapshot();
     _notify();
   }
@@ -177,6 +189,7 @@ class KcppsEditorController extends ChangeNotifier {
     path = null;
     problem = null;
     unmanaged = const [];
+    _raw = null;
     await _setModel(model);
     var name = model.isEmpty ? 'New preset' : koboldModelName(model);
     for (var n = 2; await library.exists(name); n++) {
@@ -218,6 +231,8 @@ class KcppsEditorController extends ChangeNotifier {
       recurrent: recurrent,
     );
     await _readDraftModel();
+    _raw = Map<String, dynamic>.of(read.raw);
+    _opened = _map();
     _saved = '';
     _notify();
   }
@@ -317,7 +332,11 @@ class KcppsEditorController extends ChangeNotifier {
           to: target,
         );
       }
-      path = await library.write(name, _map());
+      final now = _map();
+      final out = _raw == null ? now : kcppsMergeEdits(_raw!, _opened!, now);
+      path = await library.write(name, out);
+      _raw = out;
+      _opened = now;
       problem = null;
       _saved = _snapshot();
       presets = await library.list();
