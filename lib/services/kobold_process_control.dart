@@ -37,17 +37,33 @@ import 'package:path/path.dart' as path;
 /// holding port 5001 that this run has no `Process` handle for and therefore
 /// cannot stop any other way.
 ///
-/// By image name rather than by PID for exactly that reason. On Windows all
-/// three shipped executable names are swept, including the non-AVX2 `oldpc`
-/// build, which is a distinct image and was the one that used to survive.
-Future<void> killOrphanedKoboldProcesses(void Function(String) log) async {
+/// Not by PID for exactly that reason. On Windows all three shipped
+/// executable names are swept, including the non-AVX2 `oldpc` build, which is
+/// a distinct image and was the one that used to survive. `taskkill` cannot
+/// filter by folder, so on Windows a KoboldCpp the user started themselves
+/// under one of those names is still caught.
+///
+/// Elsewhere only processes launched from [binDir], the app's own engine
+/// folder, are killed. The old `pkill -f koboldcpp` took down any KoboldCpp
+/// on the machine, including one the user was running for something else.
+Future<void> killOrphanedKoboldProcesses(
+  void Function(String) log, {
+  required String binDir,
+}) async {
   try {
     if (Platform.isWindows) {
       await Process.run('taskkill', ['/F', '/IM', 'koboldcpp.exe']);
       await Process.run('taskkill', ['/F', '/IM', 'koboldcpp_nocuda.exe']);
       await Process.run('taskkill', ['/F', '/IM', 'koboldcpp-oldpc.exe']);
     } else {
-      await Process.run('pkill', ['-KILL', '-f', 'koboldcpp']);
+      final patterns = koboldOwnedPatterns(binDir, isFolder: true);
+      if (patterns.isEmpty) {
+        log('Engine folder unknown; left any other KoboldCPP alone.');
+        return;
+      }
+      for (final pattern in patterns) {
+        await Process.run('pkill', ['-KILL', '-f', pattern]);
+      }
     }
     log('Killed orphaned KoboldCPP processes.');
   } catch (e) {
@@ -133,6 +149,9 @@ Future<void> terminateKoboldTree(
 /// Catches deeply nested children and processes that reparented to init (PID
 /// 1) after their parent was killed. Reached from both the normal path and
 /// the failure path, which is why it is a function rather than two copies.
+///
+/// Matched on the executable's FULL path, not its bare name: the name alone
+/// also matches a KoboldCpp the user started from somewhere else.
 Future<void> _sweepByName(
   String? executablePath,
   void Function(String) log,
@@ -141,6 +160,53 @@ Future<void> _sweepByName(
   final exeName = path.basename(executablePath);
   try {
     log('Cleaning up any remaining $exeName processes...');
-    await Process.run('pkill', ['-KILL', '-f', exeName]);
+    for (final pattern in koboldOwnedPatterns(
+      executablePath,
+      isFolder: false,
+    )) {
+      await Process.run('pkill', ['-KILL', '-f', pattern]);
+    }
   } catch (_) {}
+}
+
+/// What every engine build the app installs is named with.
+const String _engineNamePrefix = 'koboldcpp';
+
+/// `pkill -f` patterns that match only an engine STARTED FROM [ownedPath]:
+/// the app's engine folder ([isFolder]), or its one executable.
+///
+/// `pkill -f` matches a regular expression against the whole command line,
+/// so each pattern is the escaped path anchored to the start. Unanchored,
+/// it also matched a program that merely used a file kept in the folder
+/// (a KoboldCpp started elsewhere with a model stored there). A folder
+/// pattern goes on to the engine's name, so nothing else kept or linked in
+/// that folder is touched, and `koboldcpp_bin_old/` beside it is not
+/// matched; an executable must be the whole first word.
+///
+/// Two spellings are given when the FOLDER is reached through a symbolic
+/// link: as written, and resolved (on macOS a temp or home path runs under
+/// its `/private/...` name). The executable itself is never resolved: a
+/// linked one could point at a shared program, and every copy of that
+/// would be stopped.
+///
+/// Empty for a path that is blank, relative, the root, or one level below
+/// the root.
+@visibleForTesting
+List<String> koboldOwnedPatterns(String ownedPath, {required bool isFolder}) {
+  if (!path.isAbsolute(ownedPath) || path.split(ownedPath).length <= 2) {
+    return const [];
+  }
+  final folder = isFolder ? ownedPath : path.dirname(ownedPath);
+  final folders = <String>{folder};
+  try {
+    folders.add(Directory(folder).resolveSymbolicLinksSync());
+  } on FileSystemException {
+    // Not on disk (already removed): the given spelling is all there is.
+  }
+  return {
+    for (final f in folders)
+      isFolder
+          ? '^${RegExp.escape(path.join(f, _engineNamePrefix))}'
+          : '^${RegExp.escape(path.join(f, path.basename(ownedPath)))}( |\$)',
+  }.toList();
 }
