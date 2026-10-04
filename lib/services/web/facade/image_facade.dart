@@ -54,6 +54,7 @@ class ImageFacade {
   /// The library a pack is made for and imported into; null where there is none.
   final CharacterRepository? _characters;
   final ExpressionPackBoard _packBoard;
+  LLMService? Function()? promptLlm;
 
   /// How the ready check looks for ComfyUI; tests point it at their servers.
   @visibleForTesting

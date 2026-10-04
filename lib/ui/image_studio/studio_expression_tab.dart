@@ -21,14 +21,14 @@ class StudioExpressionTab extends StatefulWidget {
   const StudioExpressionTab({
     super.key,
     this.initialCharacterId,
-    this.groupCharacterIds = const [],
+    this.onCraftPrompt,
     this.lastStudioImage,
     this.onImported,
     this.onPackChanged,
   });
 
   final String? initialCharacterId;
-  final List<String> groupCharacterIds;
+  final Future<String> Function(CharacterCard, String?)? onCraftPrompt;
   final Uint8List? lastStudioImage;
   final ValueChanged<String>? onImported;
   final VoidCallback? onPackChanged;
@@ -44,11 +44,13 @@ class StudioExpressionTabState extends State<StudioExpressionTab> {
   Uint8List? _source;
   ({Uint8List bytes, int width, int height, String? note})? _prepared;
   Set<String> _existing = {};
-  String _sourceCaption = 'Current card portrait';
+  String _sourceCaption = 'Character portrait';
   String _error = '';
   bool _loading = false;
   bool _frozen = false;
   bool _seeded = false;
+  bool _crafting = false;
+  bool _draftTouched = false;
   int _loadSequence = 0;
 
   void _setWorkspaceState(VoidCallback fn) => setState(fn);
@@ -63,16 +65,85 @@ class StudioExpressionTabState extends State<StudioExpressionTab> {
     final repository = context.read<CharacterRepository?>();
     if (_seeded || repository == null || repository.characters.isEmpty) return;
     _seeded = true;
-    final ids = [widget.initialCharacterId, ...widget.groupCharacterIds];
-    final card =
-        [
-          for (final id in ids)
-            ...repository.characters.where((c) => c.dbId == id),
-        ].firstOrNull ??
-        repository.characters.first;
+    final card = repository.characters
+        .where((c) => c.dbId == widget.initialCharacterId)
+        .firstOrNull;
+    if (card == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _selectCharacter(card);
     });
+  }
+
+  Future<void> selectTarget(String? id, {String? prompt}) async {
+    if (_frozen || _crafting) return;
+    final repository = context.read<CharacterRepository?>();
+    final card = repository?.characters.where((c) => c.dbId == id).firstOrNull;
+    if (card == null) return;
+    if (card.dbId == _character?.dbId) {
+      if (!_draftTouched && prompt != null) {
+        setState(() {
+          _description.text = prompt;
+          _draftTouched = prompt.isNotEmpty;
+        });
+      }
+      return;
+    }
+    await _selectCharacter(card);
+    if (mounted && !_frozen && _character?.dbId == id) {
+      setState(() {
+        _description.text = prompt ?? '';
+        _draftTouched = _description.text.isNotEmpty;
+      });
+    }
+  }
+
+  Future<String> _craftPrompt({bool automatic = false}) async {
+    final card = _character;
+    if (card == null) throw StateError('Choose a character first.');
+    if (automatic && _description.text.trim().isNotEmpty) {
+      return _description.text.trim();
+    }
+    final instruction = _description.text.trim();
+    final callback = widget.onCraftPrompt;
+    final crafted = callback != null
+        ? await callback(card, instruction.isEmpty ? null : instruction)
+        : await context.read<ImageGenService>().generateSmartPrompt(
+            mode: ImageGenMode.characterPortrait,
+            style: context
+                .read<StorageService>()
+                .imageGenSettings
+                .imageGenStyle,
+            characterName: card.name,
+            characterDescription: card.description,
+            currentExpression: 'neutral',
+            userInstruction: instruction.isEmpty ? null : instruction,
+          );
+    if (mounted && identical(_character, card) && (automatic || !_frozen)) {
+      setState(() {
+        _description.text = crafted;
+        _draftTouched = true;
+      });
+    }
+    return crafted;
+  }
+
+  Future<void> _writePrompt() async {
+    if (_frozen || _crafting || _character == null) {
+      return;
+    }
+    setState(() {
+      _crafting = true;
+      _error = '';
+    });
+    try {
+      await _craftPrompt();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = 'Could not write the prompt: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _crafting = false);
+    }
   }
 
   @override
@@ -82,11 +153,12 @@ class StudioExpressionTabState extends State<StudioExpressionTab> {
   }
 
   Future<void> _selectCharacter(CharacterCard card) async {
-    if (_frozen) return;
+    if (_frozen || _crafting) return;
     setState(() {
       _character = card;
-      _description.text = card.description;
-      _sourceCaption = 'Current card portrait';
+      _description.clear();
+      _draftTouched = false;
+      _sourceCaption = 'Character portrait';
     });
     await _loadPortrait();
   }
@@ -104,10 +176,11 @@ class StudioExpressionTabState extends State<StudioExpressionTab> {
       _source = null;
     });
     try {
-      final bytes = await packCurrentPortraitImage(
+      final bytes = await packBaseImage(
         repository,
         context.read<StorageService>(),
         id,
+        card!.name,
       );
       final avatars = await repository.getAvatarImages(id);
       if (!mounted || seq != _loadSequence) return;
@@ -178,7 +251,7 @@ class StudioExpressionTabState extends State<StudioExpressionTab> {
       _frozen = false;
     });
     widget.onPackChanged?.call();
-    if (_sourceCaption == 'Current card portrait') {
+    if (_sourceCaption == 'Character portrait') {
       await _loadPortrait();
     } else {
       final id = _character?.dbId;

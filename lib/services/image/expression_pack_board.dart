@@ -1,7 +1,8 @@
 // Copyright (C) 2026 Front Porch AI
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import 'dart:typed_data';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 
 import 'package:front_porch_ai/services/expression_pack_service.dart';
 import 'package:front_porch_ai/services/capability/capability.dart';
@@ -42,30 +43,62 @@ class PackRun {
 /// The one pack the phone can see, start, cancel and import. A new pack
 /// replaces the last; a phone pack that is replaced or released is disposed
 /// (a desktop dialog disposes its own).
-class ExpressionPackBoard {
+class ExpressionPackBoard extends ChangeNotifier {
   PackRun? _run;
+  bool _queued = false;
+  bool _disposed = false;
+
+  void _changed() {
+    if (_queued || _disposed) return;
+    _queued = true;
+    scheduleMicrotask(() {
+      _queued = false;
+      if (!_disposed) notifyListeners();
+    });
+  }
 
   PackRun? get run => _run;
 
   void publish(PackRun run) {
     final previous = _run;
+    previous?.session.removeListener(_changed);
     _run = run;
+    run.session.addListener(_changed);
     if (previous != null &&
         previous.origin == PackOrigin.phone &&
         !identical(previous.session, run.session)) {
       previous.session.dispose();
     }
+    _changed();
   }
 
   /// The dialog that owned [session] is closing.
   void release(ExpressionPackSession session) {
-    if (identical(_run?.session, session)) _run = null;
+    if (identical(_run?.session, session)) {
+      session.removeListener(_changed);
+      _run = null;
+      _changed();
+    }
   }
 
   void clear() {
     final previous = _run;
+    previous?.session.removeListener(_changed);
     _run = null;
     if (previous?.origin == PackOrigin.phone) previous!.session.dispose();
+    _changed();
+  }
+
+  void setImporting(PackRun run, bool importing) {
+    run.importing = importing;
+    if (identical(_run, run)) _changed();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _run?.session.removeListener(_changed);
+    super.dispose();
   }
 
   /// What the phone is told. Pictures are not in it; each done one has its

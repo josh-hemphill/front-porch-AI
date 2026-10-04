@@ -18,6 +18,9 @@ export interface PackDraftProps {
   onProblem: (message: string) => void;
   onReloadPortrait?: () => void;
   onPictureLoading?: (loading: boolean) => void;
+  edit?: boolean;
+  onCraft?: () => void;
+  crafting?: boolean;
 }
 
 export function PackDraft(props: PackDraftProps) {
@@ -72,13 +75,19 @@ export function PackDraft(props: PackDraftProps) {
     : props.picture?.kind === 'saved' ? props.picture.url : props.portrait;
   return (
     <fieldset disabled={props.frozen} className="fp-pack-draft">
-      <legend>Pack description and source</legend>
-      <label>Pack description
+      <legend>Pack prompt and source</legend>
+      {props.edit ? <p>Each expression supplies its own edit instruction. No base prompt is needed.</p> : <>
+      <label>Image prompt
         <textarea aria-label="Pack description" rows={4} value={props.description}
           onChange={(e) => props.onDescription(e.target.value)} />
       </label>
+      <button type="button" disabled={props.crafting || !props.characterId} onClick={props.onCraft}>
+        {props.crafting ? 'Writing prompt…' : 'Write it for me'}
+      </button>
+      <p>Leave blank to prepare an image prompt automatically when starting.</p>
+      </>}
       <p>{props.picture ? `Source: ${props.picture.name}`
-        : `Source: ${props.characterName || 'selected character'} · current card portrait`}</p>
+        : `Source: ${props.characterName || 'selected character'} · character portrait`}</p>
       {source ? <img src={source} alt="Expression pack source portrait" width={112} height={112} />
         : <p>{props.portraitLoading ? 'Loading the current portrait…' : 'This character has no portrait. Choose a picture.'}</p>}
       <input type="file" accept="image/*" hidden ref={chooser} aria-label="Pack picture file"
@@ -93,8 +102,8 @@ export function PackDraft(props: PackDraftProps) {
         props.onPictureLoading?.(false);
         props.onPicture(null);
         props.onReloadPortrait?.();
-      }}>{props.picture ? 'Use current card portrait' : 'Reload current card portrait'}</button>
-      {props.frozen ? <p>This pack keeps its target, description and source. Choose New pack to change them.</p> : null}
+      }}>{props.picture ? 'Use character portrait' : 'Reload character portrait'}</button>
+      {props.frozen ? <p>Target, prompt, and source are fixed for this pack. Reset pack clears its results and unlocks these fields. Use Start pack to generate again.</p> : null}
     </fieldset>
   );
 }

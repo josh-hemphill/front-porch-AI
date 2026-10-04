@@ -55,10 +55,16 @@ extension _ImageStudioSubject on _ImageStudioState {
     return _pickedGroupName != null ? _pickedGroupDbId : widget.characterDbId;
   }
 
-  /// Launch the Expression-pack flow. An empty prompt box gets the same
-  /// crafting as the Craft button (for the active subject); the dialog owns
-  /// the rest: backend guard, base image, crop, generation, import.
-  void _openExpressionPack() => rebuildState(() => _studioTab = 2);
+  void _openExpressionPack() {
+    final target = _packTargetDbId;
+    final prompt = _editablePrompt;
+    rebuildState(() => _studioTab = 2);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _expressionsKey.currentState?.selectTarget(target, prompt: prompt);
+      }
+    });
+  }
 
   bool get _isPortraitSubject =>
       _activeMode == ImageGenMode.characterPortrait ||

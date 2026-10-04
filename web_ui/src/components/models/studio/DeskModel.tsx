@@ -32,7 +32,7 @@ export function DeskModel(props: {
   const support = (facts?.slots ?? []).filter((slot) => isSupportToken(slot.token));
   const hasGraphSlots = (facts?.slots ?? []).length > 0;
   return (
-    <div>
+    <div className="fp-model-controls">
       <div>Model</div>
       <strong>{familyLabel(facts?.loraFamily, file)}</strong>
       <div>{file || 'No model chosen'}</div>

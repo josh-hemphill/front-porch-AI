@@ -16,7 +16,9 @@ extension _ExpressionPackDialogView on ExpressionPackDialogState {
               ? SingleChildScrollView(
                   padding: const EdgeInsets.all(20),
                   child: ExpressionPackSetup(
-                    busy: context.watch<ImageGenService>().isGenerating,
+                    busy:
+                        widget.preparingPrompt ||
+                        context.watch<ImageGenService>().isGenerating,
                     baseImage: widget.baseImage,
                     characterName: widget.characterName,
                     existingEmotions: widget.existingEmotions,

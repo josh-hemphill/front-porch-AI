@@ -91,7 +91,7 @@ export function StudioDesk(props: StudioDeskProps) {
   const configMode = tab === 'pack' ? cfg.packConfigMode ?? (cfg.backend === 'a1111' ? 'create' : 'edit') : mode;
   const { onConfigMode, onSharedBusy } = props;
   useEffect(() => onConfigMode?.(configMode), [configMode, onConfigMode]);
-  const globalGeneration = useSharedGeneration();
+  const globalGeneration = useSharedGeneration(props.busy === true || packBusy);
   const globalBusy = globalGeneration.busy;
   const sharedBusy = props.busy === true || (globalBusy ?? cfg.isGenerating) === true || packBusy;
   useEffect(() => onSharedBusy?.(sharedBusy), [sharedBusy, onSharedBusy]);

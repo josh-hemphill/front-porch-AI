@@ -18,6 +18,7 @@ export 'edit_source_well.dart';
 export 'studio_edit_pane.dart';
 export 'studio_settings_gate.dart';
 export 'studio_expression_tab.dart';
+export 'other_expression_pack.dart';
 export 'vision_gate.dart';
 export 'expression_pack_widgets.dart';
 export 'studio_civitai_get.dart';

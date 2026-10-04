@@ -51,9 +51,7 @@ extension ImageStudioPacks on ImageFacade {
 
     final raw =
         await _reference(f) ??
-        (f['baseSource'] == 'currentPortrait'
-            ? await packCurrentPortraitImage(repo, _storage, id)
-            : await packBaseImage(repo, _storage, id, card.name));
+        await packBaseImage(repo, _storage, id, card.name);
     if (raw == null) {
       throw DeskRefused(
         'no_base',
@@ -72,7 +70,10 @@ extension ImageStudioPacks on ImageFacade {
               why.tooLarge ? 413 : 400,
             );
     }
-    final prompt = '${f['prompt'] ?? ''}'.trim();
+    var prompt = '${f['prompt'] ?? ''}'.trim();
+    if (!plan.edit && prompt.isEmpty && f['workspace'] == true) {
+      prompt = await craftPackPrompt(id);
+    }
     if (!plan.edit && prompt.isEmpty) {
       throw const DeskRefused(
         'needs_prompt',
@@ -201,7 +202,7 @@ extension ImageStudioPacks on ImageFacade {
         409,
       );
     }
-    run.importing = true;
+    _board.setImporting(run, true);
     try {
       run.imported = await ExpressionPackImporter.importPack(
         repository: repo,
@@ -212,7 +213,7 @@ extension ImageStudioPacks on ImageFacade {
         replaceSameLabel: run.replaceExisting,
       );
     } finally {
-      run.importing = false;
+      _board.setImporting(run, false);
     }
     return _board.view()!;
   }

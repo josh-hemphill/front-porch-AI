@@ -45,7 +45,15 @@ extension ImageStudioPackWorkspace on ImageFacade {
         503,
       );
     }
-    final raw = await packCurrentPortraitImage(repo, _storage, id);
+    final card = repo.characters.where((c) => c.dbId == id).firstOrNull;
+    if (card == null) {
+      throw const DeskRefused(
+        'no_character',
+        'Pick a character from the library.',
+        404,
+      );
+    }
+    final raw = await packBaseImage(repo, _storage, id, card.name);
     final base = raw == null ? null : await preparePackBase(raw);
     return {
       'characterId': id,
@@ -53,6 +61,26 @@ extension ImageStudioPackWorkspace on ImageFacade {
           ? null
           : 'data:image/png;base64,${base64Encode(base.bytes)}',
     };
+  }
+
+  Future<String> craftPackPrompt(String id, {String? instruction}) async {
+    final card = _characters?.characters.where((c) => c.dbId == id).firstOrNull;
+    if (card == null) {
+      throw const DeskRefused(
+        'no_character',
+        'Pick a character from the library.',
+        404,
+      );
+    }
+    return _image.generateSmartPrompt(
+      llmService: promptLlm?.call(),
+      mode: ImageGenMode.characterPortrait,
+      style: _storage.imageGenSettings.imageGenStyle,
+      characterName: card.name,
+      characterDescription: card.description,
+      currentExpression: 'neutral',
+      userInstruction: instruction,
+    );
   }
 
   void discardPack() {

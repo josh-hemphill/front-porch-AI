@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import 'package:flutter/material.dart';
-import 'studio_settings_gate.dart';
+import 'studio_widgets.dart';
 
 /// A field that writes its text when the user submits it or leaves it.
 class StudioCommitField extends StatefulWidget {
@@ -31,6 +31,7 @@ class _StudioCommitFieldState extends State<StudioCommitField> {
   );
   late final FocusNode _focus = FocusNode()..addListener(_onFocus);
   String _committed = '';
+  bool _pending = false;
 
   @override
   void initState() {
@@ -44,19 +45,19 @@ class _StudioCommitFieldState extends State<StudioCommitField> {
 
   void _commit() {
     if (studioSettingsLocked(context)) {
-      _controller.text = widget.value;
-      _committed = widget.value;
+      if (_controller.text != _committed) setState(() => _pending = true);
       return;
     }
     if (_controller.text == _committed) return;
     _committed = _controller.text;
+    setState(() => _pending = false);
     widget.onSubmit(_controller.text);
   }
 
   @override
   void didUpdateWidget(StudioCommitField oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.value != _controller.text && widget.value != oldWidget.value) {
+    if (_controller.text == _committed && widget.value != oldWidget.value) {
       _controller.text = widget.value;
       _committed = widget.value;
     }
@@ -79,6 +80,12 @@ class _StudioCommitFieldState extends State<StudioCommitField> {
       decoration: InputDecoration(
         labelText: widget.label,
         hintText: widget.hint,
+        helperText: _pending
+            ? 'Draft kept. Apply after generation finishes.'
+            : null,
+        suffixIcon: _pending
+            ? TextButton(onPressed: _commit, child: const Text('Apply'))
+            : null,
       ),
       onSubmitted: (_) => _commit(),
     );

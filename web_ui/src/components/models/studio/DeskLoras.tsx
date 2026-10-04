@@ -18,7 +18,7 @@ export function DeskLoras(props: {
   const family = props.facts?.loraFamily;
   const blocked = props.facts?.kind === 'loraMismatch';
   return (
-    <div>
+    <div className="fp-lora-controls">
       <div>LoRA</div>
       {filled.map((slot) => (
         <div key={slot.file}>

@@ -203,6 +203,10 @@ extension WebServerHostStreams on WebServerHost {
     // are throttled to ~1/s to keep the socket light.
     final imageGen = _imageGenService;
     if (streamHub != null && imageGen != null) {
+      void onPackChanged() =>
+          streamHub.broadcast({'event': 'expression_pack_changed'});
+      _packBoardListener = onPackChanged;
+      expressionPackBoard.addListener(onPackChanged);
       void onImageProgress() {
         final generating = imageGen.isGenerating;
         if (!generating && !_wasImageGenerating) return;

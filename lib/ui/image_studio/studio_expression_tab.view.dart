@@ -18,6 +18,9 @@ extension _StudioExpressionTabView on StudioExpressionTabState {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        OtherExpressionPack(
+          owned: (run) => _packKey.currentState?.owns(run) ?? false,
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: Row(
@@ -31,10 +34,15 @@ extension _StudioExpressionTabView on StudioExpressionTabState {
                   ),
                 ),
               ),
-              TextButton(
-                onPressed: _loading ? null : _newPack,
-                child: const Text('New pack'),
-              ),
+              if (hasPack)
+                Tooltip(
+                  message:
+                      'Clear pack results and unlock the target, prompt, and source. Imported expressions stay in the library.',
+                  child: TextButton(
+                    onPressed: _loading || _crafting ? null : _newPack,
+                    child: const Text('Reset pack'),
+                  ),
+                ),
             ],
           ),
         ),
@@ -72,7 +80,7 @@ extension _StudioExpressionTabView on StudioExpressionTabState {
                                 child: Text(c.name),
                               ),
                         ],
-                        onChanged: _frozen || _loading
+                        onChanged: _frozen || _loading || _crafting
                             ? null
                             : (id) {
                                 final chosen = repository.characters
@@ -84,19 +92,37 @@ extension _StudioExpressionTabView on StudioExpressionTabState {
                               },
                       ),
                     const SizedBox(height: 12),
-                    TextField(
-                      key: const Key('expression-description'),
-                      controller: _description,
-                      enabled: !_frozen,
-                      minLines: 2,
-                      maxLines: 4,
-                      onChanged: (_) => _setWorkspaceState(() {}),
-                      decoration: const InputDecoration(
-                        labelText: 'Base description',
-                        hintText:
-                            'Describe the character, appearance, and framing',
+                    if (edit)
+                      const Text(
+                        'Each expression supplies its own edit instruction. No base prompt is needed.',
+                      )
+                    else ...[
+                      TextField(
+                        key: const Key('expression-description'),
+                        controller: _description,
+                        enabled: !_frozen && !_crafting,
+                        minLines: 2,
+                        maxLines: 4,
+                        onChanged: (_) =>
+                            _setWorkspaceState(() => _draftTouched = true),
+                        decoration: const InputDecoration(
+                          labelText: 'Image prompt',
+                          hintText:
+                              'Describe the character, appearance, and framing',
+                        ),
                       ),
-                    ),
+                      TextButton(
+                        onPressed: _frozen || _crafting || card == null
+                            ? null
+                            : _writePrompt,
+                        child: Text(
+                          _crafting ? 'Writing prompt…' : 'Write it for me',
+                        ),
+                      ),
+                      const Text(
+                        'Leave blank to prepare an image prompt automatically when starting.',
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Text('Source: $_sourceCaption'),
                     if (_source != null)
@@ -116,12 +142,11 @@ extension _StudioExpressionTabView on StudioExpressionTabState {
                               ? null
                               : () {
                                   _setWorkspaceState(
-                                    () => _sourceCaption =
-                                        'Current card portrait',
+                                    () => _sourceCaption = 'Character portrait',
                                   );
                                   _loadPortrait();
                                 },
-                          child: const Text('Use current card portrait'),
+                          child: const Text('Use character portrait'),
                         ),
                         TextButton(
                           onPressed: _frozen || _loading ? null : _upload,
@@ -146,7 +171,7 @@ extension _StudioExpressionTabView on StudioExpressionTabState {
                     ),
                     if (_frozen)
                       const Text(
-                        'Target, source, and description are fixed for this pack. Choose New pack to change them.',
+                        'Target, prompt, and source are fixed for this pack. Reset pack clears its results and unlocks these fields. Use Start to generate again.',
                       ),
                     if (_loading) const LinearProgressIndicator(),
                     if (_error.isNotEmpty) Text(_error),
@@ -179,6 +204,8 @@ extension _StudioExpressionTabView on StudioExpressionTabState {
                       baseWidth: prepared.width,
                       baseHeight: prepared.height,
                       basePrompt: _description.text.trim(),
+                      preparePrompt: () => _craftPrompt(automatic: true),
+                      preparingPrompt: _crafting,
                       negativePrompt: settings.imageGenNegativePrompt,
                       existingEmotions: _existing,
                       note: prepared.note,

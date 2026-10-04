@@ -20,6 +20,7 @@ import {
   fetchPackPortrait,
   discardPack,
   onPackChanged,
+  craftPackPrompt,
 } from "./packApi";
 
 interface CharacterRow {
@@ -73,6 +74,9 @@ export function PackPanel(props: {
   const [packProblem, setPackProblem] = useState("");
   const [stopped, setStopped] = useState(false);
   const [description, setDescription] = useState('');
+  const [crafting, setCrafting] = useState(false);
+  const target = useRef('');
+  target.current = character;
   const [picture, setPicture] = useState<Picture | null>(null);
   const [portrait, setPortrait] = useState<string | null>(null);
   const [portraitLoading, setPortraitLoading] = useState(false);
@@ -84,7 +88,7 @@ export function PackPanel(props: {
   const newPackButton = useRef<HTMLButtonElement>(null);
   const draftPrompt = props.workspace ? description : props.prompt;
   const draftPicture = props.workspace ? picture : props.picture;
-  const frozen = props.workspace === true && (pack != null || busy || !statusLoaded);
+  const frozen = props.workspace === true && (pack != null || busy || crafting || !statusLoaded);
   const showCaptured = captured && pack?.origin === 'phone' && pack.characterId === character;
 
   const refreshEpoch = useRef(0);
@@ -121,13 +125,20 @@ export function PackPanel(props: {
   // already has in the answer.
   useEffect(() => {
     refresh();
+    const visible = () => { if (!document.hidden) refresh(); };
+    window.addEventListener('focus', visible);
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      window.removeEventListener('focus', visible);
+      document.removeEventListener('visibilitychange', visible);
+    };
   }, [refresh]);
 
   useEffect(() => {
-    if (!running && !props.workspace) return;
+    if (!running && !pack?.importing) return;
     const timer = window.setInterval(refresh, 2000);
     return () => window.clearInterval(timer);
-  }, [running, refresh, props.workspace]);
+  }, [running, refresh, pack?.importing]);
 
   useEffect(() => {
     let live = true;
@@ -138,7 +149,7 @@ export function PackPanel(props: {
         setCharacters(rows);
         const saved = remembered();
         setCharacter(
-          rows.some((r) => r.id === saved) ? saved : (rows[0]?.id ?? ""),
+          rows.some((r) => r.id === saved) ? saved : "",
         );
       })
       .catch(() => {
@@ -148,6 +159,19 @@ export function PackPanel(props: {
       live = false;
     };
   }, []);
+
+  const craft = async () => {
+    if (!character || frozen || props.sharedBusy) return;
+    const id = character;
+    setCrafting(true);
+    setStartProblem('');
+    try {
+      const value = await craftPackPrompt(id, description);
+      if (target.current === id) setDescription(value.prompt);
+    } catch (e) {
+      setStartProblem(message(e, 'Could not write the image prompt.'));
+    } finally { setCrafting(false); }
+  };
 
   const start = () => {
     if (props.workspace && (frozen || props.sharedBusy || portraitLoading || pictureLoading)) return;
@@ -263,6 +287,7 @@ export function PackPanel(props: {
       </p> : null}
       {props.workspace && (!pack || showCaptured) ? <PackDraft
         description={description} onDescription={setDescription}
+        edit={props.configMode === 'edit'} onCraft={() => void craft()} crafting={crafting}
         picture={picture} onPicture={setPicture} portrait={portrait}
         portraitLoading={portraitLoading}
         characterName={characters.find((c) => c.id === character)?.name ?? ''}
@@ -278,10 +303,13 @@ export function PackPanel(props: {
           value={props.workspace && pack ? pack.characterId ?? '' : character}
           disabled={running || frozen}
           onChange={(e) => {
+            setDescription('');
+            setPicture(null);
             setCharacter(e.target.value);
             remember(e.target.value);
           }}
         >
+          <option value="">Choose a character</option>
           {characters.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -345,7 +373,7 @@ export function PackPanel(props: {
         type="button"
         disabled={busy || running || !character || frozen || props.sharedBusy === true ||
           (props.workspace === true && (pictureLoading || portraitLoading || (!draftPicture && !portrait) ||
-            (props.configMode === 'create' && !description.trim())))}
+            crafting))}
         onClick={start}
       >
         Start pack
@@ -354,7 +382,8 @@ export function PackPanel(props: {
       {pack ? (
         <div data-region="pack-status">
           {props.workspace && !running && pack.origin === 'phone' ? <button type="button" ref={newPackButton}
-            disabled={busy || props.sharedBusy} onClick={() => setConfirmNew(true)}>New pack</button> : null}
+            title="Clear pack results and unlock the target, prompt, and source. Imported expressions stay in the library."
+            disabled={busy || props.sharedBusy || pack.importing} onClick={() => setConfirmNew(true)}>Reset pack</button> : null}
           {confirmNew ? <PackDiscardConfirmation busy={busy} trigger={newPackButton}
             onDiscard={() => void newPack()} onKeep={() => setConfirmNew(false)} /> : null}
           <p>

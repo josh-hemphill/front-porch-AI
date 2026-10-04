@@ -23,7 +23,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/capability/capability.dart';
 import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/services.dart';
@@ -62,13 +61,17 @@ class ExpressionPackDialog extends StatefulWidget {
   }) : embedded = false,
        onImported = null,
        onSessionChanged = null,
-       onDiscard = null;
+       onDiscard = null,
+       preparePrompt = null,
+       preparingPrompt = false;
 
   const ExpressionPackDialog.workspace({
     super.key,
     this.onImported,
     this.onSessionChanged,
     this.onDiscard,
+    this.preparePrompt,
+    this.preparingPrompt = false,
     required this.characterDbId,
     required this.characterName,
     required this.repository,
@@ -87,6 +90,8 @@ class ExpressionPackDialog extends StatefulWidget {
   final VoidCallback? onImported;
   final ValueChanged<bool>? onSessionChanged;
   final VoidCallback? onDiscard;
+  final Future<String> Function()? preparePrompt;
+  final bool preparingPrompt;
 
   final String characterDbId;
   final String characterName;
@@ -170,7 +175,11 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
     required bool replaceExisting,
     required bool skipExisting,
   }) async {
-    if (_checkingWorkflow || widget.imageGen.isGenerating) return;
+    if (_checkingWorkflow ||
+        widget.preparingPrompt ||
+        widget.imageGen.isGenerating) {
+      return;
+    }
     if (!_canOwnBoard()) return;
     setState(() => _checkingWorkflow = true);
     widget.onSessionChanged?.call(true);
@@ -185,8 +194,7 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
           : chosen;
       final plan = await planExpressionPack(widget.storage);
       if (!mounted) return;
-      if (!plan.canStart ||
-          (widget.embedded && !plan.edit && widget.basePrompt.trim().isEmpty)) {
+      if (!plan.canStart) {
         setState(() => _checkingWorkflow = false);
         widget.onSessionChanged?.call(false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -199,6 +207,13 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
         );
         return;
       }
+      final basePrompt = !plan.edit && widget.basePrompt.trim().isEmpty
+          ? await widget.preparePrompt?.call() ?? widget.basePrompt
+          : widget.basePrompt;
+      if (!mounted) return;
+      if (!plan.edit && basePrompt.trim().isEmpty) {
+        throw StateError('An image prompt could not be prepared.');
+      }
       if (!_canOwnBoard()) {
         setState(() => _checkingWorkflow = false);
         widget.onSessionChanged?.call(false);
@@ -208,7 +223,7 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
         imageGen: widget.imageGen,
         plan: plan,
         emotions: emotions,
-        basePrompt: '${widget.basePrompt}, $kExpressionFraming',
+        basePrompt: '$basePrompt, $kExpressionFraming',
         negativePrompt: widget.negativePrompt,
         denoise: denoise,
         size: '${widget.baseWidth}x${widget.baseHeight}',
@@ -298,6 +313,9 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
   Future<void> _import() async {
     if (_importing || _imported) return;
     final session = _session!;
+    final ownedRun = expressionPackBoard.run;
+    final onBoard = identical(ownedRun?.session, session);
+    if (onBoard) expressionPackBoard.setImporting(ownedRun!, true);
     setState(() => _importing = true);
     try {
       final count = await ExpressionPackImporter.importPack(
@@ -332,14 +350,17 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Import failed: $error')));
+    } finally {
+      if (onBoard) expressionPackBoard.setImporting(ownedRun!, false);
     }
   }
 
   bool get hasPack => _session != null || _checkingWorkflow;
+  bool owns(PackRun run) => identical(run.session, _session);
 
   Future<bool> confirmDiscard() async {
     if (_importing || _checkingWorkflow) return false;
-    if (_session == null) return true;
+    if (_session == null || _imported) return true;
     final discard = await showWarmDialog<bool>(
       context,
       title: 'Discard expression pack?',

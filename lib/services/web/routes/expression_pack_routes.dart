@@ -14,6 +14,7 @@ class ExpressionPackRoutes {
   ExpressionPackRoutes(Router router, {required this.image}) {
     router.get('/api/image/expression-pack', _status);
     router.get('/api/image/expression-pack/source', _source);
+    router.post('/api/image/expression-pack/write-prompt', _writePrompt);
     router.post('/api/image/expression-pack/discard', _discard);
     router.post('/api/image/expression-pack', _start);
     router.post('/api/image/expression-pack/cancel', _cancel);
@@ -30,6 +31,27 @@ class ExpressionPackRoutes {
   }
 
   final ImageFacade image;
+
+  Future<shelf.Response> _writePrompt(shelf.Request request) async {
+    final (body, failed) = await _body(request);
+    if (body == null) return failed!;
+    final instruction = '${body['instruction'] ?? ''}'.trim();
+    if (instruction.length > 12000) {
+      return _refused(
+        const DeskRefused('too_large', 'That is too long to work from.', 413),
+      );
+    }
+    try {
+      return JsonResponse.ok({
+        'prompt': await image.craftPackPrompt(
+          '${body['characterId'] ?? ''}',
+          instruction: instruction.isEmpty ? null : instruction,
+        ),
+      });
+    } on DeskRefused catch (e) {
+      return _refused(e);
+    }
+  }
 
   Future<shelf.Response> _source(shelf.Request request) async {
     try {

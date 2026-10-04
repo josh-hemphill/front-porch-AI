@@ -73,6 +73,10 @@ extension WebServerHostWiring on WebServerHost {
     final imageFacade = _imageGenService != null
         ? ImageFacade(_imageGenService!, _storage, _characterRepository)
         : null;
+    imageFacade?.promptLlm = () {
+      final service = _llmProvider?.activeService;
+      return service?.isReady == true ? service : null;
+    };
 
     final chatFacade = (chatService != null && _characterRepository != null)
         ? ChatFacade(

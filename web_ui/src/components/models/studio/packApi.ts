@@ -26,6 +26,7 @@ export interface PackView {
   kept: number;
   imported: number | null;
   canImport: boolean;
+  importing?: boolean;
   /** E.g. that the base picture was converted to a PNG; absent on older computers. */
   note?: string | null;
   slots: PackSlot[];
@@ -45,6 +46,9 @@ export interface PackStart {
 }
 
 const CHANGED = "fpai:pack-changed";
+export const announcePackChange = () => window.dispatchEvent(new Event(CHANGED));
+export const craftPackPrompt = (characterId: string, instruction: string) =>
+  api.post<{ prompt: string }>('/api/image/expression-pack/write-prompt', { characterId, instruction });
 
 /** The panel and the banner both show the pack; what one does, the other hears. */
 const announce = (view: PackView): PackView => {

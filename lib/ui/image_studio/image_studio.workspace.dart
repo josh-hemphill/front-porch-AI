@@ -65,11 +65,18 @@ extension _ImageStudioWorkspace on _ImageStudioState {
         draftBusy: _isBusy,
         expressionBody: StudioExpressionTab(
           key: _expressionsKey,
-          initialCharacterId: widget.characterDbId,
-          groupCharacterIds: [
-            for (final c in widget.groupCharacters)
-              if (c.dbId != null) c.dbId!,
-          ],
+          initialCharacterId: _packTargetDbId,
+          onCraftPrompt: (card, instruction) => _craftStudioPrompt(
+            widget,
+            service: context.read<ImageGenService>(),
+            llm: _liveStudioLlm(context, widget.llmService),
+            mode: ImageGenMode.characterPortrait,
+            style: _selectedStyle,
+            characterName: card.name,
+            characterDescription: card.description,
+            currentExpression: 'neutral',
+            userInstruction: instruction,
+          ),
           lastStudioImage: _lastStudioImage,
           onImported: widget.onExpressionsImported,
           onPackChanged: () => rebuildState(() {}),

@@ -20,8 +20,8 @@ export function PackDiscardConfirmation(props: {
     onKeyDown={(e) => {
       if (e.key === 'Escape' && !props.busy) { e.preventDefault(); e.stopPropagation(); props.onKeep(); }
     }}>
-    <p id={description}>Discard this pack's results and unlock its target, description and source?</p>
-    <button type="button" disabled={props.busy} onClick={props.onDiscard}>Discard results and start a new pack</button>
+    <p id={description}>Clear this pack's results and unlock its target, prompt, and source? Imported expressions stay in the library. Generation starts only when you press Start pack.</p>
+    <button type="button" disabled={props.busy} onClick={props.onDiscard}>Reset pack</button>
     <button type="button" ref={keep} disabled={props.busy} onClick={props.onKeep}>Keep this pack</button>
   </div>;
 }
