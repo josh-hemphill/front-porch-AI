@@ -48,7 +48,7 @@ class StoryFacade {
        _imageGen = imageGen;
 
   final StoryRepository _repo;
-  final StoryPipelineService _pipeline;
+  StoryPipelineService _pipeline;
   final StreamHub? _hub;
   final StorySnapshotBuilder? _snapshotBuilder;
   final TtsService? _tts;
@@ -57,6 +57,14 @@ class StoryFacade {
   final ImageGenService? _imageGen;
 
   bool _loaded = false;
+
+  /// The pipeline a run started here is on, until it ends: after a backend
+  /// switch its status and Stop still go to it, not to the new one.
+  StoryPipelineService? _inFlight;
+
+  /// The pipeline the app uses now: it makes a new one when the chat backend
+  /// switches (a pipeline binds its backend when it is made).
+  set pipeline(StoryPipelineService value) => _pipeline = value;
 
   Future<void> _ensureLoaded() async {
     if (_loaded) return;
@@ -182,17 +190,21 @@ class StoryFacade {
     return true;
   }
 
-  /// Current pipeline progress (also pushed live over the hub during a run).
-  Map<String, dynamic> status() => {
-    'running': _pipeline.isRunning,
-    'stopping': _pipeline.stopRequested,
-    'step': _pipeline.currentStep,
-    'status': _pipeline.statusMessage,
-    'tokens': _pipeline.tokenCount,
-    // The beat being written streams in place on the Write screen. The
-    // pipeline notifies every ~3 tokens, so this rides the same cadence.
-    'streamingText': _pipeline.streamingText,
-  };
+  /// Current pipeline progress (also pushed live over the hub during a run,
+  /// from the pipeline the run started on, [of]).
+  Map<String, dynamic> status([StoryPipelineService? of]) {
+    final p = of ?? _inFlight ?? _pipeline;
+    return {
+      'running': p.isRunning,
+      'stopping': p.stopRequested,
+      'step': p.currentStep,
+      'status': p.statusMessage,
+      'tokens': p.tokenCount,
+      // The beat being written streams in place on the Write screen. The
+      // pipeline notifies every ~3 tokens, so this rides the same cadence.
+      'streamingText': p.streamingText,
+    };
+  }
 
   /// Kick off one pipeline [stage] in the background. Progress streams as
   /// `story_status`; on completion `story_updated {id}` (or `story_error`) tells
@@ -214,9 +226,12 @@ class StoryFacade {
 
     // Scope the progress listener to this job's lifetime so nothing leaks across
     // server restarts (the pipeline is a long-lived singleton; the hub is not).
+    // The run reports from, and its listener comes off, the pipeline it
+    // started on, even if the app has switched to a new one meanwhile.
+    final pipeline = _inFlight = _pipeline;
     void onProgress() =>
-        _hub?.broadcast({'event': 'story_status', ...status()});
-    _pipeline.addListener(onProgress);
+        _hub?.broadcast({'event': 'story_status', ...status(pipeline)});
+    pipeline.addListener(onProgress);
     unawaited(
       job
           .then((_) async {
@@ -226,7 +241,10 @@ class StoryFacade {
           .catchError((Object e) {
             _hub?.broadcast({'event': 'story_error', 'id': id, 'error': '$e'});
           })
-          .whenComplete(() => _pipeline.removeListener(onProgress)),
+          .whenComplete(() {
+            pipeline.removeListener(onProgress);
+            if (identical(_inFlight, pipeline)) _inFlight = null;
+          }),
     );
     return true;
   }
