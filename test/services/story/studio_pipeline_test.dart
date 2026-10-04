@@ -427,6 +427,37 @@ void main() {
     await h.dispose();
   });
 
+  test('a continuity slip is judged by Review and patched by Prose, and the '
+      'run log names the job for each', () async {
+    final h = await _harness(
+      (stage, n, prompt) => switch (stage) {
+        'acts' => _acts(),
+        'sequences' => _sequences(),
+        'scenes' => _scenes(2),
+        'beats' => _beats(3),
+        'write' => _prose(n),
+        'continuity' => n == 1 ? _continuityFail : _pass,
+        'fix' => _fixFor(1),
+        'archivist' => _archive,
+        _ => _pass,
+      },
+    );
+    final p = await _studioProject(h.repo);
+    p.cast = [StoryCastMember(name: 'Wren Hale', role: 'Protagonist')];
+    await h.pipeline.runActStructurer(p);
+    await h.pipeline.planSequenceScenes(p, 1);
+    await h.pipeline.writeNextScene(p);
+
+    final log = await h.pipeline.store.entries(p.dbId!);
+    final check = log.firstWhere((e) => e.stage.startsWith('Continuity'));
+    final fix = log.firstWhere((e) => e.stage.contains('continuity fix'));
+    expect(check.role, 'review');
+    expect(fix.role, 'prose');
+    expect(fix.verdict, 'PASS');
+    expect(p.beatText(0, 0, 0), contains('came off the step'));
+    await h.dispose();
+  });
+
   test('Stop ends the run quietly at the next model call', () async {
     late StoryPipelineService pipeline;
     final h = await _harness((stage, n, prompt) {

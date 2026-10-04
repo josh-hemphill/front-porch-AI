@@ -70,6 +70,7 @@ export function EngineStep({ draft, set, laneLabels }: {
           ))}
         </div>
         <Note>Planning plans and checks. Prose writes. Review reads planning's work and sends it back when it slips.</Note>
+        <Note>Review also checks every beat as it is written. A model that thinks before it answers can take a minute or more per check, which makes the whole story slow. A quick model suits this job.</Note>
       </div>
 
       <div className="s-card">

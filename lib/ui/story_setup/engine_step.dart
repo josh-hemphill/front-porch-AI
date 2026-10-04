@@ -185,6 +185,11 @@ class EngineStep extends StatelessWidget {
               'Planning plans and checks. Prose writes. Review reads '
               'planning\'s work and sends it back when it slips.',
             ),
+            const SetupNote(
+              'Review also checks every beat as it is written. A model that '
+              'thinks before it answers can take a minute or more per check, '
+              'which makes the whole story slow. A quick model suits this job.',
+            ),
           ],
         ),
         const SizedBox(height: 12),

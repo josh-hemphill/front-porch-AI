@@ -30,6 +30,9 @@ class StoryRunEntry {
   /// 'planning', 'prose' or 'review'.
   final String role;
   final String backend;
+
+  /// The model that answered, when the backend names one.
+  final String model;
   final int attempt;
 
   /// '' (no gate), 'PASS', 'FAIL', 'INVALID' or 'ERROR'.
@@ -45,6 +48,7 @@ class StoryRunEntry {
     required this.stage,
     required this.role,
     this.backend = '',
+    this.model = '',
     this.attempt = 1,
     this.verdict = '',
     this.note = '',
@@ -59,6 +63,7 @@ class StoryRunEntry {
     'stage': stage,
     'role': role,
     'backend': backend,
+    if (model.isNotEmpty) 'model': model,
     'attempt': attempt,
     'verdict': verdict,
     'note': note,
@@ -73,6 +78,7 @@ class StoryRunEntry {
     stage: json['stage']?.toString() ?? '',
     role: json['role']?.toString() ?? '',
     backend: json['backend']?.toString() ?? '',
+    model: json['model']?.toString() ?? '',
     attempt: (json['attempt'] as num?)?.toInt() ?? 1,
     verdict: json['verdict']?.toString() ?? '',
     note: json['note']?.toString() ?? '',

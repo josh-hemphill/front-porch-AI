@@ -12,7 +12,7 @@ import { useStory } from '../hooks/useStory';
 import type { StoryRunEntry } from '../storyTypes';
 import { clearLogCopy } from './story/confirmCopy';
 import { RunDialog } from './story/runlog/RunDialog';
-import { callsLine, clock, isFailure, roleTone, rowStats, stageLabel, verdictTone } from './story/runlog/runLogShape';
+import { callsLine, clock, isFailure, roleTone, rowStats, stageLabel, verdictTone, jobTimeLine, jobTimes, slowChecksNote } from './story/runlog/runLogShape';
 import { useRunLog } from './story/runlog/useRunLog';
 import { Segmented } from './story/setup/primitives';
 import { Chip, StudioLoading, StudioShell } from './story/StudioShell';
@@ -55,6 +55,15 @@ export function StoryRunLogPage() {
       </div>
       {(failure || log.error) && <p className="s-error">{failure || log.error}</p>}
 
+      {entries.length > 0 && (
+        <section className="s-card" data-testid="runlog-time">
+          <span className="s-key">Time by job</span>
+          {jobTimes(entries).map((j) => <span key={j.role} className="s-mono s-small" style={{ display: 'block' }}>{jobTimeLine(j)}</span>)}
+          {slowChecksNote(entries) && (
+            <span className="s-small" style={{ color: 'var(--studio-honey)' }} data-testid="runlog-slow">{slowChecksNote(entries)}</span>
+          )}
+        </section>
+      )}
       {shown.length > 0 && (
         <section className="s-card s-log-card" data-testid="runlog-list">
           {shown.map((e, i) => {

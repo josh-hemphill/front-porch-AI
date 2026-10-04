@@ -177,6 +177,10 @@ extension StoryPipelineStudioProse on StoryPipelineService {
 
   /// Ask for find → replace edits that fix [verdict]'s problems. Null when
   /// no edit landed or the "patch" rewrote the passage.
+  ///
+  /// The reviewer says what is wrong; the prose model makes the edits. A
+  /// patch is a small rewrite in the story's voice, and the Review job is
+  /// often a slower, more deliberate model.
   Future<({String text, ContinuityFix fix})?> _studioFix(
     StoryProject project, {
     required String stage,
@@ -195,7 +199,7 @@ extension StoryPipelineStudioProse on StoryPipelineService {
       stage: StoryStageParams.editing,
       project: project,
       tool: StoryTools.edits,
-      role: StoryRole.review,
+      role: StoryRole.prose,
       label: '$stage (continuity fix)',
     );
     final report = StoryEdits.apply(prose, StoryEdits.parse(call.text));

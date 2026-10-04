@@ -126,10 +126,36 @@ class _RunLogSectionState extends State<RunLogSection> {
           ],
         ),
         const SizedBox(height: 10),
+        if (_entries.isNotEmpty) ...[_timeCard(), const SizedBox(height: 10)],
         if (shown.isNotEmpty)
           StoryCard(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
             children: [for (final e in shown) _row(e)],
+          ),
+      ],
+    );
+  }
+
+  /// Where the model time went, per job, and a plain note when checking
+  /// is what makes the story slow.
+  Widget _timeCard() {
+    final slow = slowChecksNote(_entries);
+    return StoryCard(
+      key: const ValueKey('studio-log-time'),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      children: [
+        const StoryKeyLabel('Time by job'),
+        for (final job in storyJobTimes(_entries))
+          Text(job.line, style: StudioType.mono(context, size: 11.5)),
+        if (slow != null)
+          Text(
+            slow,
+            key: const ValueKey('studio-log-slow'),
+            style: StudioType.ui(
+              context,
+              size: 12.5,
+              color: StudioColors.honeyOf(context),
+            ),
           ),
       ],
     );

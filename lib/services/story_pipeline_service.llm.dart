@@ -182,6 +182,7 @@ extension StoryPipelineLlm on StoryPipelineService {
         stage: label,
         role: role.name,
         backend: service.backendName,
+        model: service is OpenRouterService ? service.modelName : '',
         attempt: attempt,
         millis: DateTime.now().difference(started).inMilliseconds,
         tokens: _tokenCount,

@@ -51,3 +51,59 @@ export function callsLine(n: number): string {
 
 /** What "Copy both" puts on the clipboard. */
 export const bothText = (e: StoryRunEntry): string => `### Prompt\n${e.prompt}\n\n### Reply\n${e.response}`;
+
+// ── Time by job (twin of lib/services/story/story_run_summary.dart) ──
+
+export interface JobTime {
+  role: string;
+  calls: number;
+  millis: number;
+  models: string[];
+}
+
+const JOB_ORDER = ['planning', 'prose', 'review'];
+
+/** "48s" under a minute and a half, else whole minutes. */
+export function duration(millis: number): string {
+  const s = millis / 1000;
+  return s < 90 ? `${Math.round(s)}s` : `${Math.round(s / 60)} min`;
+}
+
+const average = (j: JobTime): number => (j.calls === 0 ? 0 : j.millis / j.calls / 1000);
+
+/** Time per job, in the order planning, prose, review, then anything else. */
+export function jobTimes(entries: StoryRunEntry[]): JobTime[] {
+  const byRole = new Map<string, JobTime>();
+  for (const e of entries) {
+    const job = byRole.get(e.role) ?? { role: e.role, calls: 0, millis: 0, models: [] };
+    job.calls += 1;
+    job.millis += e.millis;
+    if (e.model && !job.models.includes(e.model)) job.models.push(e.model);
+    byRole.set(e.role, job);
+  }
+  const rank = (role: string) => (JOB_ORDER.includes(role) ? JOB_ORDER.indexOf(role) : JOB_ORDER.length);
+  return [...byRole.values()].sort((a, b) => rank(a.role) - rank(b.role));
+}
+
+/** "Review · 28 calls · 34 min · 74s each · grok-4.7" */
+export function jobTimeLine(j: JobTime): string {
+  const name = j.role ? j.role[0].toUpperCase() + j.role.slice(1) : 'Other';
+  return [
+    name,
+    `${j.calls} call${j.calls === 1 ? '' : 's'}`,
+    duration(j.millis),
+    `${Math.round(average(j))}s each`,
+    ...(j.models.length ? [j.models.join(', ')] : []),
+  ].join(' · ');
+}
+
+/** Plain words when checking takes far longer than writing; null until there is enough to judge. */
+export function slowChecksNote(entries: StoryRunEntry[]): string | null {
+  const jobs = jobTimes(entries);
+  const review = jobs.find((j) => j.role === 'review');
+  const prose = jobs.find((j) => j.role === 'prose');
+  if (!review || !prose || review.calls < 3 || prose.calls < 3) return null;
+  if (average(review) < 20 || average(review) < average(prose) * 3) return null;
+  return `Checks average ${Math.round(average(review))}s each; writing averages ${Math.round(average(prose))}s. `
+    + 'A check runs after every beat, so a faster Review model (Setup, Engine step) would speed this story up.';
+}

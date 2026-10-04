@@ -194,6 +194,8 @@ export interface StoryRunEntry {
   stage: string;
   role: string;
   backend: string;
+  /** The model that answered, when the backend names one. */
+  model?: string;
   attempt: number;
   verdict: string;
   note: string;
