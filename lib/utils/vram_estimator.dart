@@ -19,6 +19,10 @@
 import 'package:front_porch_ai/services/kobold/kobold_launch_config.dart';
 import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/utils/gguf_model_info.dart';
+import 'package:front_porch_ai/utils/kobold_memory_rules.dart';
+
+export 'package:front_porch_ai/utils/kobold_memory_rules.dart'
+    show KoboldMemoryBackend;
 
 /// Return type for [VramEstimator.estimateFromArchitecture].
 typedef VramEstimateBreakdown = ({
@@ -193,19 +197,13 @@ class VramEstimator {
   static double _kvQuantFactor(String kvQuant) =>
       KvQuant.parse(kvQuant).sizeFactor;
 
-  /// Effective FFN dimension for compute buffer estimation.
-  static int _ffnDimEffective(GGUFModelInfo info) {
-    if (info.isMoe && info.expertFfnDim != null) {
-      return info.expertFfnDim!;
-    }
-    return info.ffnDim ??
-        (4 * info.nEmbd); // fallback: 4× embd (typical gated FFN)
-  }
-
   /// Estimate VRAM usage from detailed architecture metadata.
   ///
-  /// Returns a breakdown of weights, KV cache, compute buffers, and overhead.
-  /// Use [availableVramMb] to also compute fit status.
+  /// A guess of how KoboldCpp will load the model, never a setting: the
+  /// weights on the card, the attention cache, the working buffer and what
+  /// the engine uses beyond its listed buffers, each by the engine's own
+  /// rules (see kobold_memory_rules.dart). [backend] and [flashAttention]
+  /// change the working buffer and the extra memory.
   static VramEstimateBreakdown estimateFromArchitecture({
     required GGUFModelInfo modelInfo,
     required int fileSizeBytes,
@@ -214,134 +212,83 @@ class VramEstimator {
     required String kvQuant,
     required bool isSwa,
     required bool moeExpertsOnCpu,
-    int fixedOverheadMb = defaultFixedOverheadMb,
+    KoboldMemoryBackend backend = KoboldMemoryBackend.cuda,
+    bool flashAttention = true,
   }) {
     final fileSizeMb = fileSizeBytes ~/ (1024 * 1024);
 
-    // Weights on GPU
+    // Weights on the card. The file's own tensor table gives this exactly
+    // (seen on a real card: 784.42 MiB reported, 784 predicted). The ratio
+    // from the architecture numbers is the fallback for a file whose table
+    // could not be read. On Metal the whole file is mapped, so it all
+    // counts.
+    final exact = modelInfo.weights;
+    final expertsOnCpu = modelInfo.isMoe && moeExpertsOnCpu;
     final double weightRatio;
-    if (modelInfo.isMoe && moeExpertsOnCpu) {
-      // Use the GPU-resident ratio that includes non-layer tensors (embeddings, lm_head)
-      weightRatio = modelInfo.gpuWeightRatioWhenOffloadingExperts;
-    } else {
+    final int weightsMb;
+    if (backend == KoboldMemoryBackend.metal) {
+      weightsMb = fileSizeMb;
       weightRatio = 1.0;
+    } else if (exact != null && exact.total > 0) {
+      final onCard = exact.gpuBytes(expertsOnCpu: expertsOnCpu);
+      weightsMb = toMibCeil(onCard.toDouble());
+      weightRatio = onCard / exact.total;
+    } else {
+      weightRatio = expertsOnCpu
+          ? modelInfo.gpuWeightRatioWhenOffloadingExperts
+          : 1.0;
+      const headerMb = 50; // header / non-layer tensor allowance
+      weightsMb = ((fileSizeMb - headerMb).clamp(0, fileSizeMb) * weightRatio)
+          .round();
     }
-    const headerMb = 50; // conservative header / non-layer tensor allowance
-    final weightsMb =
-        ((fileSizeMb - headerMb).clamp(0, fileSizeMb) * weightRatio).round();
 
-    // KV cache — handles mixed-attention models (e.g. Gemma 4 with per-layer kv heads)
-    final kvFactor = _kvQuantFactor(kvQuant);
-    final kvCacheMb = _estimateKvCache(
-      modelInfo: modelInfo,
-      contextSize: contextSize,
-      kvFactor: kvFactor,
-      isSwa: isSwa,
+    // The cache figure includes the small fixed state a hybrid model's
+    // recurrent layers keep; it sits on the card beside the cache.
+    final kvCacheMb = toMibCeil(
+      koboldKvCacheBytes(
+            layers: _cacheLayers(modelInfo),
+            contextSize: contextSize,
+            batchSize: batchSize,
+            sizeFactor: _kvQuantFactor(kvQuant),
+            slidingWindowOn: isSwa,
+            flashAttention: flashAttention,
+            slidingWindow: modelInfo.slidingWindow ?? 0,
+          ) +
+          modelInfo.recurrentStateBytes,
     );
 
-    // Compute buffers (logits, attention intermediates, FFN intermediates, MoE routing)
-    // Empirically 2x the simple formula to match KoboldCPP's actual sched_reserve
-    // (flash attention scratch, MoE routing buffers, K+V separate projections).
-    final nVocab = modelInfo.nVocab ?? 131072; // 128K fallback
-    final ffnDimEff = _ffnDimEffective(modelInfo);
-    final perTokenBatch =
-        2 * (nVocab * 2 + modelInfo.nEmbd * 8 + ffnDimEff * 4);
-    final computeBufMb = (batchSize * perTokenBatch) ~/ (1024 * 1024);
-
-    final totalMb = weightsMb + kvCacheMb + computeBufMb + fixedOverheadMb;
+    final computeBufMb = toMibCeil(
+      koboldComputeBytes(
+        info: modelInfo,
+        contextSize: contextSize,
+        batchSize: batchSize,
+        slidingWindowOn: isSwa,
+        flashAttention: flashAttention,
+        backend: backend,
+      ),
+    );
+    final overheadMb = koboldRuntimeOverheadMb(
+      backend,
+      flashAttention: flashAttention,
+    );
 
     return (
       weightsMb: weightsMb,
       kvCacheMb: kvCacheMb,
       computeBufMb: computeBufMb,
-      overheadMb: fixedOverheadMb,
-      totalMb: totalMb,
+      overheadMb: overheadMb,
+      totalMb: weightsMb + kvCacheMb + computeBufMb + overheadMb,
       activeWeightRatio: weightRatio,
     );
   }
 
-  /// Estimates KV cache size with support for mixed-attention architectures.
-  ///
-  /// For models with per-layer `head_count_kv` arrays (e.g. Gemma 4, LFM),
-  /// splits layers into full-attention (lower kv heads × key_length product) and
-  /// SWA (higher kv heads × key_length product) groups. Full-attention layers use
-  /// the full context; SWA layers use a compressed ISWA cache with
-  /// `contextSize / 4 + slidingWindow / 8` cells and `keyLength / 2` head dim.
-  ///
-  /// For `full_attention_interval` patterns (Qwen), uses the same ISWA split.
-  ///
-  /// For uniform models, uses the simple `kvBytesPerToken * effectiveCtx` formula.
-  static int _estimateKvCache({
-    required GGUFModelInfo modelInfo,
-    required int contextSize,
-    required double kvFactor,
-    required bool isSwa,
-  }) {
-    final perLayer = modelInfo.nKvHeadsPerLayer;
-    final keyLen = modelInfo.keyLength ?? modelInfo.headDim;
-
-    // ── Mixed-attention path (per-layer kv heads or full_attention_interval) ──
-    final bool hasMixedHeads =
-        perLayer != null &&
-        perLayer.length == modelInfo.nLayers &&
-        perLayer.toSet().length > 1;
-    final bool hasInterval =
-        modelInfo.fullAttentionInterval != null &&
-        modelInfo.fullAttentionInterval! > 1 &&
-        modelInfo.slidingWindow != null;
-
-    if (hasMixedHeads || hasInterval) {
-      final swWindow = modelInfo.slidingWindow ?? 4096;
-      // ISWA compression: only applies when SWA mode is active.
-      // In FastForwarding mode (isSwa=false), all layers use full context.
-      final nonSwaCells = contextSize + swWindow ~/ 4;
-      final swaCells = isSwa
-          ? (contextSize < 8 * swWindow ? contextSize : 8 * swWindow) ~/ 4 +
-                swWindow ~/ 8
-          : nonSwaCells;
-      final swaHeadDim = modelInfo.swaHeadDim ?? keyLen; // null → same as full
-
-      int totalBytes = 0;
-      for (var i = 0; i < modelInfo.nLayers; i++) {
-        int nKv;
-        bool isFullAttn;
-
-        if (hasMixedHeads) {
-          // Per-layer array: resolve 0 → head_count, then identify groups
-          final kv = perLayer[i];
-          nKv = kv > 0 ? kv : modelInfo.nHeads;
-          // The group with smaller n_head_kv × key_length is full attention
-          // (lower total KV dim per token = optimized for full context)
-          final thisProd = nKv * keyLen;
-          // Compare against the other distinct value
-          final other = perLayer.firstWhere(
-            (v) => (v > 0 ? v : modelInfo.nHeads) != nKv,
-            orElse: () => nKv,
-          );
-          final otherKv = other > 0 ? other : modelInfo.nHeads;
-          final otherProd = otherKv * keyLen;
-          isFullAttn = thisProd < otherProd;
-        } else {
-          // full_attention_interval
-          nKv = modelInfo.nKvHeads;
-          isFullAttn = (i % modelInfo.fullAttentionInterval! == 0);
-        }
-
-        final headDim = isFullAttn ? keyLen : swaHeadDim;
-        final cells = isFullAttn ? nonSwaCells : swaCells;
-        totalBytes += (4 * nKv * headDim * cells * kvFactor).round();
-      }
-      return totalBytes ~/ (1024 * 1024);
-    }
-
-    // ── Uniform model: use the original formula ──
-    final effectiveCtx = isSwa
-        ? (modelInfo.slidingWindow != null
-              ? contextSize.clamp(0, modelInfo.slidingWindow!)
-              : contextSize.clamp(0, 4096))
-        : contextSize;
-    return ((modelInfo.kvBytesPerToken * effectiveCtx * kvFactor) ~/
-        (1024 * 1024));
+  /// The layers that keep a cache. A model read from a file lists them; one
+  /// built by hand is taken as a single uniform block, the cautious reading.
+  static List<GGUFKvLayer> _cacheLayers(GGUFModelInfo info) {
+    final layers = info.kvLayers;
+    if (layers != null) return layers;
+    final half = info.kvBytesPerToken ~/ 2;
+    return [GGUFKvLayer(half, info.kvBytesPerToken - half)];
   }
 
   /// Suggest a batch size that fits within [availableVramMb] given the margin.
@@ -357,6 +304,8 @@ class VramEstimator {
     required bool moeExpertsOnCpu,
     required int availableVramMb,
     required int autofitpaddingMb,
+    KoboldMemoryBackend backend = KoboldMemoryBackend.cuda,
+    bool flashAttention = true,
     int minBatch = 512,
     int maxBatch = 8192,
   }) {
@@ -377,6 +326,8 @@ class VramEstimator {
         kvQuant: kvQuant,
         isSwa: isSwa,
         moeExpertsOnCpu: moeExpertsOnCpu,
+        backend: backend,
+        flashAttention: flashAttention,
       );
       if (est.totalMb + autofitpaddingMb <= availableVramMb) {
         return batch;
