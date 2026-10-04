@@ -139,6 +139,23 @@ extension KoboldServiceProcess on KoboldService {
       return;
     }
 
+    // KoboldCpp before 1.112 stops at load on the staged config (it reads
+    // the cache type as a number). Not supported: say so instead of
+    // starting it to fail.
+    final version = (await KoboldBinaryVersion.read(
+      path.dirname(executablePath),
+    )).version;
+    if (!KoboldCapabilities.forVersion(version).quantKvAsText) {
+      final problem =
+          'This KoboldCpp ($version) is too old for the app. Update '
+          'KoboldCpp to 1.112 or newer, then start it again.';
+      _addLog(problem);
+      _lastStartProblem = problem;
+      _isStarting = false;
+      notify();
+      return;
+    }
+
     // Store the executable path for cleanup
     _executablePath = executablePath;
 
@@ -214,6 +231,9 @@ extension KoboldServiceProcess on KoboldService {
       final extraEnv = useRocm
           ? await GpuBackendResolver.rocmEnvironment()
           : const <String, String>{};
+      _lastFailure = null;
+      _rocmFlashAttentionLaunch =
+          useRocm && staged != null && _flashAttentionIn(staged!.key);
       _process = await Process.start(
         executablePath,
         args,
@@ -274,6 +294,7 @@ extension KoboldServiceProcess on KoboldService {
           notify();
           return;
         }
+        final wasReady = _modelReady;
         _isRunning = false;
         _process = null;
         _residentKey = null;
@@ -285,6 +306,13 @@ extension KoboldServiceProcess on KoboldService {
         if (code == 2) {
           _addLog(ModelFileCheck.explainExitCode2(modelPath));
         }
+        _noteExit(
+          code,
+          launched,
+          wasReady: wasReady,
+          executablePath: executablePath,
+          port: port,
+        );
         notify();
       });
     } catch (e, stack) {
@@ -358,6 +386,8 @@ extension KoboldServiceProcess on KoboldService {
     // through the kill ladder below.
     final process = _process;
     if (process == null) return;
+    // Its exit is the app's doing, not a failure.
+    _stoppingProcess = process;
     _addLog('Stopping Backend (PID: ${process.pid})...');
     await terminateKoboldTree(
       process,

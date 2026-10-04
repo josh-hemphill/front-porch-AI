@@ -189,6 +189,8 @@ Future<Map<String, dynamic>> koboldLaunchMap({
       modelPath: modelPath,
       mmprojPath: mmproj,
       onNote: onNote,
+      flashAttentionOff:
+          useRocm && storage.backendSettings.rocmFlashAttentionFailed,
     );
   }
 
@@ -203,6 +205,13 @@ Future<Map<String, dynamic>> koboldLaunchMap({
     awaitHardware: awaitHardware,
   );
   final info = await _modelInfo(modelPath);
+  final note = koboldFlashAttentionNote(
+    backend: gpu.backend,
+    rocm: gpu.rocm,
+    architecture: info?.architecture,
+    rocmFailedBefore: b.rocmFlashAttentionFailed,
+  );
+  if (note != null) onNote?.call(note);
   final config = koboldAppConfig(
     modelPath: modelPath,
     mmprojPath: mmproj,
@@ -218,11 +227,13 @@ Future<Map<String, dynamic>> koboldLaunchMap({
       kvQuant: b.kvQuant,
       mlock: b.mlockEnabled,
       contextMode: b.koboldContextMode,
+      rocmFlashAttentionFailed: b.rocmFlashAttentionFailed,
     ),
     model: KoboldModelFacts(
       isMoe: info?.isMoe ?? false,
       hasSlidingWindow: info?.hasSlidingWindow ?? false,
       expertsShareGpuMemory: Platform.isMacOS,
+      architecture: info?.architecture,
     ),
   );
   return kcppsMap(config, caps: caps);

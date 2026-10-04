@@ -30,6 +30,22 @@ mixin KoboldLaunchFields on SettingsBase {
   KvQuant? _kvQuantNamed;
   ContextManagementMode _koboldContextMode =
       ContextManagementMode.fastForwardSmartCache;
+  bool _rocmFlashAttentionFailed = false;
+
+  /// KoboldCpp on ROCm died on this machine with flash attention on, so
+  /// the app's own launches leave it off here.
+  bool get rocmFlashAttentionFailed => _rocmFlashAttentionFailed;
+
+  Future<void> setRocmFlashAttentionFailed(bool value) async {
+    _rocmFlashAttentionFailed = value;
+    await prefs?.setBool(k('rocm_flash_attention_failed'), value);
+    notify();
+  }
+
+  /// Clears the mark, so the next ROCm launch has flash attention again.
+  Future<void> retryRocmFlashAttention() async {
+    if (_rocmFlashAttentionFailed) await setRocmFlashAttentionFailed(false);
+  }
 
   /// False (the default, for everyone): KoboldCpp fits the model to the
   /// card itself. True: the stored `gpu_layers` number is sent as typed.
@@ -71,6 +87,8 @@ mixin KoboldLaunchFields on SettingsBase {
     }
     final named = prefs?.getString(k('kv_quant'));
     _kvQuantNamed = named == null ? null : KvQuant.parse(named);
+    _rocmFlashAttentionFailed =
+        prefs?.getBool(k('rocm_flash_attention_failed')) ?? false;
     _koboldContextMode = prefs?.getString(k('kobold_context_mode')) == 'swa'
         ? ContextManagementMode.slidingWindowAttention
         : ContextManagementMode.fastForwardSmartCache;
