@@ -99,6 +99,10 @@ class KoboldService extends ChangeNotifier
   /// See [_loadGeneration].
   int get loadGeneration => _loadGeneration;
 
+  /// The content of the config the engine was last given, by launch or by
+  /// swap. Null when nothing is loaded. See `isResident`.
+  String? _residentKey;
+
   /// GGUF last started or last admin-reloaded onto this process.
   String? get loadedModelPath => _loadedModelPath;
 
@@ -132,6 +136,14 @@ class KoboldService extends ChangeNotifier
 
   String _baseUrl = 'http://127.0.0.1:5001';
   String get baseUrl => _baseUrl;
+
+  /// The port the app talks to the engine on. A start that names no port
+  /// uses it, so a restart comes back where the app is listening.
+  int get port {
+    final url = Uri.tryParse(_baseUrl);
+    return url != null && url.hasPort ? url.port : 5001;
+  }
+
   http.Client? _activeClient;
 
   /// Tracks the completion of the current generation stream.
