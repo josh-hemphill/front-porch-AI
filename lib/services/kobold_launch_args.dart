@@ -27,6 +27,7 @@ import 'package:front_porch_ai/services/kobold_admin_swap.dart';
 import 'package:front_porch_ai/services/kobold_binary_version.dart';
 import 'package:front_porch_ai/services/storage_service.dart';
 import 'package:front_porch_ai/utils/gguf_parser.dart';
+import 'package:front_porch_ai/utils/kobold_memory_rules.dart';
 
 /// One way to launch KoboldCpp: from a config file the app writes.
 ///
@@ -52,6 +53,7 @@ Future<List<String>> buildKoboldLaunchArgs({
   required bool useRocm,
   HardwareInfo? hardware,
   Future<HardwareInfo?> Function()? awaitHardware,
+  FreeMemoryMb? free,
   void Function(String note)? onNote,
   void Function(KoboldStagedRole staged)? onStaged,
 }) async {
@@ -70,6 +72,7 @@ Future<List<String>> buildKoboldLaunchArgs({
     useRocm: useRocm,
     hardware: hardware,
     awaitHardware: awaitHardware,
+    free: free,
     onNote: onNote,
   );
   onStaged?.call(staged);
@@ -103,6 +106,7 @@ Future<KoboldStagedRole> stageKoboldRole({
   required bool useRocm,
   HardwareInfo? hardware,
   Future<HardwareInfo?> Function()? awaitHardware,
+  FreeMemoryMb? free,
   void Function(String note)? onNote,
 }) async {
   final version = await KoboldBinaryVersion.read(path.dirname(executablePath));
@@ -120,10 +124,18 @@ Future<KoboldStagedRole> stageKoboldRole({
     useRocm: useRocm,
     hardware: hardware,
     awaitHardware: awaitHardware,
+    free: free,
+    engineVersion: version.version,
     onNote: onNote,
   );
   final adminDir = koboldAdminDirFor(storage);
   final json = encodeKcpps(config);
+  if (name == kStagedChatConfig) {
+    final context = config['contextsize'];
+    storage.backendSettings.setEngineContextSize(
+      context is num ? context.toInt() : null,
+    );
+  }
   final file = await stageKoboldConfig(
     adminDir.isNotEmpty ? adminDir : Directory.systemTemp.path,
     name,
@@ -157,6 +169,8 @@ Future<Map<String, dynamic>> koboldLaunchMap({
   required bool useRocm,
   HardwareInfo? hardware,
   Future<HardwareInfo?> Function()? awaitHardware,
+  FreeMemoryMb? free,
+  String? engineVersion,
   void Function(String note)? onNote,
 }) async {
   // A missing vision file must never stop a launch.
@@ -236,7 +250,85 @@ Future<Map<String, dynamic>> koboldLaunchMap({
       architecture: info?.architecture,
     ),
   );
-  return kcppsMap(config, caps: caps);
+  return kcppsMap(
+    await _tunedForMachine(
+      config,
+      info: info,
+      gpu: gpu,
+      hardware: hardware,
+      free: free,
+      batchAutomatic: b.batchAutomatic,
+      // MMQ only does anything with CUDA and the ROCm build.
+      mmq: hardware == null || gpu.backend != KoboldGpuBackend.cuda
+          ? null
+          : b.mmqForLaunch(hardware.gpuName, engineVersion),
+    ),
+    caps: caps,
+  );
+}
+
+/// Auto mode's own choices for this machine, made without asking: the
+/// batch (unless one was chosen in Settings), smart cache slots that fit in
+/// the free system memory with context shift to match, and MMQ as timed on
+/// this card. Without the model's header or the machine's figures the
+/// config is left as it was.
+Future<KoboldLaunchConfig> _tunedForMachine(
+  KoboldLaunchConfig config, {
+  required GGUFModelInfo? info,
+  required ({KoboldGpuBackend backend, int? gpuId, bool rocm}) gpu,
+  required HardwareInfo? hardware,
+  required FreeMemoryMb? free,
+  required bool batchAutomatic,
+  required bool? mmq,
+}) async {
+  final withMmq = mmq == null ? config : config.copyWith(mmq: mmq);
+  if (info == null || hardware == null) return withMmq;
+  final int fileSize;
+  try {
+    fileSize = await File(config.modelPath).length();
+  } on FileSystemException {
+    return withMmq;
+  }
+  // Apple hardware: one memory pool, every layer on the graphics side.
+  final backend = hardware.hasMetal
+      ? KoboldMemoryBackend.metal
+      : gpu.backend == KoboldGpuBackend.vulkan
+      ? KoboldMemoryBackend.vulkan
+      : gpu.rocm
+      ? KoboldMemoryBackend.rocm
+      : KoboldMemoryBackend.cuda;
+  final onCard = gpu.backend != KoboldGpuBackend.none || hardware.hasMetal;
+  final tuning = koboldAutoTuning(
+    KoboldFit(
+      info: info,
+      fileSizeBytes: fileSize,
+      contextSize: config.contextSize,
+      batchSize: config.batchSize,
+      backend: backend,
+      kvQuant: config.kvQuant,
+      slidingWindowOn:
+          config.contextMode == ContextManagementMode.slidingWindowAttention,
+      flashAttention: config.flashAttention,
+    ),
+    KoboldMachine(
+      backend: backend,
+      totalGraphicsMb: onCard ? hardware.vramMb : 0,
+      totalSystemMb: hardware.ramMb,
+      freeGraphicsMb: onCard ? free?.graphics : 0,
+      freeSystemMb: free?.system,
+    ),
+    // Nothing goes on a card without one: KoboldCpp's own batch.
+    batchSize: !onCard
+        ? kKoboldAutoBatches.first
+        : batchAutomatic
+        ? null
+        : config.batchSize,
+  );
+  return withMmq.copyWith(
+    batchSize: tuning.batchSize,
+    smartCacheSlots: tuning.smartCache.asked,
+    contextShift: tuning.smartCache.contextShift,
+  );
 }
 
 /// The caller's backend switches, or the detected card when none was ever

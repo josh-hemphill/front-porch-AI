@@ -29,6 +29,7 @@ import 'package:front_porch_ai/services/reasoning_effort.dart';
 import 'package:front_porch_ai/services/llm_service.dart';
 import 'package:front_porch_ai/services/lmstudio_log_streamer.dart';
 import 'package:front_porch_ai/services/kobold/kobold.dart';
+import 'package:front_porch_ai/services/kobold_admin_swap.dart';
 import 'package:front_porch_ai/services/kobold_launch_args.dart';
 import 'package:front_porch_ai/services/kobold_service.dart';
 import 'package:front_porch_ai/services/omlx_status_poller.dart';
@@ -276,6 +277,9 @@ class LLMProvider extends ChangeNotifier {
     modelPath: modelPath,
     kcppsPath: kcppsPath,
   );
+
+  /// Chat's new preset or model into the running KoboldCpp, live.
+  Future<void> reloadChatKobold() => _reloadChatKobold();
 
   /// Convenience getters for the underlying services (for UI that needs specifics).
   KoboldService get koboldService => _koboldService;
