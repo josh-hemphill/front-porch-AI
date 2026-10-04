@@ -20,6 +20,7 @@ import { ChatOverlays } from './chat/ChatOverlays';
 import { useChatSend } from './chat/useChatSend';
 import { useChatSession } from './chat/useChatSession';
 import { useFollowStreamingReplies } from '../followStreaming';
+import { useUserMessageSide } from '../userMessageSide';
 
 export function ChatPage() {
   const navigate = useNavigate();
@@ -30,6 +31,7 @@ export function ChatPage() {
   // for a panel nobody could see, twice over with the drawer open.
   const { isDesktop } = useLayout();
   const followStreamingReplies = useFollowStreamingReplies();
+  useUserMessageSide();
   const session = useChatSession();
   const send = useChatSend(session.refresh);
   const {

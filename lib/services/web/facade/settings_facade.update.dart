@@ -146,6 +146,10 @@ extension SettingsFacadeUpdate on SettingsFacade {
       if (wf is bool) await _storage.realismSettings.setWeatherFahrenheit(wf);
       final dre = realism['dreamsEnabled'];
       if (dre is bool) await _storage.realismSettings.setDreamsEnabled(dre);
+      final right = realism['userMessagesOnRight'];
+      if (right is bool) {
+        await _storage.realismSettings.setUserMessagesOnRight(right);
+      }
       final ab = realism['absenceBannerEnabled'];
       if (ab is bool) {
         await _storage.realismSettings.setAbsenceBannerEnabled(ab);

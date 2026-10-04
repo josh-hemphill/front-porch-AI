@@ -181,10 +181,18 @@ class _MessageBubbleState extends State<MessageBubble> {
       );
     }
 
+    // Settings "My messages on the right": the user's row is mirrored.
+    final mirrored =
+        message.isUser &&
+        !isDirectorNote &&
+        (storage?.realismSettings.userMessagesOnRight ?? false);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
+        // Laying the row out right to left puts the avatar on the right
+        // and the bubble against it; the bubble's own text is unaffected.
+        textDirection: mirrored ? TextDirection.rtl : null,
         mainAxisAlignment: isDirectorNote
             ? MainAxisAlignment.center
             : MainAxisAlignment.start,

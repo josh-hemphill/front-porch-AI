@@ -33,8 +33,14 @@ extension _BubbleHeader on _MessageBubbleState {
     StorageService? storage,
     bool isDirectorNote,
   ) {
+    // Mirrored user row: name on the right, buttons on the left.
+    final mirrored =
+        message.isUser &&
+        !isDirectorNote &&
+        (storage?.realismSettings.userMessagesOnRight ?? false);
     return Row(
       mainAxisSize: MainAxisSize.min,
+      textDirection: mirrored ? TextDirection.rtl : null,
       children: [
         if (isDirectorNote) ...[
           Icon(

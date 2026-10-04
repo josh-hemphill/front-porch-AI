@@ -121,6 +121,7 @@ extension SettingsFacadeRead on SettingsFacade {
         'weatherFahrenheit': _storage.realismSettings.weatherFahrenheit,
         'dreamsEnabled': _storage.realismSettings.dreamsEnabled,
         'absenceBannerEnabled': _storage.realismSettings.absenceBannerEnabled,
+        'userMessagesOnRight': _storage.realismSettings.userMessagesOnRight,
         'absenceAckEnabled': _storage.realismSettings.absenceAckEnabled,
         'absenceThresholdHours': _storage.realismSettings.absenceThresholdHours,
         // Read-only context so the web can show the same honest warnings the

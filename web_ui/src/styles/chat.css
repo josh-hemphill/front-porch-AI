@@ -176,6 +176,13 @@ button.ghost.small, .ghost.small { font-size: 0.72rem; padding: 4px 8px; backgro
   color: var(--muted); margin: 0 6px 2px; user-select: none; -webkit-user-select: none;
 }
 .msg-number.user { align-self: flex-end; }
+/* Your messages sit on the left, like the character's, unless Settings'
+   "My messages on the right" is on (same switch as the desktop app). */
+:root:not([data-user-side="right"]) .msg-row .bubble.user {
+  align-self: flex-start; border-bottom-right-radius: 16px; border-bottom-left-radius: 4px;
+}
+:root:not([data-user-side="right"]) .msg-number.user,
+:root:not([data-user-side="right"]) .msg-actions.user { align-self: flex-start; }
 .msg-speaker {
   position: sticky; top: 0; z-index: 2; align-self: flex-start;
   font-size: 0.7rem; font-weight: 600; color: var(--muted);
