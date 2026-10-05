@@ -18,6 +18,13 @@
 
 part of 'llm_provider.dart';
 
+/// The worker model's key in the eval identity, read from its file once per
+/// model and per engine load. Held beside the provider, like the rest of this
+/// part's state.
+final Expando<LocalModelKeys> _workerModelKeys = Expando(
+  'LLMProvider worker model keys',
+);
+
 extension LLMProviderWorker on LLMProvider {
   OpenRouterService get workerRemoteService => _workerRemote;
 
@@ -34,16 +41,28 @@ extension LLMProviderWorker on LLMProvider {
   @visibleForTesting
   bool get debugOmlxPollerStarted => _omlxPoller.isStarted;
 
-  String get workerEvalIdentity {
+  String get workerEvalIdentity => workerEvalIdentityNamed();
+
+  /// [workerEvalIdentity] with a local helper's model named by [modelKey]
+  /// (what the engine runs, for a helper the lane does not swap in) instead of
+  /// by the file the helper setting names.
+  String workerEvalIdentityNamed({String? modelKey}) {
     final type = _storageService.workerBackendType;
     final url = resolvedLaneApiUrl(type, _storageService.workerRemoteApiUrl);
     final svc = workerService ?? _workerRemote;
+    // Named the way the chat model is: a local one by its file, a remote one
+    // by its host and name (see ChatService._evalBackendIdentity).
+    final local = type == 'kobold';
     return workerEvalIdentityFor(
       backendName: svc.backendName,
       remoteApiUrl: url,
-      remoteModelName: _storageService.workerRemoteModelName,
-      modelPath: type == 'kobold'
-          ? _storageService.resolvedWorkerKoboldModelPath()
+      remoteModelName: local ? '' : _storageService.workerRemoteModelName,
+      modelPath: local
+          ? modelKey ??
+                (_workerModelKeys[this] ??= LocalModelKeys()).of(
+                  _storageService.resolvedWorkerKoboldModelPath(),
+                  stamp: _koboldService.residentGeneration,
+                )
           : null,
     );
   }
