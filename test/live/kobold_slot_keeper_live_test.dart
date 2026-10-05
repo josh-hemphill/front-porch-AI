@@ -9,8 +9,12 @@
 // reads only what is new. Run with:
 //   KOBOLD_LIVE_BIN=… KOBOLD_LIVE_MODEL=… flutter test --concurrency=1 \
 //     --tags kobold_live test/live/kobold_slot_keeper_live_test.dart
-// KOBOLD_LIVE_REPORT names a file the table is also written to. The hybrid
-// test needs KOBOLD_LIVE_HYBRID_MODEL, a small model with recurrent layers.
+// KOBOLD_LIVE_BACKEND (vulkan or rocm) picks the graphics path; the AMD card
+// is run once for each, with the Linux build that goes with it.
+// KOBOLD_LIVE_REPORT names a file the tables are also written to: tokens read,
+// time to the first token, and how long the save after each reply held the
+// line. The hybrid test needs KOBOLD_LIVE_HYBRID_MODEL, a small model with
+// recurrent layers.
 
 @Tags(['kobold_live'])
 library;
@@ -100,11 +104,20 @@ class _Rig {
 
 /// One request the script made, as the engine reported it.
 class _Seen {
-  _Seen(this.reply, this.promptTokens, this.processed, this.firstTokenMs);
+  _Seen(
+    this.reply,
+    this.promptTokens,
+    this.processed,
+    this.firstTokenMs,
+    this.saveMs,
+  );
   final String reply;
   final int promptTokens;
   final int processed;
   final int firstTokenMs;
+
+  /// How long the line was held after the reply, for the keeper's save.
+  final int saveMs;
 }
 
 class _Run {
@@ -137,6 +150,20 @@ void main() {
     }
   });
 
+  /// What KoboldCpp printed about the graphics it took, so a table says
+  /// which card and path its numbers are from.
+  String engineSaid(KoboldService kobold) {
+    final lines = [
+      for (final l in kobold.logs)
+        if (RegExp(
+          r'ggml_vulkan: \d =|ggml_cuda_init|Device \d+:|Initializing dynamic '
+          r'library|Using Metal|offloaded \d+/\d+ layers',
+        ).hasMatch(l))
+          l.trim(),
+    ];
+    return lines.take(6).map((l) => '  engine: $l\n').join();
+  }
+
   Future<_Rig> startRig(String model) async {
     final temp = await Directory.systemTemp.createTemp('fpai keeper live');
     final root = Directory(temp.resolveSymbolicLinksSync());
@@ -156,6 +183,15 @@ void main() {
     await b.setBackendType('kobold');
     await b.setContextSize(16384);
     await b.setLastUsedModelPath(model);
+    // The graphics path a run asks for: on the AMD card, Vulkan with the
+    // plain Linux build and ROCm with the ROCm build. Left to the app when
+    // not named.
+    switch (Platform.environment['KOBOLD_LIVE_BACKEND']) {
+      case 'vulkan':
+        await b.setUseVulkan(true);
+      case 'rocm':
+        await b.setUseRocm(true);
+    }
     // Detection waits for the app's first frame, which a test never has.
     final hardware = HardwareService();
     await hardware.detectHardware();
@@ -197,7 +233,7 @@ void main() {
 
   /// Runs [start], waits for the save that follows a chat reply, and reads
   /// the engine's own account of the request from its log.
-  Future<({String reply, int processed, int firstTokenMs})> ask(
+  Future<({String reply, int processed, int firstTokenMs, int saveMs})> ask(
     _Rig rig,
     Stream<String> Function() start,
   ) async {
@@ -211,7 +247,10 @@ void main() {
       reply.write(chunk);
     }
     final firstTokenMs = first ?? sw.elapsedMilliseconds;
+    // The line is held until the keeper's save is done: that wait is the save.
+    final saving = Stopwatch()..start();
     await kobold.waitForIdle();
+    final saveMs = saving.elapsedMilliseconds;
     for (var i = 0; i < 100 && _processed(kobold).length <= before; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
@@ -221,6 +260,7 @@ void main() {
       reply: reply.toString().trim(),
       processed: now.last,
       firstTokenMs: firstTokenMs,
+      saveMs: saveMs,
     );
   }
 
@@ -228,7 +268,11 @@ void main() {
   Future<_Run> script(_Rig rig, {required int turns}) async {
     final kobold = rig.kobold;
     final r = Random(7);
-    final rules = _text(r, 1100);
+    // Long enough that keeping the chat clearly pays on a small model on an
+    // idle machine too: the 0.5B model reads about 13,000 tokens a second
+    // there, so a chat of 5,000 is read again as fast as it is saved and
+    // loaded back, and the keeper rightly lets it go. About 11,000 here.
+    final rules = _text(r, 10000);
     final run = _Run()
       ..staged = stagedChat(rig)
       ..log = '';
@@ -254,7 +298,13 @@ void main() {
       );
       final seen = await ask(rig, () => kobold.generateStream(chat(prompt)));
       run.chats.add(
-        _Seen(seen.reply, promptTokens, seen.processed, seen.firstTokenMs),
+        _Seen(
+          seen.reply,
+          promptTokens,
+          seen.processed,
+          seen.firstTokenMs,
+          seen.saveMs,
+        ),
       );
       run.newTokens.add(added);
       run.tailTokens.add(await kobold.countTokens(tail));
@@ -313,7 +363,13 @@ void main() {
     final promptTokens = await kobold.countTokens('$rules $lastPrompt');
     final seen = await ask(rig, () => kobold.generateStream(chat(lastPrompt!)));
     run.chats.add(
-      _Seen('regen', promptTokens, seen.processed, seen.firstTokenMs),
+      _Seen(
+        'regen',
+        promptTokens,
+        seen.processed,
+        seen.firstTokenMs,
+        seen.saveMs,
+      ),
     );
     run.log = kobold.logs.join('\n');
     return run;
@@ -324,7 +380,7 @@ void main() {
     final b = StringBuffer()
       ..writeln(
         'turn   prompt  '
-        '${names.map((n) => '${n.padLeft(10)} read   first token').join('   ')}',
+        '${names.map((n) => '${n.padLeft(10)} read   first token   save').join('   ')}',
       );
     final rows = runs.values.first.chats.length;
     for (var i = 0; i < rows; i++) {
@@ -333,7 +389,8 @@ void main() {
       final cells = [
         for (final run in runs.values)
           '${run.chats[i].processed.toString().padLeft(10)}   '
-              '${'${run.chats[i].firstTokenMs} ms'.padLeft(11)}',
+              '${'${run.chats[i].firstTokenMs} ms'.padLeft(11)}   '
+              '${'${run.chats[i].saveMs} ms'.padLeft(7)}',
       ];
       b.writeln(
         '${label.padRight(6)} ${'$prompt'.padLeft(6)}  ${cells.join('   ')}',
@@ -366,10 +423,13 @@ void main() {
       final on = await startRig(liveEngineModel);
       runs['keeper on'] = await script(on, turns: 10);
       final keptChats = on.kobold.debugKeeper.chats;
+      final said = engineSaid(on.kobold);
       await stopRig(on);
 
       final engine = p.basename(liveEngineBin);
-      report('\n$engine with ${p.basename(liveEngineModel)}\n${table(runs)}');
+      report(
+        '\n$engine with ${p.basename(liveEngineModel)}\n$said${table(runs)}',
+      );
 
       final a = runs['keeper off']!;
       final b = runs['keeper on']!;
@@ -404,6 +464,105 @@ void main() {
         a.chats.last.processed,
         greaterThan(a.chats.last.promptTokens * 8 ~/ 10),
       );
+    },
+    timeout: _slow,
+    skip: liveEngineSkip,
+  );
+
+  test(
+    'a chat that grows toward the context is still kept: its save stays '
+    'under the time the keeper allows',
+    () async {
+      final rig = await startRig(liveEngineModel);
+      final kobold = rig.kobold;
+      final api = KoboldHttpSlotApi(() => kobold.baseUrl);
+      final r = Random(11);
+      final rules = _text(r, 800);
+      final rows = <String>[];
+
+      /// One reply of [chat], which the keeper saves into [slot]; its tokens.
+      /// The save is timed as the line it holds after the reply. The load is
+      /// asked of the engine directly, for that slot while the line is idle,
+      /// and brings the same cache back.
+      Future<int> step(
+        String chat,
+        String prompt,
+        int slot, {
+        String note = '',
+      }) async {
+        final reply = Stopwatch()..start();
+        await kobold
+            .generateStream(
+              GenerationParams(
+                prompt: prompt,
+                systemPrompt: rules,
+                maxLength: 8,
+                temperature: 0.2,
+                kvChat: chat,
+              ),
+            )
+            .drain<void>();
+        final replyMs = reply.elapsedMilliseconds;
+        final saving = Stopwatch()..start();
+        await kobold.waitForIdle();
+        final saveMs = saving.elapsedMilliseconds;
+        final tokens = await kobold.countTokens('$rules $prompt');
+        final states = await livePost(rig.port, '/api/admin/check_state', {
+          'slot': 0,
+        });
+        final size = ((states as Map)['old_states'] as List)[slot]['size'];
+        final loading = Stopwatch()..start();
+        final loaded = await api.load(slot);
+        final loadMs = loading.elapsedMilliseconds;
+        expect(loaded.ok, isTrue, reason: 'the slot the keeper saved into');
+        rows.add(
+          '${tokens.toString().padLeft(7)}  '
+          '${'${(size as num) ~/ 1000000} MB'.padLeft(8)}  '
+          '${'$replyMs ms'.padLeft(9)}  '
+          '${'$saveMs ms'.padLeft(8)}  '
+          '${'$loadMs ms'.padLeft(8)}  '
+          '${loaded.tokens} restored$note',
+        );
+        return tokens;
+      }
+
+      // Long from its first save that decides (the first only makes the
+      // slot): a short chat on a small model is rightly let go.
+      var history = _text(r, 7000);
+      for (var tokens = 0; tokens < 13000 && rows.length < 10;) {
+        history = '$history\n${_text(r, 1300)}';
+        tokens = await step('long', history, 0);
+      }
+      // A second chat that is already long when it starts: its first save
+      // goes into a slot nothing has been written to.
+      await step(
+        'fresh',
+        _text(r, 6500),
+        1,
+        note: '  (a new chat, a slot not used before)',
+      );
+      final kept = kobold.debugKeeper.kept;
+      final tooSlow = [
+        for (final l in kobold.logs)
+          if (l.contains('to read it again')) l.trim(),
+      ];
+      final said = engineSaid(kobold);
+      await stopRig(rig);
+      report(
+        '\nlong chat, ${p.basename(liveEngineModel)} on '
+        '${p.basename(liveEngineBin)}\n$said'
+        ' tokens  cache  reply (read and written)  save  load\n'
+        '${rows.join('\n')}\n',
+      );
+      expect(rows.length, greaterThanOrEqualTo(3));
+      expect(
+        tooSlow,
+        isEmpty,
+        reason:
+            'a long chat was let go: keeping it cost more than reading it '
+            'again here',
+      );
+      expect(kept, 2, reason: 'both chats are kept');
     },
     timeout: _slow,
     skip: liveEngineSkip,
@@ -459,7 +618,8 @@ void main() {
       addTearDown(() => disposeChatThenCloseDb(chat, db));
       final ada = CharacterCard(
         name: 'Ada',
-        description: 'Keeps the porch. ' * 60,
+        // A long card: a short chat on a small model is rightly let go.
+        description: 'Keeps the porch. ' * 2600,
         firstMessage: 'Evening.',
         imagePath: '/tmp/ada-keeper-live.png',
         frontPorchExtensions: FrontPorchExtensions(

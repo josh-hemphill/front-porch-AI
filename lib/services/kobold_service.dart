@@ -151,6 +151,7 @@ class KoboldService extends ChangeNotifier
   /// Feed a console chunk to [liveProgress]; notify at most every 150ms
   /// (Generating lines arrive once per token).
   void _ingestLiveProgress(String data) {
+    _requests.readSpeed.note(data, _loadGeneration);
     if (!liveProgress.ingest(data)) return;
     final now = DateTime.now();
     if (now.difference(_lastLiveNotify).inMilliseconds >= 150) {
@@ -288,7 +289,11 @@ class KoboldService extends ChangeNotifier
   }
 
   // Public notify for same-library extensions (avoids protected member warnings).
-  void notify() => notifyListeners();
+  // A stop that dispose() started finishes later, and its last log lines must
+  // not notify a disposed service (dispose leaves no listeners).
+  void notify() {
+    if (hasListeners) notifyListeners();
+  }
 
   File get _logFile => File(
     path.join(_storageService.rootPath!, 'characters', 'session_log.txt'),
@@ -331,6 +336,17 @@ class KoboldService extends ChangeNotifier
 
   @override
   bool dropStoppedReplies() => _dropStoppedReplies();
+
+  /// A chat was deleted: the keeper lets go of its saved cache.
+  void forgetChat(String chat) => _forgetChat(chat);
+
+  /// One prompt for the editor's MMQ timing, sent in the line.
+  Future<Duration> timePrompt(int round) => _timePrompt(round);
+
+  /// The editor's speed test is about to load its own preset: the app's own
+  /// requests wait for chat's model until the function this returns is
+  /// called. Completes once what was already in the line is done.
+  Future<void Function()> holdForSpeedTest() => _holdForSpeedTest();
 
   /// POST /api/extra/abort — KoboldCPP blocks until the active generation
   /// is fully stopped, then returns HTTP 200. Call this (and await it) before
