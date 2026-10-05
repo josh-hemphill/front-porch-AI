@@ -9,14 +9,14 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:front_porch_ai/services/kcpps_references.dart';
-import 'package:front_porch_ai/services/kobold_binary_version.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/utils/utils.dart';
 
 part 'kcpps_editor_controller.fit.dart';
 
-/// What saving said.
-enum KcppsSaveResult { saved, nameTaken, invalid, failed }
+/// What saving said. [notLoaded]: saved, but the running KoboldCpp was not
+/// given it (why is in the problem line); chat's choice is back on what runs.
+enum KcppsSaveResult { saved, nameTaken, invalid, failed, notLoaded }
 
 /// The preset editor's state: the presets, the one being edited, the model
 /// it loads, and the machine it loads on.
@@ -45,8 +45,9 @@ class KcppsEditorController extends ChangeNotifier {
   final KoboldService kobold;
   final StoryRepository? stories;
 
-  /// Puts the chat preset into the running KoboldCpp.
-  final Future<void> Function()? reloadChat;
+  /// Puts the chat preset into the running KoboldCpp, and says why when it
+  /// was not loaded (null: nothing to report).
+  final Future<KoboldLaunchResult?> Function()? reloadChat;
 
   /// Loads a config as a trial into the running KoboldCpp; true when it
   /// runs afterwards.
@@ -92,6 +93,9 @@ class KcppsEditorController extends ChangeNotifier {
   GGUFModelInfo? draftModelInfo;
   int? draftModelBytes;
 
+  /// A model just chosen is being read.
+  bool modelReading = false;
+
   /// Free memory before this app's KoboldCpp took any.
   FreeMemoryMb? free;
   String? engineVersion;
@@ -103,9 +107,36 @@ class KcppsEditorController extends ChangeNotifier {
   /// Settings in the file the app does not manage, kept as written.
   List<String> unmanaged = const [];
   bool _disposed = false;
+
+  /// Presets put in the form so far. The form starts its typed boxes again
+  /// for each one.
+  int loads = 0;
+
+  /// Which request is the latest, for each read that can be overtaken.
+  int _loading = 0;
   int _modelRead = 0;
+  int _draftRead = 0;
 
   bool get dirty => _saved != _snapshot();
+
+  /// The model has a sliding window. Where it has none, the sliding-window
+  /// choice does nothing and is not written (see [KcppsDraft.toConfig]).
+  bool get hasSlidingWindow => info?.hasSlidingWindow ?? false;
+
+  /// Sliding window is on: asked for, on a model that has one.
+  bool get slidingWindowOn => draft.slidingWindow && hasSlidingWindow;
+
+  /// A model is chosen and its file cannot be read, or is not a model.
+  bool get modelUnreadable =>
+      draft.modelPath.isNotEmpty &&
+      !modelReading &&
+      (info == null || fileBytes == null);
+
+  /// The form can be written: no model file is still being read. A save or a
+  /// timing run writes the sliding window, the flash attention rule for the
+  /// model's architecture and the smart cache from the model's header, which
+  /// is not there during a read.
+  bool get canWrite => !modelReading;
 
   /// The preset the chat runs on.
   String? get chatPreset => storage.backendSettings.activeKcppsPath;
@@ -157,84 +188,87 @@ class KcppsEditorController extends ChangeNotifier {
     return reading;
   }
 
-  Future<void> select(String file) async {
-    final preset = await KcppsLibrary.open(file);
-    final read = preset.read;
-    if (read is! KcppsOk) {
-      problem = (read as KcppsBroken).reason;
-      _notify();
-      return;
-    }
-    problem = null;
-    path = file;
-    unmanaged = read.unmanagedKeys;
-    await _setModel(read.config.modelPath);
-    draft = KcppsDraft.fromConfig(
-      preset.name,
-      read.config,
-      recurrent: recurrent,
-    );
-    await _readDraftModel();
-    _raw = Map<String, dynamic>.of(read.raw);
-    _opened = _map();
-    _saved = _snapshot();
-    _notify();
-  }
-
-  /// A new preset from the app's own settings, not saved yet.
-  Future<void> newFromSettings() async {
-    final b = storage.backendSettings;
-    final model = b.lastUsedModelPath ?? '';
-    final gpu = koboldGpuFor(hardware.hardwareInfo, gpuId: b.gpuId);
-    path = null;
-    problem = null;
-    unmanaged = const [];
-    _raw = null;
-    await _setModel(model);
-    var name = model.isEmpty ? 'New preset' : koboldModelName(model);
-    for (var n = 2; await library.exists(name); n++) {
-      name = '${model.isEmpty ? 'New preset' : koboldModelName(model)} $n';
-    }
-    draft = KcppsDraft(
-      name: name,
-      modelPath: model,
-      contextSize: b.contextSize,
-      kvQuant: b.kvQuant,
-      batchSize: b.blasBatchSize,
-      flashAttention: b.flashAttentionEnabled,
-      threads: await _threads(),
-      backend: gpu.backend,
-      gpuId: gpu.gpuId,
-      mmprojPath: storage.presetSettings.modelMmprojMap[model] ?? '',
-      slots: suggestedSlots?.slots ?? 0,
-    );
-    _saved = '';
-    _notify();
-  }
+  Future<void> select(String file) => _load(file);
 
   /// A `.kcpps` from anywhere, to be saved among the presets.
-  Future<void> openFile(String file) async {
-    final preset = await KcppsLibrary.open(file);
-    final read = preset.read;
-    if (read is! KcppsOk) {
-      problem = (read as KcppsBroken).reason;
+  Future<void> openFile(String file) => _load(file, asCopy: true);
+
+  /// A new preset from the app's own settings, not saved yet.
+  Future<void> newFromSettings() => _load(null);
+
+  /// Puts a preset in the form: the one in [file], kept as the file being
+  /// edited unless it is [asCopy] (opened from elsewhere, to be saved among
+  /// the presets), or with no file a new one from the app's own settings.
+  /// Everything is read first and put in the form in one step, so a load
+  /// that another one overtook leaves no mixture of the two behind.
+  Future<void> _load(String? file, {bool asCopy = false}) async {
+    final ticket = ++_loading;
+    final preset = file == null ? null : await KcppsLibrary.open(file);
+    if (ticket != _loading) return;
+    final read = preset?.read;
+    if (read is KcppsBroken) {
+      problem = read.reason;
       _notify();
       return;
     }
-    path = null;
+    final ok = read as KcppsOk?;
+    final b = storage.backendSettings;
+    final model = ok?.config.modelPath ?? b.lastUsedModelPath ?? '';
+    final seen = await _look(model);
+    final helper = await _look(ok?.config.draftModelPath ?? '');
+    final name = preset?.name ?? await _unusedName(model);
+    final threads = ok == null ? await _threads() : null;
+    if (ticket != _loading) return;
+
+    // Nothing awaits from here on. A read still going belongs to the form
+    // that was here before.
+    _modelRead++;
+    _draftRead++;
+    modelReading = false;
     problem = null;
-    unmanaged = read.unmanagedKeys;
-    await _setModel(read.config.modelPath);
-    draft = KcppsDraft.fromConfig(
-      preset.name,
-      read.config,
-      recurrent: recurrent,
-    );
-    await _readDraftModel();
-    _raw = Map<String, dynamic>.of(read.raw);
-    _opened = _map();
-    _saved = '';
+    path = file != null && !asCopy ? file : null;
+    unmanaged = ok?.unmanagedKeys ?? const [];
+    info = seen?.info;
+    fileBytes = seen?.bytes;
+    draftModelInfo = helper?.info;
+    draftModelBytes = helper?.bytes;
+    if (ok == null) {
+      final gpu = koboldGpuFor(hardware.hardwareInfo, gpuId: b.gpuId);
+      draft = KcppsDraft(
+        name: name,
+        modelPath: model,
+        contextSize: b.contextSize,
+        kvQuant: b.kvQuant,
+        batchSize: b.blasBatchSize,
+        flashAttention: b.flashAttentionEnabled,
+        threads: threads,
+        backend: gpu.backend,
+        gpuId: gpu.gpuId,
+        mmprojPath: storage.presetSettings.modelMmprojMap[model] ?? '',
+      );
+      // Sized on this form, with this model, not the one before.
+      draft = draft.copyWith(slots: suggestedSlots?.slots ?? 0);
+      _raw = null;
+      _opened = null;
+      _saved = '';
+    } else {
+      draft = KcppsDraft.fromConfig(name, ok.config, recurrent: recurrent);
+      _raw = Map<String, dynamic>.of(ok.raw);
+      _opened = _map();
+      _saved = path == null ? '' : _snapshot();
+    }
+    loads++;
     _notify();
+  }
+
+  /// A name no preset has: the model's, then "2", "3"...
+  Future<String> _unusedName(String model) async {
+    final base = model.isEmpty ? 'New preset' : koboldModelName(model);
+    var name = base;
+    for (var n = 2; await library.exists(name); n++) {
+      name = '$base $n';
+    }
+    return name;
   }
 
   void edit(KcppsDraft Function(KcppsDraft d) change) {
@@ -247,40 +281,45 @@ class KcppsEditorController extends ChangeNotifier {
       modelPath: model,
       mmprojPath: storage.presetSettings.modelMmprojMap[model] ?? '',
     );
+    info = null;
+    fileBytes = null;
+    modelReading = true;
+    final ticket = ++_modelRead;
     _notify();
-    await _setModel(model);
+    final seen = await _look(model);
+    if (ticket != _modelRead) return;
+    info = seen?.info;
+    fileBytes = seen?.bytes;
+    modelReading = false;
     // A placement by hand is for the model it was set for.
     if (draft.manual) {
-      draft = draft.copyWith(
-        manual: false,
-        gpuLayers: 0,
-        moeCpuLayers: 0,
-        slidingWindow: info?.hasSlidingWindow ?? false
-            ? draft.slidingWindow
-            : false,
-      );
+      draft = draft.copyWith(manual: false, gpuLayers: 0, moeCpuLayers: 0);
     }
     _notify();
   }
 
   Future<void> setDraftModel(String model) async {
     draft = draft.copyWith(draftModelPath: model);
-    await _readDraftModel();
+    draftModelInfo = null;
+    draftModelBytes = null;
+    final ticket = ++_draftRead;
+    _notify();
+    final seen = await _look(model);
+    if (ticket != _draftRead) return;
+    draftModelInfo = seen?.info;
+    draftModelBytes = seen?.bytes;
     _notify();
   }
 
-  Future<void> _setModel(String model) async {
-    final ticket = ++_modelRead;
-    info = null;
-    fileBytes = null;
-    if (model.isEmpty) return;
+  /// The model file at [path] as read: null when there is none to read or
+  /// it cannot be (the reason is logged).
+  Future<({GGUFModelInfo? info, int bytes})?> _look(String path) async {
+    if (path.isEmpty) return null;
     try {
-      final read = await _readModel(model);
-      if (ticket != _modelRead) return;
-      info = read.info;
-      fileBytes = read.bytes;
+      return await _readModel(path);
     } on FileSystemException catch (e) {
-      if (ticket == _modelRead) problem = 'The model file cannot be read: $e';
+      debugPrint('[Presets] cannot read $path: $e');
+      return null;
     }
   }
 
@@ -291,22 +330,10 @@ class KcppsEditorController extends ChangeNotifier {
     bytes: await File(path).length(),
   );
 
-  Future<void> _readDraftModel() async {
-    draftModelInfo = null;
-    draftModelBytes = null;
-    final model = draft.draftModelPath;
-    if (model.isEmpty) return;
-    try {
-      final read = await _readModel(model);
-      draftModelInfo = read.info;
-      draftModelBytes = read.bytes;
-    } on FileSystemException catch (e) {
-      debugPrint('[Presets] draft model unreadable: $e');
-    }
-  }
-
-  /// Saves the form. A name another preset has needs [overwrite].
+  /// Saves the form. A name another preset has needs [overwrite]. Nothing is
+  /// written until [canWrite].
   Future<KcppsSaveResult> save({bool overwrite = false}) async {
+    if (!canWrite) return KcppsSaveResult.invalid;
     final name = draft.name.trim();
     final wrong = kcppsNameProblem(name);
     if (wrong != null) {
@@ -362,41 +389,69 @@ class KcppsEditorController extends ChangeNotifier {
     if (draft.modelPath.isNotEmpty) {
       await storage.presetSettings.setModelPreset(draft.modelPath, file);
     }
+    await recordKoboldModelInUse(storage);
     _notify();
-    await reloadChat?.call();
-    return result;
+    return await _reloadChat() ? result : KcppsSaveResult.notLoaded;
   }
 
-  Future<void> duplicate() async {
+  /// Puts the chat preset into the running KoboldCpp. False when it was not
+  /// loaded, with the reason where the editor shows problems.
+  Future<bool> _reloadChat() async {
+    final refusal = (await reloadChat?.call())?.refusal;
+    if (refusal == null) return true;
+    problem = refusal;
+    _notify();
+    return false;
+  }
+
+  /// Copies the preset being edited and opens the copy. False when there was
+  /// nothing to copy or it could not be (why in [problem]).
+  Future<bool> duplicate() async {
     final from = path;
-    if (from == null) return;
-    final copy = await library.duplicate(from);
+    if (from == null) return false;
+    final String copy;
+    try {
+      copy = await library.duplicate(from);
+    } on FileSystemException catch (e) {
+      problem = 'The preset could not be copied: ${e.message}.';
+      _notify();
+      return false;
+    }
     presets = await library.list();
     await select(copy);
+    return true;
   }
 
-  Future<void> delete() async {
+  /// Deletes the preset being edited and opens the first one left (a new one
+  /// when there is none). False when there was nothing to delete or it could
+  /// not be (why in [problem]).
+  Future<bool> delete() async {
     final file = path;
-    if (file == null) return;
-    await library.delete(file);
+    if (file == null) return false;
+    try {
+      await library.delete(file);
+    } on FileSystemException catch (e) {
+      problem = 'The preset could not be deleted: ${e.message}.';
+      _notify();
+      return false;
+    }
     await repointKcppsPreset(storage: storage, stories: stories, from: file);
     presets = await library.list();
-    final next = presets.firstOrNull;
-    if (next == null) {
-      await newFromSettings();
-    } else {
-      await select(next.path);
-    }
+    await _load(presets.firstOrNull?.path);
+    return true;
   }
 
   /// The form as saved: the name is the file's, not in it, and counts too.
   String _snapshot() => jsonEncode({'': draft.name.trim(), ..._map()});
 
-  Map<String, dynamic> _map() => draft.toMap(
+  /// The `.kcpps` map of the form, or of [form]: the form with something
+  /// changed, for a trial.
+  Map<String, dynamic> _map([KcppsDraft? form]) => (form ?? draft).toMap(
     recurrent: recurrent,
     rocm: storage.backendSettings.useRocm ?? false,
     rocmFlashAttentionFailed: storage.backendSettings.rocmFlashAttentionFailed,
     architecture: info?.architecture,
+    hasSlidingWindow: hasSlidingWindow,
   );
 
   void _notify() {

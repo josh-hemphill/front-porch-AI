@@ -106,9 +106,20 @@ class _KcppsEditorDialogState extends State<KcppsEditorDialog> {
       if (!await askReplaceKcpps(context, c.draft.name.trim())) return;
       result = await run(true);
     }
-    if (result != KcppsSaveResult.saved || !mounted) return;
+    if (!mounted) return;
+    // Saved, but the running KoboldCpp was not given it: the dialog stays,
+    // with the reason in the footer.
+    if (result == KcppsSaveResult.notLoaded) _saved = true;
+    if (result != KcppsSaveResult.saved) return;
     _saved = true;
     if (use) Navigator.of(context).pop(true);
+  }
+
+  /// The copy is a file on disk the list must show, but the form's edits
+  /// are not in it: they are asked about first, as when switching presets.
+  Future<void> _duplicate() async {
+    if (!await _mayLeave()) return;
+    if (await c.duplicate()) _saved = true;
   }
 
   Future<void> _delete() async {
@@ -120,8 +131,7 @@ class _KcppsEditorDialogState extends State<KcppsEditorDialog> {
       inUse: c.isChatPreset(path),
     );
     if (!ok) return;
-    await c.delete();
-    _saved = true;
+    if (await c.delete()) _saved = true;
   }
 
   Future<void> _close() async {
@@ -232,69 +242,66 @@ class _KcppsEditorDialogState extends State<KcppsEditorDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _nameRow(context),
+          _nameRow(),
           const SizedBox(height: 18),
           KcppsModelField(c: c),
           const SizedBox(height: 18),
-          KcppsFitPanel(c: c),
-          const SizedBox(height: 18),
-          LayoutBuilder(
-            builder: (context, box) {
-              final sections = <Widget>[
-                KcppsChatLengthSection(c: c),
-                KcppsSpeedSection(c: c),
-                KcppsSmartCacheSection(c: c),
-                KcppsExtrasSection(c: c),
-              ];
-              if (box.maxWidth < 720) {
-                return Column(
-                  children: [
-                    for (final s in sections) ...[
-                      s,
-                      const SizedBox(height: 16),
-                    ],
-                  ],
-                );
-              }
-              Widget pair(Widget a, Widget b) => IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: a),
-                    const SizedBox(width: 16),
-                    Expanded(child: b),
-                  ],
-                ),
-              );
-              return Column(
-                children: [
-                  pair(sections[0], sections[1]),
-                  const SizedBox(height: 16),
-                  pair(sections[2], sections[3]),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 18),
-          KcppsPlainWords(text: c.plainWords),
-          if (c.problem case final problem?) ...[
-            const SizedBox(height: 12),
-            Text(
-              problem,
-              key: const ValueKey('kcpps-problem'),
-              style: keText(
-                context,
-                size: 14,
-                color: AppColors.alertRedOf(context),
-              ),
+          // A preset put in the form starts the typed boxes again, with
+          // nothing left over from the one before.
+          KeyedSubtree(
+            key: ValueKey(c.loads),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                KcppsFitPanel(c: c),
+                const SizedBox(height: 18),
+                _sections(),
+                const SizedBox(height: 18),
+                KcppsPlainWords(text: c.plainWords),
+              ],
             ),
-          ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _nameRow(BuildContext context) => Row(
+  Widget _sections() => LayoutBuilder(
+    builder: (context, box) {
+      final sections = <Widget>[
+        KcppsChatLengthSection(c: c),
+        KcppsSpeedSection(c: c),
+        KcppsSmartCacheSection(c: c),
+        KcppsExtrasSection(c: c),
+      ];
+      if (box.maxWidth < 720) {
+        return Column(
+          children: [
+            for (final s in sections) ...[s, const SizedBox(height: 16)],
+          ],
+        );
+      }
+      Widget pair(Widget a, Widget b) => IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: a),
+            const SizedBox(width: 16),
+            Expanded(child: b),
+          ],
+        ),
+      );
+      return Column(
+        children: [
+          pair(sections[0], sections[1]),
+          const SizedBox(height: 16),
+          pair(sections[2], sections[3]),
+        ],
+      );
+    },
+  );
+
+  Widget _nameRow() => Row(
     crossAxisAlignment: CrossAxisAlignment.end,
     children: [
       Expanded(
@@ -321,7 +328,7 @@ class _KcppsEditorDialogState extends State<KcppsEditorDialog> {
       KeButton(
         'Duplicate',
         padding: 14,
-        onPressed: c.path == null ? null : c.duplicate,
+        onPressed: c.path == null ? null : _duplicate,
       ),
       const SizedBox(width: 8),
       KeButton(
@@ -340,22 +347,39 @@ class _KcppsEditorDialogState extends State<KcppsEditorDialog> {
       ),
     ),
     child: Row(
-      mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        // Beside the buttons, so a save that failed says so where it was
+        // asked for, not at the bottom of a long form.
+        Expanded(
+          child: c.problem == null
+              ? const SizedBox.shrink()
+              : Text(
+                  c.problem!,
+                  key: const ValueKey('kcpps-problem'),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: keText(
+                    context,
+                    size: 14,
+                    color: AppColors.alertRedOf(context),
+                  ),
+                ),
+        ),
+        const SizedBox(width: 16),
         KeButton('Cancel', padding: 18, onPressed: _close),
         const SizedBox(width: 10),
         KeButton(
           'Save',
           kind: KeButtonKind.amberOutline,
           padding: 18,
-          onPressed: () => _save(use: false),
+          onPressed: c.canWrite ? () => _save(use: false) : null,
         ),
         const SizedBox(width: 10),
         KeButton(
           'Save and use now',
           kind: KeButtonKind.amber,
           padding: 20,
-          onPressed: () => _save(use: true),
+          onPressed: c.canWrite ? () => _save(use: true) : null,
         ),
       ],
     ),

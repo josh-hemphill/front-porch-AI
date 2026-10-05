@@ -28,8 +28,7 @@ import 'package:front_porch_ai/ui/widgets/widgets.dart';
 // Not in barrels (internal or low-frequency)
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/ui/settings/widgets/widgets.dart';
-import 'package:front_porch_ai/ui/settings/tabs/backend/worker_backend_section.dart';
-import 'package:front_porch_ai/ui/settings/tabs/backend/super_grok_card.dart';
+import 'package:front_porch_ai/ui/settings/tabs/backend/backend.dart';
 import 'package:front_porch_ai/services/storage/settings/remote_provider.dart';
 import 'package:front_porch_ai/utils/utils.dart';
 
@@ -62,6 +61,9 @@ class _ModelSettingsDialogState extends State<ModelSettingsDialog> {
   final _contextSizeController = TextEditingController(text: '');
   String? _selectedModelPath;
 
+  /// The preset the context box was last brought in step with.
+  String? _contextPreset;
+
   // Remote API fields
   final _apiUrlController = TextEditingController();
   final _apiKeyController = TextEditingController();
@@ -84,6 +86,7 @@ class _ModelSettingsDialogState extends State<ModelSettingsDialog> {
     _gpuLayersController.text = storage.backendSettings.gpuLayers.toString();
     _contextSizeController.text = storage.backendSettings.contextSize
         .toString();
+    _contextPreset = storage.backendSettings.activeKcppsPath;
     // Remote settings
     _apiUrlController.text = storage.backendSettings.remoteApiUrl;
     _apiKeyController.text = typedRemoteApiKey(storage.backendSettings);
@@ -98,7 +101,7 @@ class _ModelSettingsDialogState extends State<ModelSettingsDialog> {
   void _scanLocalPresets() {
     final storage = Provider.of<StorageService>(context, listen: false);
     setState(() {
-      _localPresets = scanKcppsPresets(storage.binDir);
+      _localPresets = kcppsPresetFiles(storage.binDir.path);
     });
   }
 
@@ -227,12 +230,14 @@ class _ModelSettingsDialogState extends State<ModelSettingsDialog> {
     bool isNumber = false,
     bool isObscured = false,
     VoidCallback? onEditingComplete,
+    ValueChanged<String>? onChanged,
   }) {
     return TextField(
       controller: controller,
       keyboardType: isNumber ? TextInputType.number : TextInputType.text,
       obscureText: isObscured,
       onEditingComplete: onEditingComplete,
+      onChanged: onChanged,
       style: TextStyle(color: AppColors.textPrimary(context)),
       decoration: InputDecoration(
         labelText: label,

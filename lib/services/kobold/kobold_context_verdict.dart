@@ -5,7 +5,7 @@
 // slower, too big. Auto mode shows only this; the reasons (layers, experts,
 // batch) stay in the preset editor.
 
-import 'package:front_porch_ai/utils/kobold_placement.dart';
+import 'package:front_porch_ai/utils/utils.dart';
 
 import 'kobold_fit.dart';
 
@@ -15,6 +15,14 @@ const int kKoboldContextFloor = 16384;
 
 /// The context sizes offered in auto mode.
 const List<int> kKoboldContextChoices = [8192, 16384, 32768, 65536, 131072];
+
+/// The smallest and largest context the phone may set, in tokens.
+const int kKoboldContextMin = 512;
+const int kKoboldContextMax = 1048576;
+
+/// How long after the last change to the context a running KoboldCpp is
+/// reloaded with it, so a few taps in a row reload once.
+const Duration kKoboldContextReloadDelay = Duration(milliseconds: 1500);
 
 enum KoboldContextOutcome {
   tooSmall,
@@ -63,15 +71,16 @@ List<int> koboldContextChoices({required int current, int? modelMax}) {
 
 /// The verdict for each of [choices] against the context [fit] has now,
 /// and the largest that works well (never below the floor). Auto mode's
-/// fit: KoboldCpp keeps [paddingMb] spare.
+/// fit: KoboldCpp keeps [kKoboldFitPaddingMb] spare. [batchSize] is the
+/// batch the launch holds, when it does (see [koboldAutoTuning]).
 ({List<KoboldContextVerdict> verdicts, int? largestGood})
 koboldContextVerdicts({
   required KoboldFit fit,
   required KoboldMachine machine,
   required List<int> choices,
-  int paddingMb = 1024,
+  int? batchSize,
 }) {
-  final now = koboldAutoTuning(fit, machine, paddingMb: paddingMb);
+  final now = koboldAutoTuning(fit, machine, batchSize: batchSize);
   final nowCost = _cost(now.load, fit, machine);
   final nowSystem = _cost(now.load, fit, machine, systemOnly: true);
   final nowShort = _shortMb(now.load, machine);
@@ -81,7 +90,7 @@ koboldContextVerdicts({
     final tuned = koboldAutoTuning(
       fit.copyWith(contextSize: c),
       machine,
-      paddingMb: paddingMb,
+      batchSize: batchSize,
     );
     final pace = _cost(tuned.load, fit, machine) / nowCost;
     // The chat memory kept in system memory has to fit there; weights are

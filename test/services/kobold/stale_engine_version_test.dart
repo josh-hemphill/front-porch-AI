@@ -7,15 +7,16 @@
 // KoboldCpp as "too old" and break Start.
 //
 // No engine is started: the refusal comes before anything is spawned, and a
-// start that goes ahead fails at the spawn on an engine file that is not a
-// program. The download is real, from a server on loopback.
+// start that goes ahead is refused at the spawn, in other words, on an engine
+// file that is not a program. The download is real, from a server on
+// loopback.
 
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:front_porch_ai/services/backend_manager.dart';
 import 'package:front_porch_ai/services/kobold_admin_swap.dart';
-import 'package:front_porch_ai/services/kobold_binary_version.dart';
+import 'package:front_porch_ai/services/kobold/kobold.dart';
 import 'package:front_porch_ai/services/kobold_service.dart';
 import 'package:front_porch_ai/services/storage_service.dart';
 import 'package:path/path.dart' as p;
@@ -80,10 +81,11 @@ void main() {
       size: 419430400,
     );
 
-    await expectLater(
-      kobold.launch(engine, pickedModel: model, port: 5998),
-      throwsA(isA<ProcessException>()),
-    );
+    final result = await kobold.launch(engine, pickedModel: model, port: 5998);
+
+    // Refused at the spawn (the file is not a program), not as too old.
+    expect(result.started, isFalse);
+    expect(result.message, contains('could not be started'));
     expect(kobold.logs.join('\n'), isNot(contains('too old')));
   });
 

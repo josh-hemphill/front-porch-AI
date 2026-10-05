@@ -22,10 +22,9 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
-import 'package:front_porch_ai/models/hardware_info.dart';
+import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/gpu_backend_resolver.dart';
 import 'package:front_porch_ai/services/kobold/kobold.dart';
-import 'package:front_porch_ai/services/kobold_binary_version.dart';
 import 'package:front_porch_ai/services/kobold_admin_swap.dart';
 import 'package:front_porch_ai/services/kobold_launch_args.dart';
 import 'package:front_porch_ai/services/kobold_process_control.dart';
@@ -57,9 +56,13 @@ class KoboldService extends ChangeNotifier
   bool _isRunning = false;
   bool _isStarting = false;
 
-  /// Why the last start was refused before any process was spawned (a
-  /// model or preset that cannot be read), or null.
-  String? _lastStartProblem;
+  /// Goes up when Stop is pressed while a start is still being prepared. That
+  /// start sees a different number just before it spawns and gives up.
+  int _startGeneration = 0;
+
+  /// True while a start stops the engine it replaces: that stop is not a
+  /// Stop press and must not call off the start that made it.
+  bool _stoppingForRestart = false;
 
   /// Why the engine last stopped on its own, or null.
   KoboldFailure? get lastFailure => _lastFailure;
@@ -77,10 +80,6 @@ class KoboldService extends ChangeNotifier
   /// can tell later whether it is still the one in memory.
   int _loadGeneration = 0;
 
-  /// One-shot "load just finished" latch. Home drains it (no success toast —
-  /// dual-local swaps would stack those). Unlike [_modelReady], reset after
-  /// [consumeModelReady] so each load is seen once.
-  bool _modelJustLoaded = false;
   String? _executablePath;
 
   /// The detected graphics hardware, when the app has it. A launch with no
@@ -140,18 +139,7 @@ class KoboldService extends ChangeNotifier
     }
   }
 
-  /// Consume the one-shot "model just loaded" latch.
-  /// Returns true exactly once after each model load. Does NOT affect
-  /// [isReady] or [modelReady]. Home drains this without a success toast.
-  bool consumeModelReady() {
-    if (_modelJustLoaded) {
-      _modelJustLoaded = false;
-      return true;
-    }
-    return false;
-  }
-
-  String _baseUrl = 'http://127.0.0.1:5001';
+  String _baseUrl = 'http://$kKoboldHost:5001';
   String get baseUrl => _baseUrl;
 
   /// The port the app talks to the engine on. A start that names no port
@@ -225,13 +213,14 @@ class KoboldService extends ChangeNotifier
         } else {
           // Orphaned zombie from a previous app instance (e.g. after update).
           // Kill it so we can start fresh on the same port — but ONLY when the
-          // managed local backend is the selected one. killOrphanedKobold-
-          // Processes sweeps the whole MACHINE by image name, and this probe
-          // runs from the constructor on every launch, so on Remote API / oMLX
+          // managed local backend is the selected one. This probe runs from
+          // the constructor on every launch, so on Remote API / oMLX
           // (pointing at 127.0.0.1:5001 without an API key is a supported
-          // setup) it would SIGKILL a server the app neither started nor is
-          // about to replace. Same gate the other backend-owning paths use
-          // (backend_manager.dart, setup_service.dart).
+          // setup) the kill could take down a server the app neither started
+          // nor is about to replace (on Windows, any KoboldCpp by name; on
+          // Mac and Linux, any started from the app's own engine folder).
+          // Same gate the other backend-owning paths use (backend_manager.dart,
+          // setup_service.dart).
           await _storageService.initialized;
           final backendType = _storageService.backendSettings.backendType;
           if (backendType == 'openRouter' || backendType == 'omlx') {
@@ -464,8 +453,11 @@ class KoboldService extends ChangeNotifier
     int port = 5001,
   }) => _launch(executablePath, pickedModel: pickedModel, port: port);
 
-  // Class members so `import … show KoboldService` still resolves them.
-  Future<void> startKobold(
+  /// Starts the engine for [modelPath] (empty when [kcppsPath] owns the
+  /// model). The result says why nothing was started. A class member, so
+  /// `import … show KoboldService` still resolves it and test doubles can
+  /// override it.
+  Future<KoboldLaunchResult> startKobold(
     String executablePath,
     String modelPath, {
     String? kcppsPath,

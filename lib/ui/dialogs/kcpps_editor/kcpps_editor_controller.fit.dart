@@ -10,18 +10,20 @@ extension KcppsEditorFit on KcppsEditorController {
 
   bool get unified => unifiedMemory;
 
-  bool get rocm => storage.backendSettings.useRocm ?? false;
+  /// The backend the form's preset names on this machine. Settings only
+  /// says whether the engine is the ROCm build.
+  KoboldBackendChoice get backendChoice => koboldBackendFor(
+    hardware: hardware.hardwareInfo,
+    rocm: storage.backendSettings.useRocm,
+    unified: unified,
+    preset: draft.backend,
+    presetGpuId: draft.gpuId,
+  );
 
-  KoboldMemoryBackend get memoryBackend => unified
-      ? KoboldMemoryBackend.metal
-      : draft.backend == KoboldGpuBackend.vulkan
-      ? KoboldMemoryBackend.vulkan
-      : rocm
-      ? KoboldMemoryBackend.rocm
-      : KoboldMemoryBackend.cuda;
+  bool get rocm => backendChoice.rocm;
 
   /// A card the model can go on (Apple Silicon counts).
-  bool get hasCard => unified || draft.backend != KoboldGpuBackend.none;
+  bool get hasCard => backendChoice.onCard;
 
   /// MMQ only does anything on CUDA and the ROCm build.
   bool get mmqApplies => draft.backend == KoboldGpuBackend.cuda;
@@ -46,6 +48,7 @@ extension KcppsEditorFit on KcppsEditorController {
     rocm: rocm,
     rocmFlashAttentionFailed: storage.backendSettings.rocmFlashAttentionFailed,
     architecture: info?.architecture,
+    hasSlidingWindow: hasSlidingWindow,
   );
 
   int get paddingMb => koboldAutofitPaddingMb(greedy: draft.greedy);
@@ -64,20 +67,7 @@ extension KcppsEditorFit on KcppsEditorController {
 
   KoboldMachine? get machine {
     final hw = hardware.hardwareInfo;
-    if (hw == null) return null;
-    // Free memory is read for one card; each other card counts as the
-    // smallest card seen (mixed cards never look bigger), less the half a GB
-    // a card is assumed to keep for itself.
-    final small = hw.smallestCardMb;
-    final others = (cards - 1) * (small - 512).clamp(0, small);
-    final free = this.free?.graphics;
-    return KoboldMachine(
-      backend: memoryBackend,
-      totalGraphicsMb: hasCard ? hw.vramMb + (cards - 1) * small : 0,
-      totalSystemMb: hw.ramMb,
-      freeGraphicsMb: hasCard ? (free == null ? null : free + others) : 0,
-      freeSystemMb: this.free?.system,
-    );
+    return hw == null ? null : backendChoice.machineFor(hw, free, cards: cards);
   }
 
   KoboldFit? get fit {
@@ -90,7 +80,7 @@ extension KcppsEditorFit on KcppsEditorController {
       fileSizeBytes: bytes,
       contextSize: c.contextSize,
       batchSize: c.batchSize,
-      backend: memoryBackend,
+      backend: backendChoice.memory,
       kvQuant: c.kvQuant,
       slidingWindowOn:
           c.contextMode == ContextManagementMode.slidingWindowAttention,
@@ -110,7 +100,7 @@ extension KcppsEditorFit on KcppsEditorController {
       fileSizeBytes: helperBytes,
       contextSize: c.contextSize,
       batchSize: c.batchSize,
-      backend: memoryBackend,
+      backend: backendChoice.memory,
       kvQuant: c.kvQuant,
       flashAttention: c.flashAttention,
     ).load();
@@ -150,7 +140,7 @@ extension KcppsEditorFit on KcppsEditorController {
     return koboldSmartCacheSlots(
       asked: w.asked,
       recurrent: recurrent,
-      fastForward: !draft.slidingWindow,
+      fastForward: !slidingWindowOn,
       contextShift: w.contextShift,
     );
   }
@@ -227,7 +217,7 @@ extension KcppsEditorMmq on KcppsEditorController {
   /// off; keeps the faster, remembers it for this card, and puts chat back.
   Future<void> timeMmq() async {
     final load = loadTrial;
-    if (load == null || mmqTiming) return;
+    if (load == null || mmqTiming || !canWrite) return;
     if (!kobold.isRunning) {
       mmqStatus = 'Start the model first, then time it here.';
       _notify();
@@ -242,14 +232,11 @@ extension KcppsEditorMmq on KcppsEditorController {
       for (final on in [true, false]) {
         mmqStatus = 'Loading with MMQ ${on ? 'on' : 'off'}…';
         _notify();
+        // Built as the form is saved, so what the machine has already shown
+        // it cannot run (flash attention on a ROCm build that died with it)
+        // is not loaded to be timed.
         final map = kcppsPresetLaunchMap(
-          draft
-              .copyWith(mmq: on)
-              .toMap(
-                recurrent: recurrent,
-                rocm: rocm,
-                architecture: info?.architecture,
-              ),
+          _map(draft.copyWith(mmq: on)),
           modelPath: draft.modelPath,
           mmprojPath: '',
         );
@@ -276,12 +263,16 @@ extension KcppsEditorMmq on KcppsEditorController {
       mmqStatus =
           'On: ${s(best[true]!)}, off: ${s(best[false]!)}. '
           '${onFaster ? 'On' : 'Off'} is faster here, so it is set.';
+    } on KoboldPresetProblem catch (e) {
+      // A preset that asks KoboldCpp to run a program or open itself to the
+      // internet is not loaded to be timed.
+      mmqStatus = e.message;
     } on Object catch (e) {
       mmqStatus = 'Timing stopped: $e';
     } finally {
       mmqTiming = false;
       _notify();
-      await reloadChat?.call();
+      await _reloadChat();
     }
   }
 }

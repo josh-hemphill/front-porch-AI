@@ -18,6 +18,7 @@
 
 import 'dart:io';
 
+// A leaf, not kobold.dart: the barrel loops back through storage_service.dart.
 import 'package:front_porch_ai/services/kobold/kcpps_codec.dart';
 
 import 'kobold_launch_fields.dart';
@@ -68,7 +69,6 @@ class BackendSettings
   // left an 8k window tight on chat history. Users with a saved value
   // keep theirs; this only seeds fresh installs.
   int _contextSize = 16384;
-  int _kvQuantizationLevel = 0;
 
   @override
   String get backendType => _backendType;
@@ -153,7 +153,6 @@ class BackendSettings
   int get gpuLayers => _gpuLayers;
 
   int get contextSize => _contextSize;
-  int get kvQuantizationLevel => _kvQuantizationLevel;
 
   void load() {
     _backendType = prefs?.getString(k('backend_type')) ?? 'kobold';
@@ -240,8 +239,6 @@ class BackendSettings
     _gpuId = prefs?.getInt(k('gpu_id')) ?? _gpuId;
     _gpuLayers = prefs?.getInt(k('gpu_layers')) ?? _gpuLayers;
     _contextSize = prefs?.getInt(k('context_size')) ?? _contextSize;
-    _kvQuantizationLevel =
-        prefs?.getInt(k('kv_quantization_level')) ?? _kvQuantizationLevel;
     loadWorkerBackend();
     loadKoboldLaunch();
   }
@@ -487,12 +484,6 @@ class BackendSettings
   Future<void> setContextSize(int value) async {
     _contextSize = value;
     await prefs?.setInt(k('context_size'), value);
-    notify();
-  }
-
-  Future<void> setKvQuantizationLevel(int value) async {
-    _kvQuantizationLevel = value;
-    await prefs?.setInt(k('kv_quantization_level'), value);
     notify();
   }
 }

@@ -19,7 +19,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:front_porch_ai/services/hardware_service.dart';
+import 'package:front_porch_ai/models/models.dart';
 
 import 'kobold_launch_config.dart';
 
@@ -44,19 +44,28 @@ Future<int> detectPhysicalCpuCores() async {
     } else if (Platform.isLinux) {
       final r = await Process.run('lscpu', ['-p=core']);
       if (r.exitCode == 0) {
-        final coreIds = <String>{};
-        for (final line in r.stdout.toString().split('\n')) {
-          if (line.startsWith('#') || line.trim().isEmpty) continue;
-          final parts = line.trim().split(',');
-          if (parts.length >= 2) coreIds.add(parts[1]);
-        }
-        if (coreIds.isNotEmpty) return coreIds.length;
+        final cores = physicalCoresFromLscpu(r.stdout.toString());
+        if (cores != null) return cores;
       }
     }
   } catch (e) {
     debugPrint('[Kobold] physical core detection failed: $e');
   }
   return Platform.numberOfProcessors;
+}
+
+/// The physical cores in the output of `lscpu -p=core`: after comment lines
+/// that start with `#`, one line for each logical processor holding the
+/// number of the core it belongs to, so a core that runs two threads is
+/// listed twice. Null when the text lists none.
+int? physicalCoresFromLscpu(String output) {
+  final cores = <String>{};
+  for (final line in output.split('\n')) {
+    final core = line.trim();
+    if (core.isEmpty || core.startsWith('#')) continue;
+    cores.add(core.split(',').first);
+  }
+  return cores.isEmpty ? null : cores.length;
 }
 
 /// Threads to give KoboldCpp: the physical cores on a machine with
@@ -68,7 +77,11 @@ Future<int> suggestKoboldThreads() async {
   return (logical - 1).clamp(1, logical);
 }
 
-/// The graphics backend a preset should name for this machine.
+/// The graphics backend a brand-new preset should name for this machine.
+///
+/// A default to start the editor from, not what a launch runs and not what
+/// the Local model card judges: those honour the user's own switches (see
+/// [koboldBackendFor]). A preset is a file, so this one never names ROCm.
 ///
 /// [gpuId] is the card the user chose in Settings; it is used for CUDA so a
 /// laptop with an integrated chip and a discrete card lands on the right one.

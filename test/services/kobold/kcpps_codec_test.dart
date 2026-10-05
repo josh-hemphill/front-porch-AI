@@ -47,8 +47,7 @@ void main() {
       expect(back['autofit'], isFalse);
     });
 
-    test('sliding window left on with fast forward is made safe, and the '
-        'reader says so', () {
+    test('sliding window left on with fast forward is made safe', () {
       // The export has noswa:false and nofastforward:false.
       expect(original['noswa'], isFalse);
       expect(original['nofastforward'], isFalse);
@@ -56,7 +55,6 @@ void main() {
         read.config.contextMode,
         ContextManagementMode.fastForwardSmartCache,
       );
-      expect(read.notes.single, contains('was left on'));
       expect(kcppsMap(read.config)['noswa'], isTrue);
     });
   });
@@ -79,7 +77,6 @@ void main() {
       back.config.contextMode,
       ContextManagementMode.slidingWindowAttention,
     );
-    expect(back.notes, isEmpty);
   });
 
   test('fast-forward mode switches sliding window off', () {
@@ -132,20 +129,10 @@ void main() {
     expect(cpu.containsKey('usecublas'), isFalse);
   });
 
-  test('a preset that does not mention sliding window says what current '
-      'KoboldCpp would do with it', () {
-    final read = readKcpps('{"contextsize": 4096}') as KcppsOk;
-    expect(read.notes.single, contains('does not say'));
-    expect(kcppsMap(read.config)['noswa'], isTrue);
-    // One that settles it either way has nothing to say.
-    expect((readKcpps('{"noswa": true}') as KcppsOk).notes, isEmpty);
-  });
-
   test('a forced automatic fit that overrides the preset\'s own layer count '
       'or MoE setting is pointed out', () {
-    String? note(String json) => (readKcpps(json) as KcppsOk).notes
-        .where((n) => n.contains('automatic fit'))
-        .firstOrNull;
+    String? note(String json) =>
+        kcppsForcedFitNote((jsonDecode(json) as Map).cast<String, dynamic>());
     expect(
       note('{"noswa": true, "autofit": true, "gpulayers": 30}'),
       isNotNull,
@@ -184,21 +171,6 @@ void main() {
     expect(KvQuant.parse('3'), KvQuant.bf16);
   });
 
-  test('an engine older than 1.112 gets the index, not the name', () {
-    final old = KoboldCapabilities.forVersion('1.111.2');
-    expect(old.quantKvAsText, isFalse);
-    final map = kcppsMap(
-      const KoboldLaunchConfig(kvQuant: KvQuant.q8_0),
-      caps: old,
-    );
-    expect(map['quantkv'], '1');
-    expect(KoboldCapabilities.forVersion('1.117.1').quantKvAsText, isTrue);
-    expect(KoboldCapabilities.forVersion('1.111.0').moeCpu, isFalse);
-    expect(KoboldCapabilities.forVersion('1.111.1').moeCpu, isTrue);
-    // No version file yet: the app downloads the newest engine.
-    expect(KoboldCapabilities.forVersion(null).quantKvAsText, isTrue);
-  });
-
   test('automatic layers by default, with no forced automatic fit', () {
     final map = kcppsMap(const KoboldLaunchConfig(modelPath: '/m/a.gguf'));
     expect(map['gpulayers'], -1);
@@ -213,11 +185,6 @@ void main() {
     const moe = KoboldLaunchConfig(moeExpertsOnCpu: true);
     expect(kcppsMap(moe).containsKey('moecpu'), isFalse);
     expect(kcppsMap(moe.copyWith(gpuLayers: 30))['moecpu'], 999);
-    final old = kcppsMap(
-      moe.copyWith(gpuLayers: 30),
-      caps: KoboldCapabilities.forVersion('1.110'),
-    );
-    expect(old.containsKey('moecpu'), isFalse);
   });
 
   test('the vision file travels in the preset', () {

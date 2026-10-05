@@ -85,6 +85,9 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final _gpuLayersController = TextEditingController(text: '0');
   final _contextSizeController = TextEditingController(text: '16384');
+
+  /// The context the Context Window box was last brought in step with.
+  int? _savedContext;
   double? _dragContextSize;
   double? _dragCallBuffer;
   final _apiController = TextEditingController();
@@ -173,14 +176,13 @@ class _SettingsPageState extends State<SettingsPage> {
     _useRocm = storage.backendSettings.useRocm == true;
     // Mirror the persisted launch values into the controllers HERE, not only
     // inside _applyHardwareDefaults: that runs only once HardwareService has
-    // detected a GPU, and detection failures leave hardwareInfo null forever.
-    // Start Backend persists whatever the controllers hold, so on a box where
-    // probing fails the construction placeholders ('0' / '16384') — and a
-    // ROCm user's unmirrored acceleration flag — were written over the user's
-    // saved settings the moment they pressed the button.
+    // detected a GPU, and detection failures leave hardwareInfo null forever,
+    // which would leave the Advanced tab showing the construction
+    // placeholders ('0' / '16384') instead of the user's saved settings.
     _gpuLayersController.text = storage.backendSettings.gpuLayers.toString();
     _contextSizeController.text = storage.backendSettings.contextSize
         .toString();
+    _savedContext = storage.backendSettings.contextSize;
     // Apply hardware-based defaults once hardware info is available.
     // HardwareService.detectHardware() is already called in its constructor,
     // so we just use the cached result. If detection is still in progress,
@@ -216,21 +218,9 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  /// A new chat model or preset goes into a running KoboldCpp at once: a
-  /// reload by name, a restart only when that is not acted on.
-  void _reloadChatIfRunning() {
-    final llm = context.read<LLMProvider>();
-    if (!llm.koboldService.isProcessRunning) return;
-    unawaited(
-      llm.reloadChatKobold().catchError(
-        (Object e) => debugPrint('[Settings] chat reload failed: $e'),
-      ),
-    );
-  }
-
   void _scanLocalPresets() {
     final storage = Provider.of<StorageService>(context, listen: false);
-    final files = scanKcppsPresets(storage.binDir);
+    final files = kcppsPresetFiles(storage.binDir.path);
     setState(() {
       _localPresets = files;
     });
@@ -377,18 +367,23 @@ class _SettingsPageState extends State<SettingsPage> {
     final storageService = Provider.of<StorageService>(context);
     final modelManager = Provider.of<ModelManager>(context);
 
-    // Auto-select first model if none selected and models exist. Skip when a
-    // kcpps preset with a valid model is active (use "Managed by kcpps").
+    // Auto-select a model if none selected and models exist: the last-used
+    // one when the scan has it (the Local model card names that one), else the
+    // first. Skip when a kcpps preset with a valid model is active (use
+    // "Managed by kcpps").
     final kcppsModelExists = _kcppsModelExists.of(
       storageService.backendSettings.kcppsModelPath,
     );
     if (_selectedModelPath == null &&
         modelManager.models.isNotEmpty &&
         !(storageService.backendSettings.kcppsHasModel && kcppsModelExists)) {
-      _selectedModelPath = modelManager.models.first.path;
+      _selectedModelPath = modelListStart(
+        modelManager.models,
+        storageService.backendSettings.lastUsedModelPath,
+      );
     }
     // Warm architecture info for the (possibly just auto-selected) model so
-    // the first Auto-Configure or gauge update is accurate.
+    // the first gauge update is accurate.
     if (_selectedModelPath != null) {
       modelManager.getModelArchitectureInfo(_selectedModelPath!);
     }
@@ -421,21 +416,14 @@ class _SettingsPageState extends State<SettingsPage> {
       onVisionChanged: () => setState(() {}),
       onScanPresets: _scanLocalPresets,
       onKcppsChanged: (val) async {
-        await storageService.backendSettings.setActiveKcppsPath(val);
-        if (_selectedModelPath != null && val != null) {
-          storageService.presetSettings.setModelPreset(
-            _selectedModelPath!,
-            val,
-          );
+        final model = await chooseKoboldPreset(storageService, val);
+        if (!mounted) return;
+        if (val != null && model != null) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                'Preset saved for model: ${p.basename(_selectedModelPath!)}',
-              ),
+              content: Text('Preset saved for model: ${p.basename(model)}'),
             ),
           );
-        } else if (_selectedModelPath != null && val == null) {
-          storageService.presetSettings.setModelPreset(_selectedModelPath!, '');
         }
         _reloadChatIfRunning();
         if (val != null &&
@@ -449,20 +437,15 @@ class _SettingsPageState extends State<SettingsPage> {
         }
       },
       onKcppsExternalClear: () async {
-        await storageService.backendSettings.setActiveKcppsPath(null);
-        if (_selectedModelPath != null) {
-          storageService.presetSettings.setModelPreset(_selectedModelPath!, '');
-        }
+        await chooseKoboldPreset(storageService, null);
+        if (!mounted) return;
         _reloadChatIfRunning();
       },
-      onKcppsBrowsePicked: (path) {
-        if (_selectedModelPath != null) {
-          storageService.presetSettings.setModelPreset(
-            _selectedModelPath!,
-            path,
-          );
-        }
+      onKcppsBrowsePicked: (path) async {
+        await chooseKoboldPreset(storageService, path);
+        if (!mounted) return;
         _scanLocalPresets();
+        _reloadChatIfRunning();
         if (storageService.backendSettings.kcppsHasModel &&
             _kcppsModelExists.of(
               storageService.backendSettings.kcppsModelPath,

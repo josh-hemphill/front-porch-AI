@@ -12,7 +12,7 @@ import { LocalModels } from '../components/models/LocalModels';
 import { ModelDownloads } from '../components/models/ModelDownloads';
 import { ImageGen } from '../components/models/ImageGen';
 import { KoboldStatusCard } from '../components/models/KoboldStatusCard';
-import { type BackendStatus } from '../components/models/types';
+import { type BackendStatus, type ModelSwitch } from '../components/models/types';
 
 export function ModelsPage() {
   const [status, setStatus] = useState<BackendStatus | null>(null);
@@ -49,8 +49,14 @@ export function ModelsPage() {
     <div className="page">
       <h2>Models &amp; backends</h2>
       {error && <p className="error">{error}</p>}
-      {status?.isLocal && <BackendStatusCard status={status} reload={loadStatus} onError={setError} />}
-      <KoboldStatusCard onError={setError} />
+      {/* Both belong to the local backend, as on the desktop, where they sit
+          in the section only KoboldCpp has. */}
+      {status?.isLocal && (
+        <>
+          <BackendStatusCard status={status} reload={loadStatus} onError={setError} />
+          <KoboldStatusCard onError={setError} />
+        </>
+      )}
       <HardwarePanel onPickQuery={pickQuery} />
       <LocalModels isLocal={status?.isLocal ?? false} reloadStatus={loadStatus} onError={setError} />
       <ModelDownloads query={query} setQuery={setQuery} searchNonce={searchNonce} onError={setError} />
@@ -69,10 +75,16 @@ function BackendStatusCard({
   onError: (s: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  // Why a Restart did not start KoboldCpp, beside the buttons.
+  const [refused, setRefused] = useState('');
   const act = (path: string) => {
     setBusy(true);
-    api.post(path)
-      .then(() => reload())
+    setRefused('');
+    api.post<ModelSwitch>(path)
+      .then((r) => {
+        setRefused(r?.refused ?? '');
+        return reload();
+      })
       .catch((e) => onError(e instanceof ApiError ? e.message : 'Failed'))
       .finally(() => setBusy(false));
   };
@@ -107,15 +119,29 @@ function BackendStatusCard({
         </p>
       )}
       <p className="muted small">
-        {status.running ? (status.phase === 'ready' ? 'Running · model ready' : `Running · ${status.statusMessage || 'loading…'}`) : 'Stopped'}
+        {status.running
+          ? status.phase === 'ready'
+            ? 'Running · model ready'
+            : `Running · ${status.statusMessage || 'loading…'}`
+          : status.starting
+            ? `Starting · ${status.statusMessage || 'getting ready…'}`
+            : 'Stopped'}
         {' · '}<strong>{status.loadedModel}</strong>
       </p>
       <div className="tool-row">
         <button disabled={busy || status.starting || status.engineInstalled === false} onClick={() => act('/api/backend/restart')}>
           {status.starting ? 'Starting…' : 'Restart'}
         </button>
-        <button disabled={busy || !status.running} onClick={() => act('/api/backend/stop')}>Stop</button>
+        {/* A start still getting ready is called off by Stop, as on the desktop. */}
+        <button disabled={busy || !(status.running || status.starting)} onClick={() => act('/api/backend/stop')}>
+          Stop
+        </button>
       </div>
+      {refused && (
+        <p className="error" role="alert" data-testid="backend-refused" style={{ whiteSpace: 'pre-line' }}>
+          {refused}
+        </p>
+      )}
     </section>
   );
 }

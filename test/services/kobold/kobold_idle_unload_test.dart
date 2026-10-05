@@ -31,9 +31,9 @@ import 'package:front_porch_ai/services/waifu/waifu.dart';
 import 'package:front_porch_ai/services/web/facade/backend_facade.dart';
 import 'package:front_porch_ai/ui/character_creator/character_creator.dart';
 import 'package:front_porch_ai/ui/dialogs/dialogs.dart';
-import 'package:front_porch_ai/ui/settings/tabs/backend/kobold_status_card.dart';
+import 'package:front_porch_ai/ui/settings/tabs/backend/backend.dart';
 import 'package:front_porch_ai/ui/waifu/waifu_session_scope.dart';
-import 'package:front_porch_ai/utils/gguf_parser.dart';
+import 'package:front_porch_ai/utils/utils.dart';
 
 import '../../golden/support/fakes_services.dart';
 
@@ -297,7 +297,7 @@ void main() {
         ..debugMarkProcessRunning()
         ..debugStartIdleClock();
     }
-    await kobold.noteAdminLoadedPair(modelPath: chatModel, kcppsPath: '');
+    kobold.noteAdminLoadedPair(modelPath: chatModel, kcppsPath: '');
     kobold.noteResident(stagedChat);
     await kobold.debugMarkModelReady();
     engine.events.clear();
@@ -482,7 +482,7 @@ void main() {
       p.join(koboldAdminDirFor(storage), 'fpai-worker.kcpps'),
     ).readAsStringSync();
     final helperModel = p.join(root.path, 'helper.gguf');
-    await kobold.noteAdminLoadedPair(modelPath: helperModel, kcppsPath: '');
+    kobold.noteAdminLoadedPair(modelPath: helperModel, kcppsPath: '');
     kobold.noteResident(helper);
     await unloaded();
 

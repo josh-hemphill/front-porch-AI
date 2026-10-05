@@ -5,9 +5,7 @@ import 'dart:io';
 
 import 'package:front_porch_ai/utils/gguf_model_info.dart';
 import 'package:front_porch_ai/utils/gguf_reader.dart';
-
-// Re-export so existing consumers importing gguf_parser.dart still resolve GGUFModelInfo.
-export 'gguf_model_info.dart';
+import 'package:front_porch_ai/utils/gguf_weights.dart';
 
 /// A lightweight parser to extract architectural parameters from GGUF files
 /// without loading the full model tensors into memory.
@@ -103,12 +101,17 @@ class GGUFParser {
     final interval = number('full_attention_interval') ?? 0;
     final recurrent = meta['$arch.attention.recurrent_layers'];
     // Blocks that only predict draft tokens come last and keep no cache of
-    // their own.
-    final draftHeads = number('nextn_predict_layers') ?? 0;
+    // their own. A count outside the model's own blocks is a broken or
+    // hostile file, and the loop below runs on what is left.
+    final draftHeads = (number('nextn_predict_layers') ?? 0).clamp(
+      0,
+      blockCount,
+    );
     final layers = blockCount - draftHeads;
     // Gemma 4's smaller models reuse earlier layers' cache in their last
     // layers (E4B: the last 18 of 42), which keep none of their own.
-    final ownCache = layers - (number('attention.shared_kv_layers') ?? 0);
+    final ownCache =
+        layers - (number('attention.shared_kv_layers') ?? 0).clamp(0, layers);
     // A compressed-attention model (DeepSeek's MLA: Kimi, DeepSeek V2/V3)
     // caches one latent row per layer; its values are read from the same
     // row, so they take nothing. Kimi-VL-A3B: 576 x 2 bytes a cell, 27
@@ -179,10 +182,8 @@ class GGUFParser {
       nVocab: embedding != null
           ? embedding.dims[1]
           : (tokens == null ? null : GGUFFileReader.toInt(tokens)),
-      nKvHeadsPerLayer: kvHeadsPerLayer,
       keyLength: keyLength > 0 ? keyLength : null,
       swaHeadDim: keyLengthSwa != keyLength ? keyLengthSwa : null,
-      fullAttentionInterval: interval > 0 ? interval : null,
       leadingDenseBlockCount: number('leading_dense_block_count'),
       weights: sizes == null ? null : GGUFWeights.fromTensorSizes(sizes),
       kvLayers: kvLayers,

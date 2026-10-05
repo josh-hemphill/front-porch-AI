@@ -18,22 +18,22 @@
 
 import 'dart:io';
 
-import 'package:front_porch_ai/models/hardware_info.dart';
+import 'package:flutter/foundation.dart';
+import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/gpu_backend_resolver.dart';
 import 'package:front_porch_ai/services/kobold/kobold.dart';
 import 'package:front_porch_ai/services/kobold_admin_swap.dart';
-import 'package:front_porch_ai/services/kobold_binary_version.dart';
 import 'package:front_porch_ai/services/storage_service.dart';
-import 'package:front_porch_ai/utils/gguf_parser.dart';
-import 'package:front_porch_ai/utils/kobold_memory_rules.dart';
+import 'package:front_porch_ai/utils/utils.dart';
 
 /// One way to launch KoboldCpp: from a config file the app writes.
 ///
 /// The config is the user's preset or the app's own settings, made ready to
-/// run (the model's full path, the chat template on, the vision file) and
-/// written into the admin folder. KoboldCpp decides memory placement itself
-/// unless the user chose a layer count. The command line carries only what
-/// KoboldCpp will not take from a config: the port and the admin folder.
+/// run (the model's full path, the chat template on, the vision file, the
+/// listen address) and written into the admin folder. KoboldCpp decides
+/// memory placement itself unless the user chose a layer count. The command
+/// line carries only what KoboldCpp will not take from a config: the port
+/// and the admin folder.
 ///
 /// [gpuLayers] is used only when Settings has "set layers myself" on.
 Future<List<String>> buildKoboldLaunchArgs({
@@ -88,7 +88,8 @@ Future<List<String>> buildKoboldLaunchArgs({
 /// Writes the config a role will run into the admin folder as [name]: the
 /// chat model at launch, and each role (chat, the helper model, a story
 /// job) before a swap. The same function for all of them, so a swap loads
-/// exactly what a launch would.
+/// exactly what a launch would. Every one names [kKoboldHost] as its
+/// address, over whatever a preset said.
 Future<KoboldStagedRole> stageKoboldRole({
   required StorageService storage,
   required String executablePath,
@@ -110,7 +111,6 @@ Future<KoboldStagedRole> stageKoboldRole({
   final version = await KoboldBinaryVersion.versionFor(executablePath);
   final config = await koboldLaunchMap(
     storage: storage,
-    caps: KoboldCapabilities.forVersion(version),
     modelPath: modelPath,
     kcppsPath: kcppsPath,
     mmprojPath: mmprojPath,
@@ -126,13 +126,18 @@ Future<KoboldStagedRole> stageKoboldRole({
     engineVersion: version,
     onNote: onNote,
   );
+  config['host'] = kKoboldHost;
   final adminDir = koboldAdminDirFor(storage);
   final json = encodeKcpps(config);
-  if (name == kStagedChatConfig) {
-    final context = config['contextsize'];
-    storage.backendSettings.setEngineContextSize(
-      context is num ? context.toInt() : null,
-    );
+  // Chat's prompts are held to the context its config names from the moment
+  // it is staged. A config that names none runs the engine's own default,
+  // which only the engine can say, so nothing is recorded then: the engine
+  // is asked when a launch or a reload is confirmed, and staging, which is
+  // not a load (a swap back to chat stages this config before every reply),
+  // must not forget what it said.
+  final context = koboldExpectedContext(config);
+  if (name == kStagedChatConfig && context != null) {
+    storage.backendSettings.setEngineContextSize(context);
   }
   final file = await stageKoboldConfig(
     adminDir.isNotEmpty ? adminDir : Directory.systemTemp.path,
@@ -153,11 +158,9 @@ Future<KoboldStagedRole> stageKoboldRole({
 }
 
 /// The config a launch will run: the user's preset as it was written (see
-/// [kcppsPresetLaunchMap]), or the app's own settings in the forms [caps]
-/// says the installed KoboldCpp accepts.
+/// [kcppsPresetLaunchMap]), or the app's own settings.
 Future<Map<String, dynamic>> koboldLaunchMap({
   required StorageService storage,
-  KoboldCapabilities caps = KoboldCapabilities.current,
   required String modelPath,
   required String? kcppsPath,
   required String? mmprojPath,
@@ -182,6 +185,9 @@ Future<Map<String, dynamic>> koboldLaunchMap({
       : '';
 
   if (kcppsPath != null) {
+    // The engine runs the user's file, not the MMQ setting auto mode is
+    // timing: its replies are not to be counted for it.
+    storage.backendSettings.pauseMmqLearning();
     final read = await readKoboldPreset(kcppsPath);
     // Sliding window left to KoboldCpp's default is run as written. When
     // the model has it, the log says what that default does.
@@ -209,7 +215,9 @@ Future<Map<String, dynamic>> koboldLaunchMap({
   }
 
   final b = storage.backendSettings;
-  final gpu = await _backendFor(
+  // The machine is what the backend was worked out from, which may be a card
+  // the launch had to wait for: MMQ and the tuning below are for that one.
+  final (:gpu, :machine) = await _backendFor(
     useVulkan: useVulkan,
     useCublas: useCublas,
     useMetal: useMetal,
@@ -218,6 +226,15 @@ Future<Map<String, dynamic>> koboldLaunchMap({
     hardware: hardware,
     awaitHardware: awaitHardware,
   );
+  // MMQ only does anything with CUDA and the ROCm build. A launch without it
+  // ends the trial an earlier one began, so its replies are not counted.
+  final bool? mmq;
+  if (machine == null || gpu.backend != KoboldGpuBackend.cuda) {
+    b.pauseMmqLearning();
+    mmq = null;
+  } else {
+    mmq = b.mmqForLaunch(machine.gpuName, engineVersion);
+  }
   final info = await _modelInfo(modelPath);
   final note = koboldFlashAttentionNote(
     backend: gpu.backend,
@@ -240,13 +257,11 @@ Future<Map<String, dynamic>> koboldLaunchMap({
       flashAttention: b.flashAttentionEnabled,
       kvQuant: b.kvQuant,
       mlock: b.mlockEnabled,
-      contextMode: b.koboldContextMode,
       rocmFlashAttentionFailed: b.rocmFlashAttentionFailed,
     ),
     model: KoboldModelFacts(
       isMoe: info?.isMoe ?? false,
-      hasSlidingWindow: info?.hasSlidingWindow ?? false,
-      expertsShareGpuMemory: Platform.isMacOS,
+      expertsShareGpuMemory: gpu.unified,
       architecture: info?.architecture,
     ),
   );
@@ -255,15 +270,11 @@ Future<Map<String, dynamic>> koboldLaunchMap({
       config,
       info: info,
       gpu: gpu,
-      hardware: hardware,
+      hardware: machine,
       free: free,
       batchAutomatic: b.batchAutomatic,
-      // MMQ only does anything with CUDA and the ROCm build.
-      mmq: hardware == null || gpu.backend != KoboldGpuBackend.cuda
-          ? null
-          : b.mmqForLaunch(hardware.gpuName, engineVersion),
+      mmq: mmq,
     ),
-    caps: caps,
   );
 }
 
@@ -275,7 +286,7 @@ Future<Map<String, dynamic>> koboldLaunchMap({
 Future<KoboldLaunchConfig> _tunedForMachine(
   KoboldLaunchConfig config, {
   required GGUFModelInfo? info,
-  required ({KoboldGpuBackend backend, int? gpuId, bool rocm}) gpu,
+  required KoboldBackendChoice gpu,
   required HardwareInfo? hardware,
   required FreeMemoryMb? free,
   required bool batchAutomatic,
@@ -289,40 +300,21 @@ Future<KoboldLaunchConfig> _tunedForMachine(
   } on FileSystemException {
     return withMmq;
   }
-  // Apple hardware: one memory pool, every layer on the graphics side.
-  final backend = hardware.hasMetal
-      ? KoboldMemoryBackend.metal
-      : gpu.backend == KoboldGpuBackend.vulkan
-      ? KoboldMemoryBackend.vulkan
-      : gpu.rocm
-      ? KoboldMemoryBackend.rocm
-      : KoboldMemoryBackend.cuda;
-  final onCard = gpu.backend != KoboldGpuBackend.none || hardware.hasMetal;
   final tuning = koboldAutoTuning(
     KoboldFit(
       info: info,
       fileSizeBytes: fileSize,
       contextSize: config.contextSize,
       batchSize: config.batchSize,
-      backend: backend,
+      backend: gpu.memory,
       kvQuant: config.kvQuant,
-      slidingWindowOn:
-          config.contextMode == ContextManagementMode.slidingWindowAttention,
       flashAttention: config.flashAttention,
     ),
-    KoboldMachine(
-      backend: backend,
-      totalGraphicsMb: onCard ? hardware.vramMb : 0,
-      totalSystemMb: hardware.ramMb,
-      freeGraphicsMb: onCard ? free?.graphics : 0,
-      freeSystemMb: free?.system,
+    gpu.machineFor(hardware, free),
+    batchSize: gpu.fixedBatch(
+      automatic: batchAutomatic,
+      chosen: config.batchSize,
     ),
-    // Nothing goes on a card without one: KoboldCpp's own batch.
-    batchSize: !onCard
-        ? kKoboldAutoBatches.first
-        : batchAutomatic
-        ? null
-        : config.batchSize,
   );
   return withMmq.copyWith(
     batchSize: tuning.batchSize,
@@ -331,10 +323,13 @@ Future<KoboldLaunchConfig> _tunedForMachine(
   );
 }
 
-/// The caller's backend switches, or the detected card when none was ever
-/// chosen. Launch sites that read stored preferences pass all-false for a
-/// user who never opened Settings; that used to mean CPU only.
-Future<({KoboldGpuBackend backend, int? gpuId, bool rocm})> _backendFor({
+/// The backend this launch runs, by the rule every caller shares
+/// ([koboldBackendFor]), and the machine it was worked out from: [hardware],
+/// or the detection the launch waited for when only the automatic choice
+/// needs it. A switch the caller passes as on counts as chosen; one passed
+/// as off is as Settings has it, which is what tells "never chosen" from
+/// "chosen off" (the callers collapse both to false).
+Future<({KoboldBackendChoice gpu, HardwareInfo? machine})> _backendFor({
   required bool useVulkan,
   required bool useCublas,
   required bool useMetal,
@@ -344,67 +339,58 @@ Future<({KoboldGpuBackend backend, int? gpuId, bool rocm})> _backendFor({
   required Future<HardwareInfo?> Function()? awaitHardware,
 }) async {
   final b = storage.backendSettings;
-  var choice = useRocm
-      ? GpuBackend.rocm
-      : useCublas
-      ? GpuBackend.cuda
-      : useVulkan
-      ? GpuBackend.vulkan
-      : useMetal
-      ? GpuBackend.metal
-      : GpuBackend.cpu;
-  if (choice == GpuBackend.cpu &&
-      GpuBackendResolver.isAutomatic(
-        userCublas: b.useCublas,
-        userVulkan: b.useVulkan,
-        userRocm: b.useRocm,
-        userMetal: b.useMetal,
-      )) {
-    // Only this case needs to know the card. On a first run detection may
-    // still be going; without the wait this launch would be CPU only.
-    final hw = hardware ?? await awaitHardware?.call();
-    choice = GpuBackendResolver.resolve(
-      userCublas: null,
-      userVulkan: null,
-      userRocm: null,
-      userMetal: null,
-      hasCuda: hw?.hasCuda ?? false,
-      vendor: hw?.vendor ?? 'Unknown',
-    );
-  }
-  return switch (choice) {
-    // An explicit card id: card 0 can be the integrated chip on a laptop.
-    GpuBackend.cuda => (
-      backend: KoboldGpuBackend.cuda,
-      gpuId: b.gpuId,
-      rocm: false,
-    ),
-    GpuBackend.rocm => (
-      backend: KoboldGpuBackend.cuda,
-      gpuId: b.gpuId,
-      rocm: true,
-    ),
-    GpuBackend.vulkan => (
-      backend: KoboldGpuBackend.vulkan,
-      gpuId: null,
-      rocm: false,
-    ),
-    // Metal is automatic on Apple hardware; CPU needs no setting either.
-    GpuBackend.metal || GpuBackend.cpu => (
-      backend: KoboldGpuBackend.none,
-      gpuId: null,
-      rocm: false,
-    ),
-  };
+  final cublas = useCublas ? true : b.useCublas;
+  final vulkan = useVulkan ? true : b.useVulkan;
+  final rocm = useRocm ? true : b.useRocm;
+  final metal = useMetal ? true : b.useMetal;
+  // Only the automatic choice needs to know the card. On a first run
+  // detection may still be going; without the wait this launch would be CPU
+  // only.
+  final automatic = GpuBackendResolver.isAutomatic(
+    userCublas: cublas,
+    userVulkan: vulkan,
+    userRocm: rocm,
+    userMetal: metal,
+  );
+  final machine = hardware ?? (automatic ? await awaitHardware?.call() : null);
+  final gpu = koboldBackendFor(
+    hardware: machine,
+    cublas: cublas,
+    vulkan: vulkan,
+    rocm: rocm,
+    metal: metal,
+    gpuId: b.gpuId,
+  );
+  return (gpu: gpu, machine: machine);
 }
+
+/// Model headers read for staging, with the size and time of the file each
+/// came from. A swap stages its config before every call, and the header
+/// (up to 16 MB, read and parsed) only changes when the file does.
+final Map<String, ({int size, DateTime modified, GGUFModelInfo? info})>
+_headersRead = {};
 
 Future<GGUFModelInfo?> _modelInfo(String modelPath) async {
   if (modelPath.isEmpty) return null;
   try {
-    return await GGUFParser.getModelArchitectureInfo(modelPath);
-  } catch (_) {
+    final stat = await File(modelPath).stat();
+    final known = _headersRead[modelPath];
+    if (known != null &&
+        known.size == stat.size &&
+        known.modified == stat.modified) {
+      return known.info;
+    }
+    final info = await GGUFParser.getModelArchitectureInfo(modelPath);
+    _headersRead[modelPath] = (
+      size: stat.size,
+      modified: stat.modified,
+      info: info,
+    );
+    return info;
+  } catch (e) {
     // An unreadable header is reported by the model file check; here it
     // only means "treat as an ordinary model".
+    debugPrint('[Kobold] the model header could not be read: $e');
     return null;
   }
 }

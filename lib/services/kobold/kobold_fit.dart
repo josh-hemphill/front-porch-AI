@@ -1,12 +1,14 @@
 // Copyright (C) 2026 Front Porch AI
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import 'package:front_porch_ai/utils/gguf_model_info.dart';
-import 'package:front_porch_ai/utils/kobold_memory_rules.dart';
-import 'package:front_porch_ai/utils/kobold_placement.dart';
-import 'package:front_porch_ai/utils/smart_cache_estimate.dart';
+import 'package:front_porch_ai/utils/utils.dart';
 
+import 'kobold_app_config.dart';
 import 'kobold_launch_config.dart';
+
+/// Graphics memory a card is assumed to keep for the desktop, when it cannot
+/// say how much is free: half a GB.
+const int kKoboldDesktopReserveMb = 512;
 
 /// The machine a model is fitted to, in MB.
 class KoboldMachine {
@@ -27,9 +29,10 @@ class KoboldMachine {
   final int? freeSystemMb;
 
   /// Graphics memory a model can have: what is free, or the total less
-  /// half a GB for the desktop when the card cannot say.
+  /// [kKoboldDesktopReserveMb] for the desktop when the card cannot say.
   int get graphicsMb =>
-      freeGraphicsMb ?? (totalGraphicsMb - 512).clamp(0, totalGraphicsMb);
+      freeGraphicsMb ??
+      (totalGraphicsMb - kKoboldDesktopReserveMb).clamp(0, totalGraphicsMb);
 
   /// System memory free for the model and its slots: what is free, or most
   /// of the total when the system cannot say.
@@ -105,8 +108,6 @@ class KoboldFit {
     int? contextSize,
     int? batchSize,
     KvQuant? kvQuant,
-    bool? slidingWindowOn,
-    bool? flashAttention,
     int? extraCardMb,
   }) => KoboldFit(
     info: info,
@@ -115,8 +116,8 @@ class KoboldFit {
     batchSize: batchSize ?? this.batchSize,
     backend: backend,
     kvQuant: kvQuant ?? this.kvQuant,
-    slidingWindowOn: slidingWindowOn ?? this.slidingWindowOn,
-    flashAttention: flashAttention ?? this.flashAttention,
+    slidingWindowOn: slidingWindowOn,
+    flashAttention: flashAttention,
     extraCardMb: extraCardMb ?? this.extraCardMb,
   );
 }
@@ -152,9 +153,19 @@ class KoboldAutoTuning {
 /// read a prompt faster when they fit.
 const List<int> kKoboldAutoBatches = [512, 1024, 2048];
 
+/// The kinds of prompt the app sends one engine: the chat, the judges and
+/// one spare. Each gets a smart cache slot when memory allows.
+const int _promptKinds = 3;
+
+/// A model with recurrent layers is given KoboldCpp's own seven slots: one
+/// of them also brings a regenerated reply back without reading the chat
+/// again.
+const int _recurrentPromptKinds = 7;
+
 /// The largest batch that puts no less of the model on the card than 512
 /// does, and the slots the free system memory allows. [batchSize] fixes
-/// the batch instead (one the user chose).
+/// the batch instead (one the user chose). The fit keeps [paddingMb] spare:
+/// KoboldCpp's own default unless the preset editor's "greedy" says less.
 ///
 /// On Apple Silicon KoboldCpp puts every layer on the graphics side
 /// whatever fits ("Auto GPU layers set to maximum"); there the batch is the
@@ -167,7 +178,7 @@ const List<int> kKoboldAutoBatches = [512, 1024, 2048];
 KoboldAutoTuning koboldAutoTuning(
   KoboldFit fit,
   KoboldMachine machine, {
-  int paddingMb = 1024,
+  int paddingMb = kKoboldFitPaddingMb,
   int? batchSize,
 }) {
   final budget = machine.unified
@@ -188,7 +199,7 @@ KoboldAutoTuning koboldAutoTuning(
     }
   }
   final slots = suggestSmartCacheSlots(
-    promptKinds: fit.recurrent ? 7 : 3,
+    promptKinds: fit.recurrent ? _recurrentPromptKinds : _promptKinds,
     slotMb: fit.slotMb,
     freeRamMb: machine.systemMb,
     modelRamMb: koboldModelSystemMb(load, machine),

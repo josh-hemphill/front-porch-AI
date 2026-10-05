@@ -46,15 +46,25 @@ import 'package:path/path.dart' as path;
 /// Elsewhere only processes launched from [binDir], the app's own engine
 /// folder, are killed. The old `pkill -f koboldcpp` took down any KoboldCpp
 /// on the machine, including one the user was running for something else.
+///
+/// The log says a process was killed only when one was: `pkill` and
+/// `taskkill` answer 0 when they stopped something, and anything else when
+/// they found nothing to stop.
 Future<void> killOrphanedKoboldProcesses(
   void Function(String) log, {
   required String binDir,
 }) async {
   try {
+    var killed = false;
+    Future<void> run(String command, List<String> args) async {
+      final result = await Process.run(command, args);
+      killed = killed || result.exitCode == 0;
+    }
+
     if (Platform.isWindows) {
-      await Process.run('taskkill', ['/F', '/IM', 'koboldcpp.exe']);
-      await Process.run('taskkill', ['/F', '/IM', 'koboldcpp_nocuda.exe']);
-      await Process.run('taskkill', ['/F', '/IM', 'koboldcpp-oldpc.exe']);
+      await run('taskkill', ['/F', '/IM', 'koboldcpp.exe']);
+      await run('taskkill', ['/F', '/IM', 'koboldcpp_nocuda.exe']);
+      await run('taskkill', ['/F', '/IM', 'koboldcpp-oldpc.exe']);
     } else {
       final patterns = koboldOwnedPatterns(binDir, isFolder: true);
       if (patterns.isEmpty) {
@@ -62,10 +72,14 @@ Future<void> killOrphanedKoboldProcesses(
         return;
       }
       for (final pattern in patterns) {
-        await Process.run('pkill', ['-KILL', '-f', pattern]);
+        await run('pkill', ['-KILL', '-f', pattern]);
       }
     }
-    log('Killed orphaned KoboldCPP processes.');
+    log(
+      killed
+          ? 'Killed orphaned KoboldCPP processes.'
+          : 'No orphaned KoboldCPP process was running; nothing was stopped.',
+    );
   } catch (e) {
     debugPrint('[KoboldService] killOrphanedBackend failed (OK): $e');
   }
@@ -78,8 +92,8 @@ Future<void> killOrphanedKoboldProcesses(
 /// it inherits ours and `kill(-pid)` would take the app down with it. The
 /// ladder instead is: children by parent PID, then the parent, then — only if
 /// it is still alive after 3 seconds — SIGKILL for both, and finally a sweep
-/// by executable name for anything that reparented to init when its parent
-/// died. That last step is what catches KoboldCpp's own worker processes,
+/// of anything started from the same executable that reparented to init when
+/// its parent died. That last step is what catches KoboldCpp's own worker processes,
 /// which outlive their parent and keep the GPU and the port.
 ///
 /// Windows has no process groups to fight, so `taskkill /T` does the whole
@@ -145,7 +159,7 @@ Future<void> terminateKoboldTree(
   } catch (_) {}
 }
 
-/// Final safety net: kill anything still matching the executable's own name.
+/// Final safety net: kill anything still started from the executable.
 /// Catches deeply nested children and processes that reparented to init (PID
 /// 1) after their parent was killed. Reached from both the normal path and
 /// the failure path, which is why it is a function rather than two copies.

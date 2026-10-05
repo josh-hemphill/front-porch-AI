@@ -1,8 +1,14 @@
 // Copyright (C) 2026 Front Porch AI
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import 'package:front_porch_ai/services/services.dart';
+import 'package:front_porch_ai/models/models.dart';
+import 'package:front_porch_ai/services/storage_service.dart';
 import 'package:front_porch_ai/utils/utils.dart';
+
+import 'kobold_app_config.dart';
+import 'kobold_backend_choice.dart';
+import 'kobold_context_verdict.dart';
+import 'kobold_fit.dart';
 
 /// What the local model card says in auto mode, worked out once for each
 /// change of model, settings or machine: never on a rebuild.
@@ -32,9 +38,16 @@ class KoboldStatusFacts {
   }) {
     if (info == null || bytes == null || hardware == null) return null;
     final b = storage.backendSettings;
-    final mac = unified ?? hardware.hasMetal;
-    final gpu = koboldGpuFor(hardware, gpuId: b.gpuId);
-    final rocm = b.useRocm ?? false;
+    // The backend a launch runs here, so the verdicts are about it.
+    final gpu = koboldBackendFor(
+      hardware: hardware,
+      cublas: b.useCublas,
+      vulkan: b.useVulkan,
+      rocm: b.useRocm,
+      metal: b.useMetal,
+      gpuId: b.gpuId,
+      unified: unified,
+    );
     final config = koboldAppConfig(
       modelPath: '',
       settings: KoboldAppSettings(
@@ -44,50 +57,30 @@ class KoboldStatusFacts {
         manualLayers: 0,
         backend: gpu.backend,
         gpuId: gpu.gpuId,
-        rocm: rocm,
+        rocm: gpu.rocm,
         flashAttention: b.flashAttentionEnabled,
         kvQuant: b.kvQuant,
         mlock: false,
-        contextMode: b.koboldContextMode,
         rocmFlashAttentionFailed: b.rocmFlashAttentionFailed,
       ),
-      model: KoboldModelFacts(
-        hasSlidingWindow: info.hasSlidingWindow,
-        architecture: info.architecture,
-      ),
+      model: KoboldModelFacts(architecture: info.architecture),
     );
-    final backend = mac
-        ? KoboldMemoryBackend.metal
-        : gpu.backend == KoboldGpuBackend.vulkan
-        ? KoboldMemoryBackend.vulkan
-        : rocm
-        ? KoboldMemoryBackend.rocm
-        : KoboldMemoryBackend.cuda;
-    final onCard = mac || gpu.backend != KoboldGpuBackend.none;
-    final swa =
-        config.contextMode == ContextManagementMode.slidingWindowAttention;
     final fit = KoboldFit(
       info: info,
       fileSizeBytes: bytes,
       contextSize: config.contextSize,
       batchSize: config.batchSize,
-      backend: backend,
+      backend: gpu.memory,
       kvQuant: config.kvQuant,
-      slidingWindowOn: swa,
       flashAttention: config.flashAttention,
     );
-    final machine = KoboldMachine(
-      backend: backend,
-      totalGraphicsMb: onCard ? hardware.vramMb : 0,
-      totalSystemMb: hardware.ramMb,
-      freeGraphicsMb: onCard ? free?.graphics : 0,
-      freeSystemMb: free?.system,
+    final machine = gpu.machineFor(hardware, free);
+    // The batch the launch runs: the user's, when one was chosen.
+    final batch = gpu.fixedBatch(
+      automatic: b.batchAutomatic,
+      chosen: b.blasBatchSize,
     );
-    final tuning = koboldAutoTuning(
-      fit,
-      machine,
-      batchSize: b.batchAutomatic ? null : b.blasBatchSize,
-    );
+    final tuning = koboldAutoTuning(fit, machine, batchSize: batch);
     final choices = koboldContextChoices(
       current: b.contextSize,
       modelMax: info.contextLength,
@@ -96,21 +89,19 @@ class KoboldStatusFacts {
       fit: fit,
       machine: machine,
       choices: choices,
+      batchSize: batch,
     );
     final slots = koboldSmartCacheSlots(
       asked: tuning.smartCache.asked,
       recurrent: fit.recurrent,
-      fastForward: !swa,
+      fastForward: true,
       contextShift: tuning.smartCache.contextShift,
     );
     return KoboldStatusFacts(
       lines: [
         'Set up for this computer automatically. '
-            '${_pace(tuning.load, machine, onCard)}',
-        swa
-            ? 'Every reply reads the whole chat again, so long chats start '
-                  'slowly.'
-            : 'Replies on long chats start fast.',
+            '${_pace(tuning.load, machine, gpu.onCard)}',
+        'Replies on long chats start fast.',
         slots > 0
             ? 'Going back to another chat is quick.'
             : 'Going back to another chat takes a moment to catch up.',

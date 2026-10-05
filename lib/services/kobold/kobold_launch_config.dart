@@ -27,10 +27,11 @@ enum KvQuant {
 
   const KvQuant(this.wire, this.legacyIndex, this.sizeFactor, this.label);
 
-  /// The value KoboldCpp 1.112 and newer accept.
+  /// The name KoboldCpp reads and the app writes.
   final String wire;
 
-  /// The index older builds used ("0".."3"). `q5_1` has none.
+  /// The index an older preset or this app's old setting holds ("0".."3").
+  /// Read, never written. `q5_1` has none.
   final String? legacyIndex;
 
   /// Cache size relative to f16, exactly: these types store 32 values in
@@ -167,9 +168,10 @@ class KoboldLaunchConfig {
   /// Draft with the model's own built-in draft heads (`usemtp`).
   final bool useMtp;
 
-  /// Context shift, with fast forward. Off for a model with recurrent
-  /// layers, where it does nothing but make KoboldCpp add smart cache slots
-  /// of its own.
+  /// Context shift, with fast forward. For a model with recurrent layers it
+  /// shifts nothing, but with it on KoboldCpp keeps smart cache slots of its
+  /// own that a regenerated reply comes back from, so it is off only where
+  /// memory has no room for them (see [koboldSmartCacheSetting]).
   final bool contextShift;
 
   /// CUDA options besides the card ("rowsplit", "lowvram"), kept as written.

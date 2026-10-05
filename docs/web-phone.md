@@ -19,6 +19,8 @@ QR code is on that page. **Remote** on the phone is its own screen: Tailscale lo
 
 **Security:** optional 2FA (QR + recovery codes). Turning 2FA on or off asks for the web password. Desktop can **sign out all devices** or **reset the web login** (clears web user/pass/2FA only — not characters). Dangerous Account actions re-ask the web password.
 
+**The engine stays on the computer.** The app's KoboldCpp answers only this computer (`127.0.0.1`). The phone talks to the app on port 8085 and the app talks to the engine; no other device can reach the engine directly.
+
 Mic / push-to-talk on a phone needs **HTTPS** (Tailscale HTTPS or similar). Plain `http://192.168…` will **refuse** the microphone.
 
 Add to Home Screen: Android may show a banner. iPhone: Share → Add to Home Screen.
@@ -31,7 +33,7 @@ Chats (including groups), library and editors, AI create, models (the Image Stud
 
 Push-to-talk mic over HTTPS. Impersonate, fork, swipes, `/image`, attach a photo.
 
-On the Models page, the **Local model** card says how the computer's local model runs, in plain words, and lets you pick how much chat history the character remembers, with the same verdicts as the desktop (works like now, slower, too big with the most that works). Below it, **KoboldCpp preset** picks which of the computer's presets chat uses, or the app's own settings, and says what the preset does. Switching model from the phone loads it straight away when KoboldCpp is running.
+When the computer runs KoboldCpp, the Models page has the **Local model** card: it says how the local model runs, in plain words, and lets you pick how much chat history the character remembers, with the same verdicts as the desktop (works like now, slower, too big with the most that works). Below it, **KoboldCpp preset** picks which of the computer's presets chat uses, or the app's own settings, and says what the preset does. With a preset in use, the preset sets the context, so Settings locks the Context size slider (and the computer refuses a new one), as the desktop does. Switching model from the phone loads it straight away when KoboldCpp is running.
 
 ---
 

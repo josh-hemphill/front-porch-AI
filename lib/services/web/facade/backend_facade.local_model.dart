@@ -26,6 +26,9 @@ extension BackendFacadeLocalModel on BackendFacade {
       preset = {
         'path': active,
         'name': kcppsPresetName(active),
+        // As the picker lists a preset in the engine folder: one picked
+        // from elsewhere on the desktop is in use but not in that list.
+        'line': kcppsShortLine(read),
         'words': switch (read) {
           KcppsOk(:final config) => kcppsPlainWords(
             config,
@@ -36,8 +39,10 @@ extension BackendFacadeLocalModel on BackendFacade {
       };
     }
     Map<String, dynamic>? auto;
+    var unreadable = false;
     if (active == null && model.isNotEmpty) {
       final read = await _cardModelFor(model);
+      unreadable = read.info == null || read.bytes == null;
       final facts = KoboldStatusFacts.of(
         storage: _storage,
         hardware: _hardware?.hardwareInfo,
@@ -52,8 +57,14 @@ extension BackendFacadeLocalModel on BackendFacade {
       'modelName': model.isEmpty ? null : koboldModelName(model),
       'running': k.isRunning,
       'phase': k.phase.name,
+      // What the status line says: the load in progress, or why a model
+      // change was not made. Additive; '' when there is nothing to say.
+      'statusMessage': k.modelLoadingStatus,
       'preset': preset,
       'auto': auto,
+      // Why a chosen model has no `auto`: its file could not be read (else
+      // this computer is not known yet). Additive.
+      'modelUnreadable': unreadable,
       'presets': [
         for (final e in presets)
           {'path': e.path, 'name': e.name, 'line': kcppsShortLine(e.read)},
@@ -64,45 +75,51 @@ extension BackendFacadeLocalModel on BackendFacade {
   /// Makes [path] chat's preset, or none (the app's own settings) when
   /// null. Only a preset in the engine folder is taken: the server may be
   /// reachable from the internet, so no other path is accepted. A running
-  /// KoboldCpp loads it in place.
+  /// KoboldCpp loads it in place, which takes as long as a model takes to
+  /// load: the card is returned at once and shows the progress.
+  ///
+  /// Throws [KoboldPresetProblem], in plain words, for a preset the app will
+  /// not start KoboldCpp from (one that cannot be read, or that asks it to
+  /// run a program or open itself to the internet): it does not become
+  /// chat's preset, and nothing is loaded.
   Future<bool> setChatPreset(String? path) async {
     if (path != null &&
         !kcppsPresetFiles(_storage.binDir.path).any((f) => f.path == path)) {
       return false;
     }
+    final problem = await koboldPresetProblem(path);
+    if (problem != null) throw KoboldPresetProblem(problem);
     // A context tapped just before is superseded: this reloads at once.
     _cardReload?.cancel();
-    final b = _storage.backendSettings;
-    await b.setActiveKcppsPath(path);
-    // As a launch does: a preset's own model becomes the model, so every
-    // screen names what KoboldCpp loads.
-    final launch = resolveKoboldLaunch(_storage);
-    if (launch.modelPath.isNotEmpty &&
-        launch.modelPath != b.lastUsedModelPath) {
-      await b.setLastUsedModelPath(launch.modelPath);
+    await chooseKoboldPreset(_storage, path);
+    if (_llm.koboldService.isProcessRunning) {
+      unawaited(
+        _llm.reloadChatKobold().catchError((Object e) {
+          debugPrint('[web] chat reload failed: $e');
+          return null;
+        }),
+      );
     }
-    final model = b.lastUsedModelPath;
-    if (model != null && model.isNotEmpty) {
-      await _storage.presetSettings.setModelPreset(model, path ?? '');
-    }
-    if (_llm.koboldService.isProcessRunning) await _llm.reloadChatKobold();
     return true;
   }
 
   /// Sets the context in auto mode. A running KoboldCpp loads it once the
   /// phone stops changing it.
   Future<bool> setLocalContext(int context) async {
-    if (context < 512 || context > 1048576) return false;
+    if (context < kKoboldContextMin || context > kKoboldContextMax) {
+      return false;
+    }
     // A preset sets its own context; the desktop locks this field then too.
     if (_storage.backendSettings.activeKcppsPath != null) return false;
     await _storage.backendSettings.setContextSize(context);
     if (_llm.koboldService.isProcessRunning) {
       _cardReload?.cancel();
       _cardReload = Timer(
-        const Duration(milliseconds: 1500),
-        () => _llm.reloadChatKobold().catchError(
-          (Object e) => debugPrint('[web] chat reload failed: $e'),
-        ),
+        kKoboldContextReloadDelay,
+        () => _llm.reloadChatKobold().catchError((Object e) {
+          debugPrint('[web] chat reload failed: $e');
+          return null;
+        }),
       );
     }
     return true;
@@ -121,7 +138,10 @@ extension BackendFacadeLocalModel on BackendFacade {
     } on FileSystemException catch (e) {
       debugPrint('[web] local model unreadable: $e');
     }
-    return _cardModel = (path: model, info: info, bytes: bytes);
+    final read = (path: model, info: info, bytes: bytes);
+    // Only a read that worked is kept, so a file back in its folder is read.
+    if (info != null && bytes != null) _cardModel = read;
+    return read;
   }
 
   /// Free memory before the app's KoboldCpp took any: read now when it is

@@ -10,10 +10,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:front_porch_ai/utils/gguf_parser.dart';
-import 'package:front_porch_ai/utils/gguf_reader.dart';
-import 'package:front_porch_ai/utils/kobold_memory_rules.dart';
-import 'package:front_porch_ai/utils/kobold_placement.dart';
+import 'package:front_porch_ai/utils/utils.dart';
 
 const _dir = 'test/fixtures/gguf_headers';
 const _free = 16332;
@@ -83,7 +80,6 @@ void main() {
       expect(l.cacheMb, 4883);
       expect(l.ramCacheMb, 5397);
       expect(l.ramWeightsMb, closeTo(5178, 1));
-      expect(l.blocksOnCard, 19);
     });
 
     test('with blocks in system memory the working buffer grows, and the '

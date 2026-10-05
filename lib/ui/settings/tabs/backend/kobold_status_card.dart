@@ -9,12 +9,9 @@ import 'package:provider/provider.dart';
 
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/storage/storage.dart';
-import 'package:front_porch_ai/ui/dialogs/kcpps_editor/kcpps_editor_prompts.dart';
-import 'package:front_porch_ai/ui/dialogs/kcpps_editor/kcpps_editor_style.dart';
+import 'package:front_porch_ai/ui/dialogs/kcpps_editor/kcpps_editor.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/utils/utils.dart';
-
-import 'package:front_porch_ai/services/kobold_status_facts.dart';
 
 /// "Local model": how the model runs here, in plain words, and the one
 /// thing a user sets in auto mode, the context. With a preset in use it
@@ -37,6 +34,9 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
   String? _model;
   GGUFModelInfo? _info;
   int? _bytes;
+
+  /// The model file has been looked at: read, or not readable.
+  bool _modelRead = false;
   String? _presetPath;
   KcppsRead? _preset;
   KoboldStatusFacts? _facts;
@@ -45,12 +45,28 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
 
   /// A context too big for this computer, waiting for "keep anyway".
   int? _pending;
+
+  /// The reload a context change waits to run, and the timer that runs it.
+  Future<void> Function()? _reloadNow;
   Timer? _reload;
 
+  /// Leaving the page does not cancel a reload: the new context is saved,
+  /// and KoboldCpp would keep running with the old one.
   @override
   void dispose() {
-    _reload?.cancel();
+    _runReload();
     super.dispose();
+  }
+
+  /// Runs the waiting reload now, if one waits.
+  void _runReload() {
+    _reload?.cancel();
+    _reload = null;
+    final run = _reloadNow;
+    _reloadNow = null;
+    run?.call().catchError(
+      (Object e) => debugPrint('[Local model] reload failed: $e'),
+    );
   }
 
   Future<void> _readModel(String model) async {
@@ -68,6 +84,7 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
     setState(() {
       _info = info;
       _bytes = bytes;
+      _modelRead = true;
     });
   }
 
@@ -85,22 +102,19 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _apply(int context, KoboldService kobold) async {
-    setState(() => _pending = null);
-    await this.context.read<StorageService>().backendSettings.setContextSize(
-      context,
-    );
-    if (!kobold.isRunning) return;
+  Future<void> _apply(int tokens, KoboldService kobold) async {
+    // Everything the page provides is taken before the first wait: it may
+    // be gone by the end of it.
+    final settings = context.read<StorageService>().backendSettings;
     final reload =
-        widget.reloadChat ?? this.context.read<LLMProvider>().reloadChatKobold;
+        widget.reloadChat ?? context.read<LLMProvider>().reloadChatKobold;
+    setState(() => _pending = null);
+    await settings.setContextSize(tokens);
+    if (!kobold.isRunning) return;
     // A few taps in a row reload once.
     _reload?.cancel();
-    _reload = Timer(
-      const Duration(milliseconds: 1500),
-      () => reload().catchError(
-        (Object e) => debugPrint('[Local model] reload failed: $e'),
-      ),
-    );
+    _reloadNow = reload;
+    _reload = Timer(kKoboldContextReloadDelay, _runReload);
   }
 
   @override
@@ -114,6 +128,7 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
       _model = model;
       _info = null;
       _bytes = null;
+      _modelRead = false;
       _readModel(model);
     }
     final preset = b.activeKcppsPath;
@@ -126,18 +141,29 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
     if (free == null && !kobold.isRunning && !_readingFree) {
       _readFree(hardware);
     }
+    // Everything KoboldStatusFacts.of reads: a change to any of it works the
+    // facts out again, and a rebuild alone does not.
+    final hw = hardware.hardwareInfo;
     final key = [
       model,
       b.contextSize,
       b.kvQuant,
       b.flashAttentionEnabled,
-      b.koboldContextMode,
       b.batchAutomatic,
       b.blasBatchSize,
       b.gpuId,
+      b.useCublas,
+      b.useVulkan,
+      b.useRocm,
+      b.useMetal,
+      b.rocmFlashAttentionFailed,
       _bytes,
       free,
-      hardware.hardwareInfo?.vramMb,
+      hw?.vramMb,
+      hw?.ramMb,
+      hw?.vendor,
+      hw?.hasCuda,
+      hw?.hasMetal,
     ].join('|');
     if (key != _factsKey) {
       _factsKey = key;
@@ -269,7 +295,12 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
           context,
           (_model ?? '').isEmpty
               ? 'Choose a model above to see how it runs here.'
-              : 'Reading the model file…',
+              : !_modelRead
+              ? 'Reading the model file…'
+              : _info == null || _bytes == null
+              ? 'The model file could not be read. Is it still in its folder? '
+                    'You can choose another model above.'
+              : 'Still finding out what this computer can do…',
         ),
       ];
     }
@@ -411,7 +442,7 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
                       text: words?.text ?? '',
                       yes: 'Keep it',
                     );
-                    if (keep) await _apply(big, kobold);
+                    if (keep && mounted) await _apply(big, kobold);
                   },
                 ),
               ],

@@ -41,7 +41,18 @@ extension _ModelSettingsLocalSection on _ModelSettingsDialogState {
     if (_selectedModelPath == null &&
         modelManager.models.isNotEmpty &&
         !kcppsModelExists) {
-      _selectedModelPath = modelManager.models.first.path;
+      _selectedModelPath = modelListStart(
+        modelManager.models,
+        storage.backendSettings.lastUsedModelPath,
+      );
+    }
+    // A preset sets its own context, so the box follows the preset that is
+    // active instead of showing what it held when the dialog opened.
+    final activePreset = storage.backendSettings.activeKcppsPath;
+    if (activePreset != _contextPreset) {
+      _contextPreset = activePreset;
+      _contextSizeController.text = storage.backendSettings.contextSize
+          .toString();
     }
 
     return Column(
@@ -100,54 +111,11 @@ extension _ModelSettingsLocalSection on _ModelSettingsDialogState {
                   storage: storage,
                   localPresets: _localPresets,
                   hint: 'None (Use App Settings)',
-                  onChanged: (val) {
-                    storage.backendSettings.setActiveKcppsPath(val);
-                    if (_selectedModelPath != null && val != null) {
-                      storage.presetSettings.setModelPreset(
-                        _selectedModelPath!,
-                        val,
-                      );
-                    } else if (_selectedModelPath != null && val == null) {
-                      storage.presetSettings.setModelPreset(
-                        _selectedModelPath!,
-                        '',
-                      );
-                    }
-                    if (val != null &&
-                        storage.backendSettings.kcppsHasModel &&
-                        _kcppsModelExists.of(
-                          storage.backendSettings.kcppsModelPath,
-                        )) {
-                      rebuildState(() {
-                        _selectedModelPath = null;
-                      });
-                    }
-                  },
-                  onExternalClear: () {
-                    storage.backendSettings.setActiveKcppsPath(null);
-                    if (_selectedModelPath != null) {
-                      storage.presetSettings.setModelPreset(
-                        _selectedModelPath!,
-                        '',
-                      );
-                    }
-                  },
-                  onBrowsePicked: (path) {
-                    if (_selectedModelPath != null) {
-                      storage.presetSettings.setModelPreset(
-                        _selectedModelPath!,
-                        path,
-                      );
-                    }
-                    _scanLocalPresets();
-                    if (storage.backendSettings.kcppsHasModel &&
-                        _kcppsModelExists.of(
-                          storage.backendSettings.kcppsModelPath,
-                        )) {
-                      rebuildState(() {
-                        _selectedModelPath = null;
-                      });
-                    }
+                  onChanged: _choosePreset,
+                  onExternalClear: () => _choosePreset(null),
+                  onBrowsePicked: (path) async {
+                    await _choosePreset(path);
+                    if (mounted) _scanLocalPresets();
                   },
                   onModelStatusChanged: (_) {
                     rebuildState(() {});
@@ -246,6 +214,7 @@ extension _ModelSettingsLocalSection on _ModelSettingsDialogState {
                             ).backendSettings.setGpuLayersManual(v);
                             rebuildState(() {});
                           },
+                          onLayersChanged: _saveGpuLayers,
                         ),
                         const SizedBox(height: 12),
                         Row(
@@ -263,12 +232,14 @@ extension _ModelSettingsLocalSection on _ModelSettingsDialogState {
                                             label: 'Context Size',
                                             controller: _contextSizeController,
                                             isNumber: true,
+                                            onChanged: _saveContextSize,
                                           ),
                                         )
                                       : _buildTextField(
                                           label: 'Context Size',
                                           controller: _contextSizeController,
                                           isNumber: true,
+                                          onChanged: _saveContextSize,
                                         ),
                                 ),
                               ),

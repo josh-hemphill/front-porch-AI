@@ -22,6 +22,8 @@ fits the model itself.
 - Failures say **what actually went wrong** in plain words.
 - Web can **pick a chat preset and see its summary**, and switching model
   from the phone uses the right settings. Editing presets stays on desktop.
+- The app's KoboldCpp **answers this computer only**. It used to listen on
+  every network the computer was on.
 
 **What gets deleted**
 
@@ -64,8 +66,10 @@ safe pairings:
 
 **Default, chosen by the maintainer: sliding window off, fast forward and
 context shift on.** The other pairing stays available as a choice for
-models that have sliding window. Models without it always get fast forward
-and context shift.
+models that have sliding window, in the preset editor. Auto mode (the app's
+own settings, no preset) always writes the default: it once kept a stored
+switch for the other pairing, but nothing ever set it, so it was removed.
+Models without sliding window always get fast forward and context shift.
 
 **What I can't prove without a real machine**
 
@@ -195,6 +199,21 @@ are still to be checked.
   reproduced it: unload then reload, the app reported ready, and the
   engine still had the old config.
 
+**Measured on 1.117.1 and 1.122.1, Apple Silicon (2026-10-04): the listen
+address**
+
+- `host` is applied from the staged config at launch. With
+  `host: 127.0.0.1` there and nothing about the address on the command
+  line, both engines answered on 127.0.0.1 and refused this computer's own
+  network addresses (Wi-Fi and VPN). With the line removed, both answered
+  on the Wi-Fi address with the admin endpoints on.
+- A live reload leaves it alone: a config with no `host` in it, loaded by
+  reload, did not reopen the engine to the network, and neither did the
+  reload back to chat's own config.
+- Pinned by `test/live/kobold_host_live_test.dart` (the real engine) and
+  `test/services/kobold/kobold_listen_address_test.dart` (every staged
+  config).
+
 **Cost in test changes.** Stages 2, 3 and 4 each have to rewrite existing
 tests, because those tests pin behaviour that is being removed on purpose.
 
@@ -244,6 +263,74 @@ Decisions already made by the maintainer:
 11. Gemma 4 on Vulkan runs with flash attention off (2026-10-04): with it on,
     KoboldCpp 1.122.1 dies on the first prompt. Built in Stage 5, lifted
     once a fixed KoboldCpp is confirmed on a real card.
+12. A preset that asks KoboldCpp to run a program or open itself to the
+    internet is refused, not rewritten (2026-10-04). A preset still launches
+    exactly as written. The exception is `mcpfile`, `onready`, `remotetunnel`,
+    `hordekey`, `preloadstory` and `baseconfig` when set (any value Python
+    reads as true: the text "false" counts) and `rpcmode` when it is `host`.
+    KoboldCpp's own exports carry all of them switched off and pass. The
+    reason is said in plain words, naming the settings, wherever a preset can
+    reach the engine: Start, a live reload of chat, a helper or story swap,
+    the editor's MMQ timing, and the phone's preset pick.
+    `kcppsRiskyPresetProblem` is the one place it is decided.
+13. A live reload of chat that KoboldCpp could not load keeps the old model
+    when a fresh start would be refused (2026-10-04). KoboldCpp goes back to
+    the model it had, which still works. The app used to stop it and start
+    again; a start refused for the new model file left nothing running and no
+    reason shown. The reason is now always noted first (status line and engine
+    log). If a fresh start would be refused (`koboldLaunchProblem`, which
+    includes a preset the app will not start), nothing is stopped and the
+    caller gets a refusal: the new model was not loaded, the previous one is
+    still running, and why. Otherwise the engine is stopped and started, and
+    the start's answer comes back. `reloadChatKobold` returns that answer.
+    Settings shows it in a snackbar, the preset editor in its problem line,
+    the phone's model switch in the response's `refused` field, and the
+    phone's Local model card through the status line it now carries.
+    When the old model is kept, the stored choice (the model in use, the
+    preset, and the link between them) goes back to what KoboldCpp runs
+    (2026-10-05), so every screen names the running model. What runs is what
+    the service recorded as loaded before the reload, put back only when the
+    engine itself says that model is the one running and the choice has not
+    been changed meanwhile; otherwise nothing is guessed. It is written back
+    as it was recorded, not worked out again: a preset whose model was
+    missing at launch and has appeared since must not turn the model in use
+    into that one while KoboldCpp runs the other. The staged chat config and
+    the service's record go back with it.
+14. The app's KoboldCpp answers this computer only, with no admin password
+    (2026-10-04). Before this it listened on every network the computer was
+    on, so any device on the same Wi-Fi could call its admin endpoints (drop
+    the model mid-chat) and read the latest reply. The command line is
+    frozen for this work, so `host: 127.0.0.1` is written into the config
+    the app stages for every launch and swap, over a preset's own `host`
+    (the app owns the address, and a preset naming a network address
+    already cut the app off).
+    KoboldCpp applies `host` from `--config` at launch and ignores it on an
+    admin reload, so a swap cannot change it. The app reaches the engine at
+    `http://127.0.0.1:<port>` and nothing else (`kKoboldHost`).
+15. Stop while a start is still being prepared calls that start off
+    (2026-10-04). Pressing Stop after the start slot is claimed and before
+    KoboldCpp is spawned (the free-memory read, the model file check, the
+    first-run graphics card check) means KoboldCpp is not started, and the
+    start says "KoboldCpp was not started: it was stopped while it was
+    getting ready." A swap that frees the graphics card for another engine
+    stops a preparing start the same way (before, it spawned afterwards,
+    next to the other engine). Quitting the app, and the update shutdown,
+    stop a preparing start too. Only
+    the "nothing spawned yet" case changed: the kill ladder for a running
+    process is as it was, and the stop a start makes of the engine it
+    replaces does not call that start off. The start checks for a Stop
+    right before it spawns, after its last wait.
+16. A start the app asked for that is refused says why where it used to be
+    dropped (2026-10-05). The phone's Restart, and its model switch while
+    KoboldCpp is stopped, answer with the same `refused` field a refused
+    reload uses, and the Models page says it beside the buttons. Opening a
+    chat starts the engine ("Auto-start on chat open"); that start's refusal
+    is kept by the provider and said in place of "No API connection": in the
+    desktop composer's hint, and on the phone as `llmHint` in the chat state
+    (above the box), until something runs or what the engine has loaded has
+    changed (`LLMProvider.composerConnectionHint`). `ensureManagedBackendIsRunning`
+    returns the start's answer. A refusal is not a dialog: nothing new
+    interrupts the chat.
 
 ## Design
 
@@ -257,14 +344,15 @@ edits, but that type is a summary and is never what a launch runs.
 **A user's preset is launched as it was written.** The staged config for a
 preset is the file's own content with a few settings laid over it: the
 model the app resolved, `jinja: true`, the vision file (when one was chosen
-for the model and exists), and `noswa: true` when the file has sliding
-window on (`noswa: false`, or `useswa: true` in a file from before that
-name existed) with fast forward on. Nothing else is added, changed or
-dropped. As first merged, the launch rebuilt the preset from the typed
-config: a second graphics card, the CUDA options and a MoE layer count were
-dropped, a cache size was clamped, context shift was switched back on, and
-every setting the file had left to KoboldCpp got the app's default (a 16384
-context for a file that named none).
+for the model and exists), `host: 127.0.0.1` (decision 14), and
+`noswa: true` when the file has sliding window on (`noswa: false`, or
+`useswa: true` in a file from before that name existed) with fast forward
+on. Nothing else is added, changed or dropped. As first merged, the launch
+rebuilt the preset from the typed config: a second graphics card, the CUDA
+options and a MoE layer count were dropped, a cache size was clamped,
+context shift was switched back on, and every setting the file had left to
+KoboldCpp got the app's default (a 16384 context for a file that named
+none).
 
 **One rule for the model a preset names.** `kcppsModelOf` reads it the way
 KoboldCpp does: `model_param` when it is a non-empty string, else `model`
@@ -286,13 +374,18 @@ prepare a launch is a refusal with a reason.
 **Every launch and swap uses a staged "effective config".** The app never
 launches or edits a user's `.kcpps` directly. For each role (chat, worker,
 story job) it writes a config into the admin folder: the source (preset or
-app settings) plus the absolute model path, `jinja: true`, and the resolved
-vision file. Launch is `--config <staged> --port N --admin --admindir D`.
+app settings) plus the absolute model path, `jinja: true`, the resolved
+vision file, and `host: 127.0.0.1`. Launch is
+`--config <staged> --port N --admin --admindir D`.
 A swap reloads the staged file by name, with no file links (Stage 4; until
 it lands, a swap back to a user's preset still links the user's own file).
 
 **Only these stay on the command line:** port, admin, admin folder.
-KoboldCpp protects them from being set by a config.
+KoboldCpp protects them from being set by a config. The listen address is
+protected on a reload too, but a launch reads it from the config, which is
+why it rides in the staged config and not on the command line (decision 14).
+The one config the app stages without it is the preset editor's speed
+trial, which is only ever live-loaded.
 
 **The estimate is a guess, not a setting.** The "VRAM Usage Estimate" in
 the preset dialog has never decided how a model is loaded. KoboldCpp fits
@@ -342,9 +435,13 @@ New, under `lib/services/kobold/` with a `kobold.dart` barrel:
 - `kcpps_codec.dart`: pure read and write. Reads any `.kcpps`, including
   ones from KoboldCpp's own launcher, and normalises old key names. A file
   that will not parse returns "broken", not "no model".
-- `kobold_capabilities.dart`: version to feature flags, from the existing
-  `KoboldBinaryVersion`. Older builds get the older forms.
-- `cpu_threads.dart`: thread detection moved out of the generator.
+- A version check, from the existing `KoboldBinaryVersion`. This was planned
+  as `kobold_capabilities.dart` (version to feature flags, older builds
+  getting the older forms); decision 8 made that unnecessary, and as built it
+  is `KoboldBinaryVersion.tooOldProblem`: one minimum (1.112), one sentence,
+  and an engine below it is refused, not written an older config.
+- Thread detection moved out of the generator, into
+  `kobold_hardware_defaults.dart`.
 
 Writer rules: GPU id as text, using the app's GPU setting; both spellings
 of a renamed key (see the measured notes: an old name alone is lost on a
@@ -358,11 +455,12 @@ The existing generate dialog switches to the codec.
 Tests: round-trip a real launcher-made file with unknown keys intact; the
 old numeric GPU id reads back and re-writes as text; a pinned test that
 sliding-window mode always has fast forward and context shift off; all five
-cache levels; version gating; a broken file.
+cache levels; the minimum engine version; a broken file.
 
 ### Stage 2: launch from a staged config; delete the estimate (items 3, 4, 5, 6, 17, 22)
 
-- `lib/services/kobold_launch_args.dart` shrinks to four flag groups.
+- `lib/services/kobold_launch_args.dart` shrinks to the port and the admin
+  folder: everything else is in the staged config.
 - New `kobold_app_config.dart` (settings to config, pure) and
   `kobold_config_stage.dart` (write temp file then rename; prune old staged
   files).
@@ -604,29 +702,45 @@ As built (2026-10-04), to the sketch the maintainer approved:
   as much of the model on the card as 512 does (an "Auto" chip, the
   default, in Advanced; a chosen batch is kept); smart cache slots that fit
   in free system memory (3, or KoboldCpp's 7 for a recurrent model).
-  Context shift (decision 12): KoboldCpp's source keeps a slot for a
-  regenerated reply and a checkpoint part way into a long prompt for a
+  Context shift (decisions 7 and 9): KoboldCpp's source keeps a slot for
+  a regenerated reply and a checkpoint part way into a long prompt for a
   recurrent model, since its state cannot be rewound; so context shift
   stays on for such a model and is switched off only where memory has no
   room for KoboldCpp's smallest count (three).
 - MMQ: the editor times both ("Time both on this card": the preset loaded
   each way as a trial, a fresh 2,000-token prompt twice, the faster kept);
   auto mode learns it from KoboldCpp's per-reply speed line ("Processed: N
-  in Ts", "Generated: N/M in Ts"), on for three replies then off for three,
-  and keeps the faster per card and engine version.
+  in Ts", "Generated: N/M in Ts"): on until three replies that read 512 or
+  more tokens and three that wrote 16 or more can be timed, then off until
+  the same, and keeps the faster per card and engine version. Replies that
+  cannot be timed do not count towards either (counting them left the
+  trial on "off" for good after three short replies), the newest eight of
+  each kind are kept, and a launch that is not auto mode on CUDA (a preset,
+  another backend) ends a trial that is open.
 - The "Local model" card on the KoboldCpp settings page is auto mode's
   only surface: how the model runs, in plain words, and the context, with
   a verdict per size from a read-cost model (weights a token uses plus the
   whole chat memory; system memory counted six times the card; extra
   reading from the disk over a GB is "very slow"). Below 16,384 is always
-  "not recommended or supported", even for the size in use.
+  "not recommended or supported", even for the size in use. The card, the
+  phone's, and the editor's fit take the graphics backend from the one rule
+  the launch uses (`koboldBackendFor`, honouring the switches in Settings),
+  and the card assumes the batch the launch runs: the one chosen in
+  Settings, or KoboldCpp's own when nothing goes on a card.
 - Live reload first (moved from Stage 5): a new chat preset or model in
   Settings, "Save and use now", and the phone's model switch reload the
   staged chat config by name and restart only when that is not acted on.
 - Prompt budget (moved from Stage 5): KoboldCpp runs with the context its
   config gives (`maxctx = args.contextsize`), so the context in chat's
-  staged config is recorded and every prompt budget is held to it: a chat
-  set longer than the engine no longer has its start, card first, cut.
+  staged config is recorded when it names one, and every prompt budget is
+  held to it: a chat set longer than the engine no longer has its start,
+  card first, cut. A config that names none runs KoboldCpp's own default,
+  which differs by version (12,288 on 1.117.1, 16,384 on 1.122.1): staging
+  records nothing then, because staging is not a load (a swap back to chat
+  stages this config before every reply) and must not forget what the
+  engine said. The engine is asked (`/api/extra/true_max_context_length`)
+  when a launch is ready and when a reload is checked, and that is held
+  until the next one.
 
 Path-complete (prompt budget): generation, Continue and regenerate share
 the generation plan; group chats the same; impersonate, lorebook blocks,
@@ -652,14 +766,19 @@ summary card.
 
 Stage 7 as built (2026-10-04): the phone's Models page has the "Local
 model" card (the same KoboldStatusFacts as the desktop card, moved to
-`lib/services/kobold_status_facts.dart`) and a separate "KoboldCpp preset"
+`lib/services/kobold/kobold_status_facts.dart`) and a separate "KoboldCpp preset"
 card (auto mode never shows a door to presets). Routes:
 `GET /api/backend/local-model`, `POST /api/backend/local-model/preset`
 (only a preset in the engine folder, or none: the server may be reachable
 from the internet) and `POST /api/backend/local-model/context` (512 to
 1,048,576 tokens; a running KoboldCpp reloads once the phone stops
-changing it). The browser suite seeds a real model header and a preset
-and walks the card.
+changing it). Both cards show only when KoboldCpp is the backend, as the
+desktop's section does. The browser suite seeds a real model header and a
+preset, switches the host to KoboldCpp for that journey only, and walks the
+card. While a preset runs, the settings save refuses a context that differs
+from the stored one (the page sends the whole form with every save, so the
+stored value coming back is not a change) and the Settings slider is locked,
+as on the desktop.
 
 ### Stage 8: the rest (as built)
 
@@ -748,15 +867,16 @@ No stored setting is deleted. New ones are added beside the old.
 | Cache level 0 / 1 / 2 | Read as f16 / q8_0 / q4_0. |
 | Active preset, model-to-preset map, vision map, worker paths | Unchanged. |
 
-The migration is one pure function over a key-value map, tested with real
-snapshots: fresh install, an Auto-Configured NVIDIA user, a CPU-only user,
-a ROCm user.
+The migration is not one function: each setting is read where it is used
+(the cache level in `KoboldLaunchFields.kvQuant`, the layer count and its
+one-time note in `loadKoboldLaunch`), over the stored preferences. It is
+tested with the old preferences seeded as an upgrade finds them.
 
 ## Reuse (already in the repo)
 
 - `GpuBackendResolver` for choosing a backend when none is stored.
 - `GGUFModelInfo.isMoe` and `.slidingWindow` (`lib/utils/gguf_model_info.dart`).
-- `KoboldBinaryVersion` (`lib/services/kobold_binary_version.dart`).
+- `KoboldBinaryVersion` (`lib/services/kobold/kobold_binary_version.dart`).
 - `ModelFileCheck` for the pre-launch file check.
 - `KoboldAdminSwapLock` and `KoboldProcessHost`, already injectable.
 - `WorkerBackendFields` as the pattern for a settings mixin.

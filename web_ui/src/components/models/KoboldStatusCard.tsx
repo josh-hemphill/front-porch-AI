@@ -18,7 +18,10 @@ export type LocalModel = {
   modelName: string | null;
   running: boolean;
   phase: KoboldPhase;
-  preset: { path: string; name: string; words: string } | null;
+  /** What the desktop's status line says: a load in progress, or why a model
+   *  change was not made (additive; '' or absent when there is nothing). */
+  statusMessage?: string;
+  preset: { path: string; name: string; words: string; line?: string } | null;
   auto: {
     lines: string[];
     context: number;
@@ -27,6 +30,8 @@ export type LocalModel = {
     verdicts: Record<string, KoboldVerdict>;
   } | null;
   presets: { path: string; name: string; line: string }[];
+  /** A model is chosen and its file could not be read (additive). */
+  modelUnreadable?: boolean;
 };
 
 const tokens = (n: number) => n.toLocaleString('en-US');
@@ -50,6 +55,8 @@ export function KoboldStatusCard({ onError }: { onError: (m: string) => void }) 
   // A context too big for the host, waiting for "keep anyway".
   const [pending, setPending] = useState<number | null>(null);
   const [asking, setAsking] = useState(false);
+  // Why the preset just picked was refused, shown beside the picker.
+  const [presetProblem, setPresetProblem] = useState('');
 
   const load = useCallback(
     () =>
@@ -77,10 +84,11 @@ export function KoboldStatusCard({ onError }: { onError: (m: string) => void }) 
   };
 
   const setPreset = async (path: string | null) => {
+    setPresetProblem('');
     try {
       setCard(await api.post<LocalModel>('/api/backend/local-model/preset', { path }));
     } catch (e) {
-      onError(message(e));
+      setPresetProblem(message(e));
     }
   };
 
@@ -101,6 +109,11 @@ export function KoboldStatusCard({ onError }: { onError: (m: string) => void }) 
             <div className="kc-sub">
               {card.modelName ?? 'No model chosen'} · {card.running ? 'running' : 'not running'}
             </div>
+            {card.statusMessage && (
+              <div className="kc-sub" data-testid="local-model-status" style={{ whiteSpace: 'pre-line' }}>
+                {card.statusMessage}
+              </div>
+            )}
           </div>
           <span className={`kc-pill ${pill.cls}`}>{pill.label}</span>
         </div>
@@ -120,7 +133,11 @@ export function KoboldStatusCard({ onError }: { onError: (m: string) => void }) 
             <li>
               <span className="kc-dot" aria-hidden="true" />
               <span>
-                {card.model ? 'Reading the model file…' : 'Choose a model below to see how it runs here.'}
+                {!card.model
+                  ? 'Choose a model below to see how it runs here.'
+                  : card.modelUnreadable
+                    ? 'The model file could not be read. Is it still in its folder? You can choose another model below.'
+                    : 'Still finding out what this computer can do…'}
               </span>
             </li>
           </ul>
@@ -208,12 +225,27 @@ export function KoboldStatusCard({ onError }: { onError: (m: string) => void }) 
           onChange={(e) => void setPreset(e.target.value || null)}
         >
           <option value="">The app's own settings (automatic)</option>
+          {/* A preset picked on the desktop can live outside the engine folder.
+              It is in use, so it is an option, or this would say "automatic"
+              beside a card that says otherwise. */}
+          {card.preset && !card.presets.some((p) => p.path === card.preset?.path) && (
+            <option value={card.preset.path}>
+              {card.preset.name}
+              {card.preset.line ? ` — ${card.preset.line}` : ''}
+            </option>
+          )}
           {card.presets.map((p) => (
             <option key={p.path} value={p.path}>
               {p.name} — {p.line}
             </option>
           ))}
         </select>
+        {presetProblem && (
+          <div className="kc-verdict bad" role="alert" data-testid="preset-refused">
+            <span className="kc-mark" aria-hidden="true" />
+            <p>{presetProblem}</p>
+          </div>
+        )}
         {card.preset && (
           <div className="kc-plain">
             <span className="kc-plain-head">In plain words</span>

@@ -20,7 +20,8 @@ import 'dart:convert';
 
 import 'package:path/path.dart' as p;
 
-import 'kobold_capabilities.dart';
+import 'package:front_porch_ai/utils/utils.dart';
+
 import 'kobold_launch_config.dart';
 
 /// Every key this app reads or writes. Anything else in a file is kept as
@@ -70,17 +71,12 @@ sealed class KcppsRead {
 }
 
 class KcppsOk extends KcppsRead {
-  const KcppsOk(this.config, {this.notes = const [], this.raw = const {}});
+  const KcppsOk(this.config, {this.raw = const {}});
 
   /// The settings the app can show and edit. It is a summary: a second
-  /// graphics card, the CUDA options or a MoE layer count do not fit in it.
-  /// A launch therefore runs [raw], not this.
+  /// CUDA card, for one, does not fit in it. A launch therefore runs [raw],
+  /// not this, and reports what it changes itself.
   final KoboldLaunchConfig config;
-
-  /// Plain-words remarks about what [config] changed on the way in, for a
-  /// screen that shows or edits it. A launch does not use them: it runs
-  /// [raw] and reports what it changes itself.
-  final List<String> notes;
 
   /// The file exactly as it was written.
   final Map<String, dynamic> raw;
@@ -127,8 +123,6 @@ KcppsRead _readKcpps(String text) {
       'This preset file has a number in it that is too large to use.',
     );
   }
-  final notes = <String>[];
-
   var backend = KoboldGpuBackend.none;
   int? gpuId;
   var moreGpuIds = const <int>[];
@@ -148,28 +142,11 @@ KcppsRead _readKcpps(String text) {
     moreGpuIds = ids.skip(1).toList();
   }
 
-  final noSwa = map.containsKey('noswa')
-      ? map['noswa'] == true
-      : map.containsKey('useswa')
-      ? map['useswa'] != true
-      : null;
-  final noFastForward = map['nofastforward'] == true;
-  final ContextManagementMode mode;
-  if (noSwa == false && noFastForward) {
-    mode = ContextManagementMode.slidingWindowAttention;
-  } else {
-    mode = ContextManagementMode.fastForwardSmartCache;
-    if (noSwa == false) {
-      notes.add(kSwaWithFastForwardNote);
-    } else if (noSwa == null) {
-      notes.add(
-        'This preset does not say how to handle sliding window. On a model '
-        'that has it, current KoboldCpp switches it on together with fast '
-        'forward, a pairing that degrades output. Add "noswa": true to the '
-        'preset to switch it off.',
-      );
-    }
-  }
+  // Decided by the helper a launch uses, so what the editor shows is what
+  // runs for any value the file holds, not only for true and false.
+  final mode = kcppsHasSwaOn(map) && map['nofastforward'] == true
+      ? ContextManagementMode.slidingWindowAttention
+      : ContextManagementMode.fastForwardSmartCache;
 
   final flashOff = map.containsKey('noflashattention')
       ? map['noflashattention'] == true
@@ -178,15 +155,15 @@ KcppsRead _readKcpps(String text) {
       : false;
   final moe = _asInt(map['moecpu']) ?? 0;
   final layers = _asInt(map['gpulayers']);
-  final forcedFit = kcppsForcedFitNote(map);
-  final bool? mmq = map['nommq'] is bool
-      ? !(map['nommq'] as bool)
-      : cuda is List && cuda.contains('nommq')
+  // KoboldCpp reads the `nommq` word in the CUDA list first and turns MMQ
+  // off whatever the `nommq` setting says.
+  final bool? mmq = cuda is List && cuda.contains('nommq')
       ? false
+      : map['nommq'] is bool
+      ? !(map['nommq'] as bool)
       : cuda is List && cuda.contains('mmq')
       ? true
       : null;
-  if (forcedFit != null) notes.add(forcedFit);
 
   return KcppsOk(
     KoboldLaunchConfig(
@@ -224,7 +201,6 @@ KcppsRead _readKcpps(String text) {
           if (!_managedKeys.contains(e.key)) e.key: e.value,
       },
     ),
-    notes: notes,
     raw: map,
   );
 }
@@ -294,19 +270,15 @@ const String kSwaLeftToKoboldNote =
     'has it. KoboldCpp switches it on together with fast forward, a pairing '
     'that degrades output. Add "noswa": true to the preset to switch it off.';
 
-/// The `.kcpps` map for [config], in the forms [caps] says the installed
-/// KoboldCpp accepts.
+/// The `.kcpps` map for [config].
 ///
 /// A key KoboldCpp renamed is written under BOTH names (`usecuda` and
-/// `usecublas`, `batchsize` and `blasbatchsize`). An old engine knows only
-/// the old name. A current one converts the old name at launch but not on
-/// a live reload, which fills in every missing default first and then
-/// finds nothing to convert: measured, a file with only `blasbatchsize`
-/// ran at its value after a launch and at the default after a reload.
-Map<String, dynamic> kcppsMap(
-  KoboldLaunchConfig config, {
-  KoboldCapabilities caps = KoboldCapabilities.current,
-}) {
+/// `usecublas`, `batchsize` and `blasbatchsize`). A current engine converts
+/// the old name at launch but not on a live reload, which fills in every
+/// missing default first and then finds nothing to convert: measured, a
+/// file with only `blasbatchsize` ran at its value after a launch and at the
+/// default after a reload.
+Map<String, dynamic> kcppsMap(KoboldLaunchConfig config) {
   final map = <String, dynamic>{
     ...config.extras,
     if (config.modelPath.isNotEmpty) 'model_param': config.modelPath,
@@ -317,9 +289,7 @@ Map<String, dynamic> kcppsMap(
     'autofitpadding': ?config.autofitPaddingMb,
     'usemmap': config.useMmap,
     'usemlock': config.useMlock,
-    'quantkv': caps.quantKvAsText
-        ? config.kvQuant.wire
-        : (config.kvQuant.legacyIndex ?? KvQuant.q4_0.legacyIndex),
+    'quantkv': config.kvQuant.wire,
     'threads': ?config.threads,
     'noflashattention': !config.flashAttention,
     'jinja': config.jinja,
@@ -334,7 +304,7 @@ Map<String, dynamic> kcppsMap(
 
   // Automatic fitting and `moecpu` cannot be combined; a manual layer
   // count is the only case where the app places MoE experts itself.
-  if (config.moeExpertsOnCpu && !config.layersAreAutomatic && caps.moeCpu) {
+  if (config.moeExpertsOnCpu && !config.layersAreAutomatic) {
     map['moecpu'] = config.moeCpuLayers ?? 999;
   }
 
@@ -367,17 +337,15 @@ Map<String, dynamic> kcppsMap(
       map['noswa'] = true;
       map['nofastforward'] = false;
       map['noshift'] = !config.contextShift;
-      if (config.smartCacheSlots > 0 && caps.smartCache) {
-        map['smartcache'] = config.smartCacheSlots.clamp(1, 20);
+      if (config.smartCacheSlots > 0) {
+        map['smartcache'] = config.smartCacheSlots.clamp(
+          1,
+          kKoboldSmartCacheMaxSlots,
+        );
       }
   }
   return map;
 }
-
-String writeKcpps(
-  KoboldLaunchConfig config, {
-  KoboldCapabilities caps = KoboldCapabilities.current,
-}) => encodeKcpps(kcppsMap(config, caps: caps));
 
 /// [map] as the text of a `.kcpps` file.
 String encodeKcpps(Map<String, dynamic> map) =>
@@ -391,8 +359,11 @@ Map<String, dynamic> kcppsMergeEdits(
   Map<String, dynamic> before,
   Map<String, dynamic> after,
 ) {
+  // `nommq` is with the card because the CUDA list can say it too, as a
+  // word, and KoboldCpp reads the word first: the two are written together
+  // or MMQ keeps what the word says.
   const groups = <Set<String>>[
-    {'usecuda', 'usecublas', 'usehipblas', 'usevulkan'},
+    {'usecuda', 'usecublas', 'usehipblas', 'usevulkan', 'nommq'},
     {'model', 'model_param'},
     {'flashattention', 'noflashattention'},
     {'batchsize', 'blasbatchsize'},

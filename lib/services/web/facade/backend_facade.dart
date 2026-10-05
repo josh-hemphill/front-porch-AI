@@ -25,7 +25,6 @@ import 'package:front_porch_ai/services/capability/capability.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/utils/utils.dart';
 import 'package:front_porch_ai/services/xai/xai.dart';
-import 'package:front_porch_ai/services/kobold_status_facts.dart';
 
 part 'backend_facade.local_model.dart';
 
@@ -94,9 +93,10 @@ class BackendFacade {
   }
 
   /// Restart the managed local backend with the current model + stored flags.
-  Future<void> restart() async {
+  /// Why it was not started, in plain words, or null.
+  Future<String?> restart() async {
     await _llm.stopAllManagedProcesses();
-    await _llm.ensureManagedBackendIsRunning();
+    return (await _llm.ensureManagedBackendIsRunning())?.refusal;
   }
 
   Future<void> stop() => _llm.stopAllManagedProcesses();
@@ -123,18 +123,22 @@ class BackendFacade {
   /// Like the desktop picker, the model brings its own preset or none: the
   /// previous model's preset used to stay active, so a bigger model started
   /// with the smaller one's context and layers. Returns false if the path
-  /// isn't a known local model.
-  Future<bool> switchModel(String path) async {
+  /// isn't a known local model. When KoboldCpp could not load it (the running
+  /// one) or was not started (a stopped one), [onRefused] is given the reason
+  /// in plain words.
+  Future<bool> switchModel(
+    String path, {
+    void Function(String words)? onRefused,
+  }) async {
     final known = _models.localModels.any((m) => m.path == path);
     if (!known) return false;
     await selectKoboldModel(_storage, path);
     // A running KoboldCpp loads the new model in place, as on the desktop;
     // a stopped one is started.
-    if (_llm.koboldService.isProcessRunning) {
-      await _llm.reloadChatKobold();
-    } else {
-      await restart();
-    }
+    final refusal = _llm.koboldService.isProcessRunning
+        ? (await _llm.reloadChatKobold())?.refusal
+        : await restart();
+    if (refusal != null) onRefused?.call(refusal);
     return true;
   }
 
