@@ -251,7 +251,22 @@ Decisions already made by the maintainer:
    the app switches sliding window off only when the file itself has it on
    with fast forward on. A preset that does not mention sliding window is
    left to KoboldCpp's default, and the engine log says what that default
-   does when the model has sliding window.
+   does when the model has sliding window. The user is told on screen too
+   (2026-10-05): the preset editor, the desktop preset card and the phone's
+   preset card say it in the same sentence (`kSwaLeftToKoboldNote`) when the
+   model has sliding window and the file leaves fast forward on
+   (`kcppsSwaLeftToKobold`), and the editor's sliding-window switch shows a
+   third state, "left to KoboldCpp", instead of "off" (the editor's own
+   "In plain words" says the sentence too). Until the switch is
+   answered, a save keeps the file's own word: nothing about sliding window,
+   and fast forward and the window's padding as written
+   (`KcppsDraft.swaLeftAsWritten`), even when another edit rewrites that
+   group of settings, and whatever model the form has (a model without a
+   sliding window shows no switch, so its silent file stays silent). The phone's cards print the preset's plain words as
+   the server sends them (`preset.words`), so they need no change of their
+   own. Wording only: the launch runs the file as written, and the editor's
+   MMQ timing still loads the form with sliding window answered "off", as
+   before.
 8. Old KoboldCpp versions are not supported (2026-10-03). An engine before
    1.112 stops at load on the staged config: it compares the cache type as
    a number, and a config file is not converted the way a command line is.
@@ -260,7 +275,21 @@ Decisions already made by the maintainer:
    (2026-10-04). Any rule worked out for the preset dialog (the memory
    estimate, the smart cache suggestion, the context-mode pairing) also
    drives the automatic path, which shows none of the machinery: one shared
-   rule, two surfaces.
+   rule, two surfaces. Flash attention and a compressed cache are one such
+   rule (2026-10-05): a compressed cache turns flash attention on wherever
+   it can run, as auto mode always did, and where it cannot (decisions 10
+   and 11) flash attention is off and the cache full size. One helper,
+   `koboldFlashAndCache`, gives the pair to auto mode's config, the preset
+   the editor writes and the editor's "New from my settings" starting
+   values; before, the editor did the opposite (flash attention off meant a
+   full-size cache). In the editor a compressed size can be picked whenever
+   flash attention can run, and the flash attention box then shows on,
+   greyed, with "A compressed chat memory turns this on."; Full gives the
+   switch back. A file that pairs a compressed cache with flash attention
+   off (KoboldCpp's own launcher allows it, compressing half the cache) is
+   launched as written; the editor shows it by the rule and its next save
+   writes flash attention on. Settings' Flash Attention switch says the
+   same line when it is off and the cache is compressed.
 10. ROCm may use flash attention (2026-10-04), with a fallback: if the
     engine dies on the first reply, the app restarts it with flash
     attention off and remembers that for the machine. The app had forced
@@ -312,6 +341,7 @@ Decisions already made by the maintainer:
     KoboldCpp applies `host` from `--config` at launch and ignores it on an
     admin reload, so a swap cannot change it. The app reaches the engine at
     `http://127.0.0.1:<port>` and nothing else (`kKoboldHost`).
+    `adminunloadtimeout: 0` is laid on the same way (decision 18).
 15. Stop while a start is still being prepared calls that start off
     (2026-10-04). Pressing Stop after the start slot is claimed and before
     KoboldCpp is spawned (the free-memory read, the model file check, the
@@ -353,6 +383,23 @@ Decisions already made by the maintainer:
     launch, the failure is remembered for that model on that engine version
     and the next start writes the smart cache auto mode wrote before, so the
     user is never worse off than before the keeper. Details under "Stage 9".
+18. KoboldCpp's own idle unload never runs (2026-10-05). The app keeps its
+    own timer (Stage 8, "unload when idle"), which unloads the model and loads
+    chat's setup back before the next request. KoboldCpp's timer
+    (`adminunloadtimeout`) cannot do that: its wake-up exists only in router
+    mode, and the app's requests name "koboldcpp", which the router does not
+    wake. A preset that carries the key above 0 (KoboldCpp's own launcher
+    exports it) would unload the model behind the app's back and the next
+    reply would reach an engine with no model. So `adminunloadtimeout: 0` is
+    written into the config the app stages for every launch and swap, over a
+    preset's own value or none, the way `host` is (decision 14): the command
+    line is frozen, KoboldCpp reads every key of `--config` at launch (1.112
+    to 1.122.1 all have the key), and ignores this one on an admin reload, so
+    the staged 0 is what a launch applies. `kKoboldAdminUnloadTimeout`; pinned
+    by `test/services/kobold/kobold_admin_unload_off_test.dart` and, on a real
+    engine, `test/live/kobold_launch_live_test.dart` (the engine reports
+    `adminunloadtimeout=0` for a preset that asked for 300). The preset file
+    is never edited.
 
 ## Design
 
@@ -366,7 +413,8 @@ edits, but that type is a summary and is never what a launch runs.
 **A user's preset is launched as it was written.** The staged config for a
 preset is the file's own content with a few settings laid over it: the
 model the app resolved, `jinja: true`, the vision file (when one was chosen
-for the model and exists), `host: 127.0.0.1` (decision 14), and
+for the model and exists), `host: 127.0.0.1` (decision 14),
+`adminunloadtimeout: 0` (decision 18), and
 `noswa: true` when the file has sliding window on (`noswa: false`, or
 `useswa: true` in a file from before that name existed) with fast forward
 on. Nothing else is added, changed or dropped. As first merged, the launch
@@ -397,7 +445,7 @@ prepare a launch is a refusal with a reason.
 launches or edits a user's `.kcpps` directly. For each role (chat, worker,
 story job) it writes a config into the admin folder: the source (preset or
 app settings) plus the absolute model path, `jinja: true`, the resolved
-vision file, and `host: 127.0.0.1`. Launch is
+vision file, `host: 127.0.0.1`, and `adminunloadtimeout: 0`. Launch is
 `--config <staged> --port N --admin --admindir D`.
 A swap reloads the staged file by name, with no file links (Stage 4; until
 it lands, a swap back to a user's preset still links the user's own file).
@@ -416,6 +464,17 @@ model: the active weights on the card, the experts in system memory) so the
 user can pick a context size, batch size and cache type that fit in what is
 left, and the model runs at full speed. Nothing in this rewrite removes it,
 and the preset editor (Stage 6) keeps it.
+
+The older memory bar in Settings → Advanced → Hardware & GPU is retired
+(2026-10-05). It added the whole model file to a rough cost for each token
+of chat, leaving out sliding window, flash attention, the working memory
+and the engine's own share, so the same model showed one figure there and
+another on the Local model card. The section keeps the card's name and its
+memory and points to the Local model card, which judges the model with the
+same estimate as the editor (`KoboldFit`). Its helpers went with it
+(`GGUFParser.getKvCacheBytesPerToken`, `ModelManager.getKvCacheBytesPerToken`
+and `getCachedModelArchitectureInfo`, `GGUFModelInfo.estimateBytesPerLayer`).
+The phone never had the bar.
 
 The guess and the preset have to agree on one figure: how much graphics
 memory the fit leaves spare (1024 MB, or 32 MB with "greedy"). KoboldCpp
@@ -588,7 +647,13 @@ sends nothing when its content is resident, marks the engine not ready the
 moment a reload is accepted, and waits with `waitForKoboldReload`: first
 for a new model process (the engine's `uptime` restarts on every reload;
 the rule is `uptime < seconds since the request - 0.25`), then for it to
-generate. On a shared engine `GpuSwapOccupancy` does not unload first and
+generate. "Since the request" counts from before the request is sent
+(2026-10-05; `since` on `waitForSwap` and `waitForUnload`, noted by the
+host as `adminAskedAt` and by the idle unload and load back): counted from
+when the answer was read, an app busy for longer than the engine's half
+second to restart saw a new process no younger than its wait, never
+counted it, and waited out the whole limit; a reply after an idle load
+back hung. On a shared engine `GpuSwapOccupancy` does not unload first and
 asks each role every time. A reload the engine never acted on falls back
 to a process restart; one that restarted and is still loading is reported,
 not restarted again.
@@ -629,9 +694,20 @@ from what the engine printed and when: out of memory, a model file it
 cannot read (exit 2), stopping mid-answer without a word, and anything
 else (pointing at the log). The message goes to the engine log and
 `KoboldService.lastFailure`; a stop the app asked for is never taken for a
-failure. Proven on a real engine: killed mid-reply, the app says it
-stopped while answering. When the ROCm build dies mid-answer with flash
-attention on, a per-machine flag is set and the engine started again once
+failure. Since 2026-10-05 it also goes on the status line
+(`modelLoadingStatus`, in place of the loading step it stopped in) until
+the next Start or Stop, so every screen that shows that line says why:
+the desktop Local model card under its header while stopped, the home
+screen's status bar (which moves only while starting or loading, and says
+why only while chat runs on KoboldCpp, `KoboldHomeStatus`, as the phone
+shows its local cards only then), and the phone's Local model card and
+Local backend card through `statusMessage` (no new field). A start's readiness poll listens only for the process it
+started: after an exit, anything that answers on the port (a leftover
+KoboldCpp, another program) no longer marks the dead engine ready, which
+had wiped the sentence; stop and exit handling are unchanged. Proven on a
+real engine: killed mid-reply, the app says it stopped while answering.
+When the ROCm build dies mid-answer with flash attention on, a per-machine
+flag is set and the engine started again once
 without it (out of memory does not trigger it). `koboldFlashAttentionRuns`
 is the one rule for when flash attention is written (Gemma 4 on Vulkan:
 off; ROCm: on unless flagged); where it is off, a compressed cache falls
@@ -712,6 +788,14 @@ As built (2026-10-04), to the sketch the maintainer approved:
   placement and `autofit: false` with `gpulayers` and `moecpu` by hand. A
   placement that does not fit says by how much, and "Use the largest that
   fits" takes the most that does. Numbers past the model are refused.
+  A save writes only what was edited, a group at a time, and placement
+  (`gpulayers`, `autofit`, `autofitpadding`, `moecpu`) is one group, so a
+  file's own `moecpu` that the form does not hold (beside automatic layers,
+  where the form's forced fit writes none) goes when placement is edited.
+  The editor says so once before that save (2026-10-05, review row 360-8):
+  "Replace this preset's MoE setting?", with Cancel keeping the file as it
+  was (`saveReplacesOwnMoe`). A `moecpu` the form shows (placement by hand)
+  is the user's own edit and is not asked about.
 - The display name is the file name. Renaming moves the file and every
   setting that points at it (chat, each model's preset, the helper model,
   Porch Stories jobs); deleting lets go of them. One listing
@@ -744,7 +828,21 @@ As built (2026-10-04), to the sketch the maintainer approved:
   a verdict per size from a read-cost model (weights a token uses plus the
   whole chat memory; system memory counted six times the card; extra
   reading from the disk over a GB is "very slow"). Below 16,384 is always
-  "not recommended or supported", even for the size in use. The card, the
+  "not recommended or supported", even for the size in use. The sizes
+  offered go up to the length the model was made for, whatever it is
+  (2026-10-05, `koboldContextMost`, the same ceiling as the preset
+  editor's slider): past 131,072 for a model made for 262,144, and no
+  further than 8,192 for a model made for 8,192, which also gets a plain
+  warning (`koboldShortModelWarning`, `auto.warning` on the phone). The
+  size in use is always offered. With "Set layers myself" on (2026-10-05)
+  the card's facts use the real settings (the layer count, the memory lock,
+  the experts a MoE model keeps in system memory, as the launch writes
+  them), its speed line and verdicts come from that fixed layer count
+  (`koboldPlacedLoad`) at the batch the launch tunes, and it says "Set up
+  by hand in Advanced settings." with no layer numbers; a context that does
+  not fit on the card that way is too big, the size in use included, since
+  KoboldCpp does not fit layers set by hand. The phone reads the same facts.
+  The figures do not model the memory lock itself. The card, the
   phone's, and the editor's fit take the graphics backend from the one rule
   the launch uses (`koboldBackendFor`, honouring the switches in Settings),
   and the card assumes the batch the launch runs: the one chosen in
@@ -800,7 +898,21 @@ preset, switches the host to KoboldCpp for that journey only, and walks the
 card. While a preset runs, the settings save refuses a context that differs
 from the stored one (the page sends the whole form with every save, so the
 stored value coming back is not a change) and the Settings slider is locked,
-as on the desktop.
+as on the desktop. On an Intel Mac host, which cannot run KoboldCpp
+(2026-10-05), `/api/backend/status` says `localUnsupported: true`
+(additive), and the phone hides the Local backend, Local model and preset
+cards and says the desktop's sentence instead (`kIntelMacLocalUnsupported`,
+the same words in `web_ui/src/backendOptions.ts`), whatever the backend, as
+the desktop's Backend tab does. Installed models lose their "Use" there,
+and the Side jobs host picker greys out KoboldCpp with the same sentence, as
+the desktop's does. A Mac counts as an Intel one only once `uname -m`
+has answered (`BackendManager.architectureKnown`): before, every Mac was
+"Intel" for the moment after start-up. The first-run setup and the engine
+download wait for the answer, the desktop redraws when it comes, and the
+phone's Models page and host picker keep asking while it says
+`localUnsupported`, so they follow the answer rather than the first one.
+The phone Settings' chat backend picker (`SettingsPage.tsx`) still offers
+KoboldCpp on an Intel Mac: not changed here.
 
 ### Stage 8: the rest (as built)
 
@@ -830,7 +942,11 @@ Stage 8 as built, the rest (2026-10-04):
   `cardN` entries only, since it lists each card again as `renderDN`
   (`amdDrmCards`, shared with the free-memory read). A preset made on a
   machine with more cards never counts more than this one has. No control
-  to make a split.
+  to make a split. A preset's own split (`tensor_split`) is kept as
+  written, except when an edit switches a CUDA preset from every card to
+  one named card (2026-10-05): the split goes with it, since KoboldCpp
+  pins the named card only when there is no split (1.122.1 and 1.117.1
+  alike); `kcppsMergeEdits`.
 
 Stage 8 as built, unload when idle (2026-10-04): a setting, off by
 default, `kobold_idle_unload_minutes` (off, 10, 30 or 60) in
@@ -838,9 +954,10 @@ default, `kobold_idle_unload_minutes` (off, 10, 30 or 60) in
 and a card on the phone's Settings page (`koboldIdleUnloadMinutes` on
 `/api/settings`). The clock is `kobold_service_idle.dart`, a part of
 `KoboldService`: started by a launch, stopped by a stop or dispose, it
-checks every 30 seconds. Every request (the stream and `_runSerialized`,
-which carries tool calls and the system-role probe), a swap, a load and a
-launch reset it. When the engine is the app's own process, its model is
+checks every 30 seconds. KoboldCpp's own idle unload is never used and is
+held off in every staged config (decision 18). Every request (the stream
+and `_runSerialized`, which carries tool calls and the system-role probe),
+a swap, a load and a launch reset it. When the engine is the app's own process, its model is
 loaded, nothing is in flight or queued on the swap lock, the idle time has
 passed and KoboldCpp's own `/api/extra/perf` says idle with an empty queue,
 it sends the same `unload_model` reload a swap's unload sends, inside the

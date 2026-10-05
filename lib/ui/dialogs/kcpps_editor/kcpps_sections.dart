@@ -23,7 +23,8 @@ class KcppsChatLengthSection extends StatelessWidget {
     final d = c.draft;
     final max = c.maxContext;
     final low = d.contextSize < kKoboldContextFloor;
-    final compressible = c.flashAttentionRuns && d.flashAttention;
+    // A compressed size turns flash attention on, where it can run.
+    final compressible = c.flashAttentionRuns;
     final sizes = [
       for (final q in [KvQuant.f16, KvQuant.q8_0, KvQuant.q4_0])
         if (c.cacheMbFor(q) case final mb?)
@@ -50,15 +51,24 @@ class KcppsChatLengthSection extends StatelessWidget {
                     ),
                     child: Slider(
                       key: const ValueKey('kcpps-context'),
-                      min: 2048,
+                      min: kKcppsContextMin.toDouble(),
                       max: max.toDouble(),
-                      divisions: (max - 2048) ~/ 2048,
-                      value: d.contextSize.clamp(2048, max).toDouble(),
+                      divisions: ((max - kKcppsContextMin) ~/ 2048).clamp(
+                        1,
+                        1 << 20,
+                      ),
+                      value: d.contextSize
+                          .clamp(kKcppsContextMin, max)
+                          .toDouble(),
                       semanticFormatterCallback: (v) =>
                           '${koboldTokens(v.round())} tokens',
                       onChanged: (v) => c.edit(
-                        (d) =>
-                            d.copyWith(contextSize: (v / 2048).round() * 2048),
+                        (d) => d.copyWith(
+                          contextSize: ((v / 2048).round() * 2048).clamp(
+                            kKcppsContextMin,
+                            max,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -83,6 +93,20 @@ class KcppsChatLengthSection extends StatelessWidget {
                 weight: low ? FontWeight.w600 : FontWeight.w400,
               ),
             ),
+            if (koboldShortModelWarning(c.info?.contextLength)
+                case final short?) ...[
+              const SizedBox(height: 6),
+              Text(
+                short,
+                key: const ValueKey('kcpps-short-model'),
+                style: keText(
+                  context,
+                  size: 12,
+                  color: AppColors.porchHoneyOf(context),
+                  weight: FontWeight.w600,
+                ),
+              ),
+            ],
           ],
         ),
         Column(
@@ -109,12 +133,31 @@ class KcppsChatLengthSection extends StatelessWidget {
           ],
         ),
         if (swa)
-          KeCheck(
-            value: d.slidingWindow,
-            label:
-                'Sliding window: less chat memory, but every reply reads '
-                'the whole chat again',
-            onChanged: (v) => c.edit((d) => d.copyWith(slidingWindow: v)),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              KeCheck(
+                key: const ValueKey('kcpps-sliding-window'),
+                value: c.swaLeftToKobold ? null : d.slidingWindow,
+                label: c.swaLeftToKobold
+                    ? 'Sliding window: left to KoboldCpp'
+                    : 'Sliding window: less chat memory, but every reply '
+                          'reads the whole chat again',
+                onChanged: (v) => c.edit((d) => d.copyWith(slidingWindow: v)),
+              ),
+              if (c.swaLeftWarns) ...[
+                const SizedBox(height: 6),
+                Text(
+                  kSwaLeftToKoboldNote,
+                  style: keText(
+                    context,
+                    size: 12,
+                    color: AppColors.porchHoneyOf(context),
+                    weight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ],
           )
         else if (c.info != null)
           Text(
@@ -139,6 +182,7 @@ class KcppsSpeedSection extends StatelessWidget {
     final hint = c.view?.batchHint;
     final faint = AppColors.slateFaintOf(context);
     final note = c.flashAttentionNote;
+    final compressed = d.kvQuant.needsFlashAttention;
     return KeSection(
       title: 'Speed',
       children: [
@@ -183,14 +227,20 @@ class KcppsSpeedSection extends StatelessWidget {
           ],
         ),
         KeCheck(
-          value: c.flashAttentionRuns && d.flashAttention,
+          key: const ValueKey('kcpps-flash-attention'),
+          value: c.config.flashAttention,
           label: 'Flash attention (faster, less memory)',
-          onChanged: c.flashAttentionRuns
+          onChanged: c.flashAttentionRuns && !compressed
               ? (v) => c.edit((d) => d.copyWith(flashAttention: v))
               : null,
         ),
         if (note != null)
-          Text(note, style: keText(context, size: 12, color: faint)),
+          Text(note, style: keText(context, size: 12, color: faint))
+        else if (compressed)
+          Text(
+            kKoboldCompressedTurnsFlashOn,
+            style: keText(context, size: 12, color: faint),
+          ),
         if (c.mmqApplies)
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,

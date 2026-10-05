@@ -3,6 +3,9 @@
 
 part of 'kcpps_editor_controller.dart';
 
+/// The least context the editor's slider offers.
+const int kKcppsContextMin = 2048;
+
 /// What the form adds up to on this machine: the load panel, the smart
 /// cache suggestion and the plain words.
 extension KcppsEditorFit on KcppsEditorController {
@@ -42,6 +45,15 @@ extension KcppsEditorFit on KcppsEditorController {
     rocmFailedBefore: storage.backendSettings.rocmFlashAttentionFailed,
   );
 
+  /// The preset says nothing about sliding window and the model has it:
+  /// KoboldCpp's own default stands until the switch is answered.
+  bool get swaLeftToKobold => draft.slidingWindowLeft && hasSlidingWindow;
+
+  /// ... and the file leaves fast forward on, so that default is sliding
+  /// window together with fast forward, which [kSwaLeftToKoboldNote] says.
+  bool get swaLeftWarns =>
+      swaLeftToKobold && kcppsSwaLeftToKobold(draft.swaLeftAsWritten!);
+
   /// The config the form writes, for the panel and the plain words.
   KoboldLaunchConfig get config => draft.toConfig(
     recurrent: recurrent,
@@ -56,10 +68,14 @@ extension KcppsEditorFit on KcppsEditorController {
   /// Blocks plus the output layer: the most layers that go on a card.
   int get layerCount => (info?.nLayers ?? 0) + 1;
 
-  int get maxContext {
-    final made = (info?.contextLength ?? 131072).clamp(16384, 262144);
-    return made > draft.contextSize ? made : draft.contextSize;
-  }
+  /// The slider's top: what the model was made for ([koboldContextMost]),
+  /// or the size in use when that is more, and never below the slider's
+  /// bottom.
+  int get maxContext => [
+    koboldContextMost(info?.contextLength),
+    draft.contextSize,
+    kKcppsContextMin,
+  ].reduce((a, b) => a > b ? a : b);
 
   /// Graphics cards the preset spreads the model over.
   int get cards =>
@@ -150,6 +166,7 @@ extension KcppsEditorFit on KcppsEditorController {
     recurrent: recurrent,
     shortOfMemory: suggestedSlots?.limit == SmartCacheLimit.noRoom,
     machineCards: hardware.hardwareInfo?.cardCount,
+    swaLeftToKobold: swaLeftWarns,
   );
 
   List<String> get modelFacts =>
@@ -203,6 +220,25 @@ extension KcppsEditorFit on KcppsEditorController {
   }
 }
 
+/// A preset's own MoE setting (`moecpu`, experts kept in system memory)
+/// that the form does not hold, such as one beside automatic layers: the
+/// form writes placement as one group, so a placement edit replaces it.
+extension KcppsEditorOwnMoe on KcppsEditorController {
+  /// Saving now drops or replaces the file's own `moecpu`, which the form
+  /// did not hold when the preset was opened. False for a new preset, an
+  /// edit that leaves placement alone, and a `moecpu` the form shows.
+  bool get saveReplacesOwnMoe {
+    final raw = _raw;
+    final opened = _opened;
+    if (raw == null || opened == null) return false;
+    int layers(Object? v) =>
+        (v is num ? v.toInt() : int.tryParse('${v ?? ''}'.trim())) ?? 0;
+    final own = layers(raw['moecpu']);
+    if (own <= 0 || layers(opened['moecpu']) == own) return false;
+    return layers(kcppsMergeEdits(raw, opened, _map())['moecpu']) != own;
+  }
+}
+
 /// Timing MMQ on and off on this card, from the editor.
 extension KcppsEditorMmq on KcppsEditorController {
   /// The chat memory at [q], in MB, wherever it sits.
@@ -234,9 +270,10 @@ extension KcppsEditorMmq on KcppsEditorController {
         _notify();
         // Built as the form is saved, so what the machine has already shown
         // it cannot run (flash attention on a ROCm build that died with it)
-        // is not loaded to be timed.
+        // is not loaded to be timed. Sliding window is answered as the
+        // switch reads, off while it is left to KoboldCpp: timed as before.
         final map = kcppsPresetLaunchMap(
-          _map(draft.copyWith(mmq: on)),
+          _map(draft.copyWith(mmq: on, slidingWindow: draft.slidingWindow)),
           modelPath: draft.modelPath,
           mmprojPath: '',
         );

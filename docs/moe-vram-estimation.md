@@ -4,13 +4,14 @@
 > "How the estimate is worked out now" describes. The preset editor, the
 > Local model card and every launch fit the model with `KoboldFit`, which
 > runs `koboldLoad` (`lib/utils/kobold_placement.dart`) over the model file's
-> own header (`GGUFModelInfo`, `GGUFWeights`).
-> `VramEstimator.estimateFromArchitecture` is kept for the tests that check
-> those figures against real KoboldCpp loads. What the rest of this page
-> calls the active weight ratio (the `activeWeightRatio` getter), the batch
-> suggestion (`suggestBatchSize`) and the fixed overhead are gone; the one
-> piece of the ratio still used is the fallback for a file whose tensor
-> table cannot be read (`gpuWeightRatioWhenOffloadingExperts`).
+> own header (`GGUFModelInfo`, `GGUFWeights`). The tests that check those
+> figures against real KoboldCpp loads call `koboldLoad` itself; the old
+> wrapper they used, `VramEstimator.estimateFromArchitecture`, is gone
+> (2026-10-05). What the rest of this page calls the active weight ratio
+> (the `activeWeightRatio` getter), the batch suggestion
+> (`suggestBatchSize`) and the fixed overhead are gone; the one piece of the
+> ratio still used is the fallback for a file whose tensor table cannot be
+> read (`gpuWeightRatioWhenOffloadingExperts`).
 >
 > **What the estimate is for.** It does not decide how a model is loaded,
 > and never did: KoboldCpp fits the model. The estimate is a guess at how
@@ -230,8 +231,9 @@ Add computed getters:
 
 ### 2. `GGUFParser` (`lib/utils/gguf_parser.dart`)
 
-Add these to the KV whitelist in both `getKvCacheBytesPerToken` and
-`getModelArchitectureInfo`:
+Add these to the KV whitelist in `getModelArchitectureInfo` (this plan also
+named `getKvCacheBytesPerToken`, which went with the old Settings memory
+bar on 2026-10-05):
 - `{arch}.expert_count`
 - `{arch}.expert_used_count`
 - `{arch}.expert_feed_forward_length`

@@ -13,6 +13,8 @@ import 'package:front_porch_ai/ui/dialogs/kcpps_editor/kcpps_editor.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/utils/utils.dart';
 
+import 'kobold_card_note.dart';
+
 /// "Local model": how the model runs here, in plain words, and the one
 /// thing a user sets in auto mode, the context. With a preset in use it
 /// says what the preset does instead.
@@ -151,6 +153,9 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
       b.flashAttentionEnabled,
       b.batchAutomatic,
       b.blasBatchSize,
+      b.gpuLayersManual,
+      b.gpuLayers,
+      b.mlockEnabled,
       b.gpuId,
       b.useCublas,
       b.useVulkan,
@@ -190,6 +195,23 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _header(context, kobold, preset == null ? model : null),
+          // Why it stopped on its own, from the status line, until the next
+          // Start or Stop.
+          if (kobold.phase == KoboldPhase.stopped &&
+              kobold.modelLoadingStatus.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              kobold.modelLoadingStatus,
+              key: const ValueKey('local-model-stopped-why'),
+              style: keText(
+                context,
+                size: 14,
+                height: 1.45,
+                color: AppColors.porchHoneyOf(context),
+                weight: FontWeight.w600,
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           ...preset != null
               ? _presetBody(context)
@@ -267,9 +289,11 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
       null => 'Reading the preset…',
       KcppsBroken(:final reason) =>
         'The preset "$name" cannot be read: $reason',
-      KcppsOk(:final config) => kcppsPlainWords(
+      KcppsOk(:final config, :final raw) => kcppsPlainWords(
         config,
         machineCards: context.read<HardwareService>().hardwareInfo?.cardCount,
+        swaLeftToKobold:
+            kcppsSwaLeftToKobold(raw) && (_info?.hasSlidingWindow ?? false),
       ),
     };
     return [
@@ -307,6 +331,16 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
     return [
       for (final line in facts.lines) ...[
         _line(context, line),
+        const SizedBox(height: 10),
+      ],
+      // The model was made for less chat than the app needs.
+      if (facts.warning case final warning?) ...[
+        KoboldCardNote(
+          key: const ValueKey('local-model-short-model'),
+          tint: AppColors.porchHoneyOf(context),
+          warn: true,
+          child: Text(warning, style: keText(context, size: 14, height: 1.45)),
+        ),
         const SizedBox(height: 10),
       ],
       const SizedBox(height: 6),
@@ -383,41 +417,21 @@ class _KoboldStatusCardState extends State<KoboldStatusCard> {
           ),
           if (words != null) ...[
             const SizedBox(height: 8),
-            Container(
+            KoboldCardNote(
               key: const ValueKey('local-model-verdict'),
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              decoration: BoxDecoration(
-                color: tint.withValues(alpha: ok ? 0.12 : 0.14),
-                borderRadius: BorderRadius.circular(10),
-                border: ok
-                    ? null
-                    : Border.all(color: tint.withValues(alpha: 0.5)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: ok
-                        ? KeMark(tint, round: true, size: 12)
-                        : Icon(Icons.warning_rounded, color: tint, size: 18),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text.rich(
-                      TextSpan(
-                        children: [
-                          TextSpan(
-                            text: '${words.title} ',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          TextSpan(text: words.text),
-                        ],
-                      ),
-                      style: keText(context, size: 14, height: 1.45),
+              tint: tint,
+              warn: !ok,
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '${words.title} ',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
-                  ),
-                ],
+                    TextSpan(text: words.text),
+                  ],
+                ),
+                style: keText(context, size: 14, height: 1.45),
               ),
             ),
           ],

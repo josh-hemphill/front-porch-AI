@@ -263,6 +263,12 @@ bool kcppsHasSwaOn(Map<String, dynamic> map) =>
 bool kcppsLeavesSwaToKobold(Map<String, dynamic> map) =>
     !map.containsKey('noswa') && !map.containsKey('useswa');
 
+/// True when a config leaves sliding window to KoboldCpp and does not turn
+/// fast forward off. For a model that has sliding window, KoboldCpp's default
+/// then switches it on together with fast forward ([kSwaLeftToKoboldNote]).
+bool kcppsSwaLeftToKobold(Map<String, dynamic> map) =>
+    kcppsLeavesSwaToKobold(map) && map['nofastforward'] != true;
+
 /// Said when a preset leaves sliding window to KoboldCpp, with fast forward
 /// on, for a model that has it. Nothing is changed; the user is told.
 const String kSwaLeftToKoboldNote =
@@ -394,7 +400,22 @@ Map<String, dynamic> kcppsMergeEdits(
       out.remove(k);
     }
   }
+  // A split spreads the model over several cards. When an edit names one
+  // CUDA card where the preset used them all, the split goes too: KoboldCpp
+  // pins the named card only when there is no split.
+  if (_namesCudaCard(before) == false && _namesCudaCard(after) == true) {
+    out.remove('tensor_split');
+  }
   return out;
+}
+
+/// Whether [map]'s CUDA list names a card. KoboldCpp looks for the card as
+/// text ("0"); a list without one spreads the model over every card. Null
+/// when there is no CUDA list.
+bool? _namesCudaCard(Map<String, dynamic> map) {
+  final cuda = map['usecuda'] ?? map['usecublas'] ?? map['usehipblas'];
+  if (cuda is! List) return null;
+  return cuda.any((w) => w is String && int.tryParse(w.trim()) != null);
 }
 
 int? _asInt(Object? v) => switch (v) {
