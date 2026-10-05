@@ -294,6 +294,10 @@ Decisions already made by the maintainer:
     engine dies on the first reply, the app restarts it with flash
     attention off and remembers that for the machine. The app had forced
     it off for every ROCm launch since before the rewrite. Built in Stage 5.
+    "The first reply" (2026-10-05): no reply has finished since that
+    KoboldCpp process started, that is no "CtxLimit:" line from it yet. A
+    crash after one only stops, with its reason; nothing is marked or
+    switched off.
 11. Gemma 4 on Vulkan runs with flash attention off (2026-10-04): with it on,
     KoboldCpp 1.122.1 dies on the first prompt. Built in Stage 5, lifted
     once a fixed KoboldCpp is confirmed on a real card.
@@ -301,7 +305,9 @@ Decisions already made by the maintainer:
     internet is refused, not rewritten (2026-10-04). A preset still launches
     exactly as written. The exception is `mcpfile`, `onready`, `remotetunnel`,
     `hordekey`, `preloadstory` and `baseconfig` when set (any value Python
-    reads as true: the text "false" counts) and `rpcmode` when it is `host`.
+    reads as true: the text "false" counts), `rpcmode` when it is `host`, and
+    `hordeconfig`, the old name of the Horde settings, when it holds a Horde
+    key (KoboldCpp takes `hordekey` from it on every load).
     KoboldCpp's own exports carry all of them switched off and pass. The
     reason is said in plain words, naming the settings, wherever a preset can
     reach the engine: Start, a live reload of chat, a helper or story swap,
@@ -400,6 +406,95 @@ Decisions already made by the maintainer:
     engine, `test/live/kobold_launch_live_test.dart` (the engine reports
     `adminunloadtimeout=0` for a preset that asked for 300). The preset file
     is never edited.
+19. A preset an older KoboldCpp saved is refused until it is updated
+    (2026-10-05; "Don't even let it load the old style kcpps from the
+    outset"). KoboldCpp turns an old setting name into the current setting
+    when it starts, and only when the file lacks the current name
+    (`convert_invalid_args`). A live reload first fills in every setting the
+    file leaves out from the engine that is running, so the old name is not
+    turned into anything and its setting is dropped without a word: the
+    preset runs one way after Start and another after the first swap. So a
+    preset with an old name and not the current one is refused wherever a
+    preset reaches the engine, in the same places and the same way as
+    decision 12 (`kcppsPresetProblem` is the one gate): Start, a live reload
+    of chat, a helper or story swap, the editor's MMQ timing, and the
+    phone's pick and model switch. The words say the preset was saved by an
+    older KoboldCpp and has to be updated once, name the old settings, and
+    say what to do: open it from "KoboldCpp presets…" and press Save.
+    The list is every old name in 1.122.1's `convert_invalid_args`, refused
+    when KoboldCpp would act on it (its own test: `usecublas`,
+    `blasbatchsize`, `noblas`, `sdconfig` and `hordeconfig` when on; the
+    rest whatever they hold): `usecublas` (`usecuda`), `blasbatchsize`
+    (`batchsize`), `flashattention` and `useswa` (inverted, `noflashattention`
+    and `noswa`), `noblas` (`usecpu`), the old combined `sdconfig` and
+    `hordeconfig`, and the image settings `sdnotile`, `sdclipl`, `sdclipg`,
+    `sdgendefaults`, `sdclipgpu` (a null `sdclipdevice` counts as missing)
+    and `sdvaecpu`. Not `sdt5xxl`: it became `sdllm` only in 1.122.1, and
+    1.117.1 still writes it alone as the setting itself. Save writes the
+    current names whether or not anything was edited (`kcppsWithCurrentNames`,
+    applied by `kcppsMergeEdits`), each with what KoboldCpp gives it at
+    Start; the card and the batch stay under both spellings, as the writer
+    writes them. A file that has the current name too is not refused:
+    everything the app writes, and KoboldCpp's own export (the 1.117.1 export
+    in `test/fixtures/kcpps/` passes), carry both. `hordeconfig` with a Horde
+    key in it (a list of more than four) is refused as risky under decision
+    12, even beside the current names, since KoboldCpp takes the key from it
+    on every load. There is no one-tap "Update" beside the refusal: the
+    refusal is shown by the editor, the desktop's Local model card and the
+    phone's Models page, which this change leaves alone, so the editor's
+    Save is the route.
+20. The phone's Restart and the character creator's model change check
+    before they stop anything (2026-10-05), as the desktop's Start and
+    Restart buttons do: `koboldLaunchProblem` first, and on a problem (a
+    model file that has gone, a preset the app will not start from) the
+    running engine is left alone and the reason is said where each says how
+    a start went (`refused` beside the phone's buttons, the creator's status
+    line). They used to stop the working engine and then have the start
+    refused, leaving chat with no engine. The start's own stop order is
+    unchanged.
+21. Old wrong links from a model to a preset are cleaned up once
+    (2026-10-05, "Clean up once"; Phase 9 MF3 part 3c). Before Phase 9 a
+    preset was kept under whichever model a screen showed, so a preset that
+    loads model B could sit under model A and choosing A started B. When
+    the app starts, once (`repairKoboldPresetLinks`, run by the storage
+    service after the settings load), a link is removed only when its
+    preset names a different model and that model's file is on this
+    computer; each removal is logged in plain words. A right link, a preset
+    that names no model, a preset whose file is gone and a preset naming a
+    model that is not here are kept, and nothing else is touched. That it
+    ran is recorded (`kobold_preset_links_repaired`, beta-aware).
+22. One rule for who sets the context (2026-10-05): the chosen preset does
+    while KoboldCpp is the backend and a preset is chosen
+    (`koboldPresetOwnsContext`, `BackendSettings.presetOwnsContext`); on
+    another backend a preset left chosen is not read and the context is the
+    user's. Every place that sets the context follows it and says why in
+    the same words (`kPresetOwnsContext`), on the page rather than only in a
+    tooltip (`PresetContextLock`): Settings → Advanced and → Generation, the
+    Model Settings dialog, the creator's setup step, a chat's own settings,
+    and on the phone the Settings save, the Local model card's context
+    route and the Settings page (`presetOwnsContext` in `web_ui`). The
+    Generation tab and the creator had no lock; Advanced, the dialog and a
+    chat's settings locked on any backend. The Advanced tab's context card
+    holds the cache setting too: a preset is launched as written and the
+    app's cache setting is never read for it, so that card is locked whole
+    and says both (`kPresetOwnsContextAndCache`). The phone has no cache
+    setting.
+23. The user's own chat length comes back (2026-10-05). Choosing a preset
+    still copies its context in as the context in use (the prompt budget,
+    the cards and the phone read that one number), but the user's own is
+    kept when a preset is first chosen (`context_size_before_preset`,
+    beta-aware) and comes back when the preset is cleared or a model with
+    no preset of its own is picked; going from one preset to another keeps
+    it, and so does a restart. Every pick on both surfaces goes through
+    `setActiveKcppsPath` (`ChatContextFields.followPresetContext`), and so
+    does a launch that drops a preset whose file is gone or that the app
+    wrote itself. A kept number comes back exactly, under 16,384 too (it is
+    the user's, and the below-16K warning says what that means). With none
+    kept (a preset chosen before the app kept it, an upgrade), clearing
+    keeps the number in use but never leaves it under 16,384. A different
+    number the user sets while a preset is chosen (possible only on another
+    backend, decision 22) becomes their own; the unchanged context the phone
+    sends back with every save does not.
 
 ## Design
 
@@ -706,9 +801,14 @@ started: after an exit, anything that answers on the port (a leftover
 KoboldCpp, another program) no longer marks the dead engine ready, which
 had wiped the sentence; stop and exit handling are unchanged. Proven on a
 real engine: killed mid-reply, the app says it stopped while answering.
-When the ROCm build dies mid-answer with flash attention on, a per-machine
-flag is set and the engine started again once
-without it (out of memory does not trigger it). `koboldFlashAttentionRuns`
+When the ROCm build dies on its first reply with
+flash attention on (mid-answer, with no reply finished since that process
+started: a per-process flag set by its first "CtxLimit:" line, read as
+whole lines so one that arrives in two reads still counts, as decision 10
+says; built 2026-10-05), a per-machine flag is set, Flash Attention is
+switched off in Settings and the engine started again once without it (out
+of memory does not trigger it); a later crash only stops, with its reason.
+`koboldFlashAttentionRuns`
 is the one rule for when flash attention is written (Gemma 4 on Vulkan:
 off; ROCm: on unless flagged); where it is off, a compressed cache falls
 back to full size and the launch log says why. An engine whose recorded
