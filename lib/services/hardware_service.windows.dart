@@ -25,6 +25,8 @@ extension HardwareServiceWindows on HardwareService {
   Future<void> _detectWindows() async {
     String gpuName = 'Unknown GPU';
     int vramMb = 0;
+    var cardCount = 1;
+    int? smallestCardMb;
     String vendor = 'Unknown';
 
     try {
@@ -50,6 +52,8 @@ extension HardwareServiceWindows on HardwareService {
           gpuName = parsed.name;
         }
         if (parsed.vramMb > 0) vramMb = parsed.vramMb;
+        if (parsed.cards > 0) cardCount = parsed.cards;
+        smallestCardMb = parsed.smallestMb;
         debugPrint('[Hardware] nvidia-smi (Method 0): $gpuName, ${vramMb}MB');
       }
 
@@ -226,6 +230,8 @@ extension HardwareServiceWindows on HardwareService {
             gpuName = parsed.name;
           }
           if (vramMb == 0 && parsed.vramMb > 0) vramMb = parsed.vramMb;
+          if (parsed.cards > 0) cardCount = parsed.cards;
+          smallestCardMb = parsed.smallestMb;
           debugPrint('[Hardware] nvidia-smi (Method 3): $gpuName, ${vramMb}MB');
         }
       }
@@ -351,6 +357,8 @@ extension HardwareServiceWindows on HardwareService {
       hasRocm: _hasRocm,
       hasMetal: false,
       isSharedMemory: isSharedMemory,
+      cardCount: cardCount,
+      smallestCardMb: smallestCardMb,
     );
   }
 }

@@ -58,6 +58,7 @@ extension KoboldServiceAdmin on KoboldService {
     _modelReady = true;
     _modelJustLoaded = true;
     _stopReadinessProbe();
+    _idleTouch();
     // Resolve the probe key and arm the measurement in the idle window right
     // after load — the only place it is cheap. See [KoboldSystemRole].
     //
@@ -69,6 +70,7 @@ extension KoboldServiceAdmin on KoboldService {
       baseUrl: _baseUrl,
       backendName: backendName,
       storage: _storageService,
+      modelPath: requestModel,
       runExclusive: _runSerialized,
       log: _addLog,
     );
@@ -92,11 +94,18 @@ extension KoboldServiceAdmin on KoboldService {
 
   /// A reload was accepted: the old model may answer for a moment longer,
   /// so nothing is ready until the new one is. [status] says what is
-  /// loading; the unload wording would be wrong here.
-  void markModelLoading(String status) => _clearReady(status);
+  /// loading; the unload wording would be wrong here. A model unloaded for
+  /// being idle is not loaded back after it: this load replaces it.
+  void markModelLoading(String status) {
+    _idle
+      ..unloaded = null
+      ..failed = null;
+    _clearReady(status);
+  }
 
   void _clearReady(String status) {
     _stopReadinessProbe();
+    _idleTouch();
     _modelReady = false;
     _loadedModelPath = null;
     _residentKey = null;
@@ -125,8 +134,23 @@ extension KoboldServiceAdmin on KoboldService {
   /// answer every swap asks for, so a swap that is not needed is not sent.
   bool isResident(String key) => _modelReady && _residentKey == key;
 
-  /// A swap finished loading the config with this content.
-  void noteResident(String key) => _residentKey = key;
+  /// A swap finished loading the config with this content ('' when what
+  /// loaded is not known). Either way something is loaded again.
+  void noteResident(String key) {
+    _residentKey = key;
+    _idleTouch();
+    // Loaded again after an idle unload: every status shows it now.
+    if (_idle.unloaded != null) {
+      _idle.unloaded = null;
+      notify();
+    }
+  }
+
+  /// The model a request goes to: the one loaded (a helper or story model
+  /// after a swap), else chat's. Its template decides the thinking cap and
+  /// whether system messages are folded into the user turn.
+  String? get requestModel =>
+      _loadedModelPath ?? _storageService.backendSettings.lastUsedModelPath;
 
   /// A reload did not load what it asked for: the pair noted for it is not
   /// what runs.
@@ -263,6 +287,9 @@ extension KoboldServiceAdmin on KoboldService {
   /// Parse KoboldCPP process output to determine model loading status.
   /// Kept as a secondary fast-path alongside the periodic readiness probe.
   void _parseLoadingStatus(String data) {
+    // Unloaded for being idle, the engine's empty model process prints
+    // "Please connect…" too; and a load back owns the status line.
+    if (_idle.unloaded != null) return;
     // Model is ready when server starts listening (fast-path).
     if (_readyPattern.hasMatch(data)) {
       _markModelReady();
@@ -303,11 +330,6 @@ extension KoboldServiceAdmin on KoboldService {
     } catch (_) {}
   }
 
-  /// Regex matching KoboldCPP per-token / per-batch progress messages.
-  /// These are purely informational counters that fire for every token and
-
-  bool get isProcessAlive => _process != null && _isRunning;
-
   /// Poll KoboldCPP's /api/extra/perf endpoint for real-time performance data.
   /// Returns a map with fields like last_process_speed, last_eval_speed,
   /// last_input_count, idle (0=busy, 1=idle), queue, etc.
@@ -332,9 +354,13 @@ extension KoboldServiceAdmin on KoboldService {
 
   /// Count tokens using the loaded model's actual tokenizer.
   /// Falls back to chars/4 estimate if the endpoint is unavailable.
+  /// A model unloaded for being idle is loaded back first: with no model,
+  /// KoboldCpp's tokenizer has nothing to count with, and callers keep the
+  /// answer.
   Future<int> countTokens(String text) async {
     if (text.isEmpty) return 0;
     try {
+      await _idleRequestStart();
       final uri = Uri.parse('$_baseUrl/api/extra/tokencount');
       final client = http.Client();
       try {
@@ -352,8 +378,10 @@ extension KoboldServiceAdmin on KoboldService {
       } finally {
         client.close();
       }
-    } catch (_) {
-      // Endpoint unavailable — fall back to estimate
+    } on Object catch (e) {
+      debugPrint('[Kobold] token count falls back to an estimate: $e');
+    } finally {
+      _idleRequestEnd();
     }
     return (text.length / 4).ceil();
   }

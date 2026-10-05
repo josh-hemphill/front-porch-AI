@@ -257,6 +257,7 @@ extension KoboldServiceProcess on KoboldService {
           : _storageService.backendSettings.kcppsModelPath;
       _loadedKcppsPath = kcppsPath;
       _residentKey = staged?.key;
+      _idleRestart();
       _loadGeneration++;
       _followLaunchContext(_loadGeneration);
       _addLog('Starting Koboldcpp...');
@@ -308,6 +309,8 @@ extension KoboldServiceProcess on KoboldService {
         _process = null;
         _residentKey = null;
         _loadGeneration++;
+        _idleStop(); // as a stop does: nothing to unload or load back
+
         // Exit 2 is KoboldCpp's "Cannot find text model file" path. The
         // pre-flight above catches most causes, but KoboldCpp resolves the
         // path through Python and can still reject a file we read fine, so
@@ -390,6 +393,7 @@ extension KoboldServiceProcess on KoboldService {
     // server that no longer exists, and it is holding this class's single
     // request slot while it waits. See [KoboldSystemRole.forget].
     _systemRole.forget();
+    _idleStop();
     // Captured, because the exitCode listener installed by [startKobold] nulls
     // `_process` the moment the process dies — which can happen part-way
     // through the kill ladder below.

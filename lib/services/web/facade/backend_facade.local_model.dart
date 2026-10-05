@@ -27,7 +27,10 @@ extension BackendFacadeLocalModel on BackendFacade {
         'path': active,
         'name': kcppsPresetName(active),
         'words': switch (read) {
-          KcppsOk(:final config) => kcppsPlainWords(config),
+          KcppsOk(:final config) => kcppsPlainWords(
+            config,
+            machineCards: _hardware?.hardwareInfo?.cardCount,
+          ),
           KcppsBroken(:final reason) => 'This preset cannot be read: $reason',
         },
       };
@@ -48,8 +51,7 @@ extension BackendFacadeLocalModel on BackendFacade {
       'model': model,
       'modelName': model.isEmpty ? null : koboldModelName(model),
       'running': k.isRunning,
-      'ready': k.isReady,
-      'starting': k.isStarting,
+      'phase': k.phase.name,
       'preset': preset,
       'auto': auto,
       'presets': [

@@ -85,6 +85,7 @@ class KoboldLaunchConfig {
     this.flashAttention = true,
     this.backend = KoboldGpuBackend.none,
     this.gpuId,
+    this.moreGpuIds = const [],
     this.contextMode = ContextManagementMode.fastForwardSmartCache,
     this.smartCacheSlots = 0,
     this.jinja = true,
@@ -95,6 +96,8 @@ class KoboldLaunchConfig {
     this.forceFit,
     this.mmq,
     this.draftModelPath = '',
+    this.draftAmount,
+    this.useMtp = false,
     this.contextShift = true,
     this.cudaOptions = const [],
     this.extras = const {},
@@ -123,6 +126,10 @@ class KoboldLaunchConfig {
 
   /// Which card. Null lets KoboldCpp choose.
   final int? gpuId;
+
+  /// Vulkan: the cards after [gpuId] a preset spreads the model over, kept
+  /// as written (the editor has no control for them).
+  final List<int> moreGpuIds;
   final ContextManagementMode contextMode;
 
   /// Chat snapshots kept in system memory. Only used with fast forward;
@@ -153,6 +160,13 @@ class KoboldLaunchConfig {
   /// A small model that guesses ahead so the main one writes faster.
   final String draftModelPath;
 
+  /// Tokens drafted each step, by the draft model or the built-in draft
+  /// heads. Null leaves it to KoboldCpp (4).
+  final int? draftAmount;
+
+  /// Draft with the model's own built-in draft heads (`usemtp`).
+  final bool useMtp;
+
   /// Context shift, with fast forward. Off for a model with recurrent
   /// layers, where it does nothing but make KoboldCpp add smart cache slots
   /// of its own.
@@ -174,6 +188,7 @@ class KoboldLaunchConfig {
     bool? flashAttention,
     KoboldGpuBackend? backend,
     int? gpuId,
+    List<int>? moreGpuIds,
     ContextManagementMode? contextMode,
     int? smartCacheSlots,
     bool? jinja,
@@ -185,6 +200,8 @@ class KoboldLaunchConfig {
     bool? forceFit,
     bool? mmq,
     String? draftModelPath,
+    int? draftAmount,
+    bool? useMtp,
     bool? contextShift,
     bool? mmprojOnCpu,
   }) => KoboldLaunchConfig(
@@ -200,6 +217,7 @@ class KoboldLaunchConfig {
     flashAttention: flashAttention ?? this.flashAttention,
     backend: backend ?? this.backend,
     gpuId: gpuId ?? this.gpuId,
+    moreGpuIds: moreGpuIds ?? this.moreGpuIds,
     contextMode: contextMode ?? this.contextMode,
     smartCacheSlots: smartCacheSlots ?? this.smartCacheSlots,
     jinja: jinja ?? this.jinja,
@@ -210,6 +228,8 @@ class KoboldLaunchConfig {
     forceFit: forceFit ?? this.forceFit,
     mmq: mmq ?? this.mmq,
     draftModelPath: draftModelPath ?? this.draftModelPath,
+    draftAmount: draftAmount ?? this.draftAmount,
+    useMtp: useMtp ?? this.useMtp,
     contextShift: contextShift ?? this.contextShift,
     cudaOptions: cudaOptions,
     extras: extras,

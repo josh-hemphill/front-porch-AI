@@ -27,9 +27,12 @@ class KcppsDraft {
     this.mmprojPath = '',
     this.mmprojOnCpu = false,
     this.draftModelPath = '',
+    this.draftAmount,
+    this.useMtp = false,
     this.threads,
     this.backend = KoboldGpuBackend.none,
     this.gpuId,
+    this.moreGpuIds = const [],
     this.cudaOptions = const [],
     this.extras = const {},
   });
@@ -59,9 +62,18 @@ class KcppsDraft {
   final String mmprojPath;
   final bool mmprojOnCpu;
   final String draftModelPath;
+
+  /// Tokens drafted each step; null leaves it to KoboldCpp (4).
+  final int? draftAmount;
+
+  /// Draft with the model's own built-in draft heads.
+  final bool useMtp;
   final int? threads;
   final KoboldGpuBackend backend;
   final int? gpuId;
+
+  /// Vulkan cards after [gpuId], kept as the preset has them.
+  final List<int> moreGpuIds;
   final List<String> cudaOptions;
   final Map<String, dynamic> extras;
 
@@ -97,9 +109,12 @@ class KcppsDraft {
       mmprojPath: c.mmprojPath,
       mmprojOnCpu: c.mmprojOnCpu,
       draftModelPath: c.draftModelPath,
+      draftAmount: c.draftAmount,
+      useMtp: c.useMtp,
       threads: c.threads,
       backend: c.backend,
       gpuId: c.gpuId,
+      moreGpuIds: c.moreGpuIds,
       cudaOptions: c.cudaOptions,
       extras: c.extras,
     );
@@ -138,9 +153,15 @@ class KcppsDraft {
       moeCpuLayers: manual ? moeCpuLayers : 0,
       mmq: mmq,
       draftModelPath: draftModelPath,
+      draftAmount: draftAmount,
+      useMtp: useMtp,
       cudaOptions: cudaOptions,
       extras: extras,
-    ).copyWith(mmprojOnCpu: mmprojOnCpu, threads: threads);
+    ).copyWith(
+      mmprojOnCpu: mmprojOnCpu,
+      threads: threads,
+      moreGpuIds: moreGpuIds,
+    );
   }
 
   /// The `.kcpps` map, ready to save.
@@ -180,6 +201,9 @@ class KcppsDraft {
     String? mmprojPath,
     bool? mmprojOnCpu,
     String? draftModelPath,
+    int? draftAmount,
+    bool clearDraftAmount = false,
+    bool? useMtp,
     KoboldGpuBackend? backend,
     int? gpuId,
   }) => KcppsDraft(
@@ -199,9 +223,12 @@ class KcppsDraft {
     mmprojPath: mmprojPath ?? this.mmprojPath,
     mmprojOnCpu: mmprojOnCpu ?? this.mmprojOnCpu,
     draftModelPath: draftModelPath ?? this.draftModelPath,
+    draftAmount: clearDraftAmount ? null : draftAmount ?? this.draftAmount,
+    useMtp: useMtp ?? this.useMtp,
     threads: threads,
     backend: backend ?? this.backend,
     gpuId: gpuId ?? this.gpuId,
+    moreGpuIds: moreGpuIds,
     cudaOptions: cudaOptions,
     extras: extras,
   );
