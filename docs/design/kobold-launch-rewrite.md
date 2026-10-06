@@ -503,13 +503,19 @@ Decisions already made by the maintainer:
     is back; the test's own prompts and the system-role check of its model
     go through. Details under "Stage 9", "The speed test holds the app's
     requests".
-25. A chat is kept while keeping it costs less than reading it again
-    (2026-10-05). A fixed limit on how long a save may take compared it with
-    nothing: on the AMD card through Vulkan the first save of a short chat
-    took 4.4 s and the keeper never helped, while a long chat takes far
-    longer than that to read again. Each save now weighs the save and the
-    load before the next reply against reading the whole chat again at the
-    speed KoboldCpp itself prints after every request; a chat let go is
+25. A chat is kept while the wait keeping it costs the user is less than
+    reading it again (2026-10-05). A fixed limit on how long a save may take
+    compared it with nothing: on the AMD card through Vulkan the first save
+    of a short chat took 4.4 s and the keeper never helped, while a long chat
+    takes far longer than that to read again. The whole save was weighed
+    next, until the maintainer ruled the same day to count only the wait
+    felt: a save runs right after the reply appears, while the user reads
+    and types, so it costs nothing when it is done before the user's next
+    turn starts, and only what is left of it when it is still running then.
+    The load back before a reply always counts. Each save weighs that cost
+    (the chat's last three saves and its last load) against reading the
+    whole chat again at the speed KoboldCpp itself prints after every
+    request; a chat with no wait measured yet is kept, a chat let go is
     tried again as it grows, and a first save into a new slot decides
     nothing. No setting and nothing on screen: one line in the engine log.
     Details under "Stage 9", the keeper.
@@ -1254,26 +1260,49 @@ each load of the model (`KoboldService.loadGeneration`).
   idle time runs from the end of the save, not from the end of the reply. A
   save the engine cannot make steps the keeper aside and clears the slots to
   give the memory back.
-- Each save weighs whether the chat is worth keeping (maintainer's ruling
+- Each save weighs whether the chat is worth keeping (maintainer's rulings
   after the AMD card's run, 2026-10-05: a fixed time limit compared the save
   with nothing, and a 65K-token chat takes far longer to read again than a
-  few seconds of copy). What keeping costs: the save after each reply, which
-  holds the line (a quick next message or the turn's passes wait on it), and
-  the load before the next reply (taken as long as the save until one is
-  measured; loads have run at 0.3 to 0.4 of a save). What it spares: reading
-  the whole chat again, its saved tokens at the speed KoboldCpp itself
-  prints after every request ("Processed:N in Xs", read by
+  few seconds of copy; then "count only the wait felt"). What keeping costs
+  is the wait the user feels (`KoboldFeltWait`). The save after a reply holds
+  the line from the reply's end, while the user reads and types: a save done
+  before the user's next turn starts cost nothing, and one still running
+  then held that turn up by what was left of it, whichever of the turn's
+  requests was first in line (a Realism or Needs check before the reply, or
+  the reply itself). The turn before's own passes (the clock, journal,
+  growth and the rest) that wait behind the save are not the user's wait and
+  do not count. The service is told when a turn starts
+  (`KoboldService.noteTurnStart`); only the first start during a save
+  counts. The chat service tells it at the top of a send, a regenerate (a
+  swipe past the last alternate is one) and an impersonate, before they wait
+  for anything, and as each reply it generates starts, which covers
+  Continue, a group's next speaker and a Scene Guest. A slash command the
+  app answers itself (an expression, the turn order, away mode) waits for
+  nothing and is not a turn; one it does not know, sent on as a message, is
+  counted from its reply's start. Continue, and a regenerate of the host's
+  reply under a Scene Guest's, first wait for the turn before to settle, so
+  one tapped while that turn's passes still wait behind a save is counted
+  from later, after the save: that wait is missed, which leans to keeping
+  the chat. Counting Continue at the tap is one more line in
+  `continueGeneration`, left out so that `chat_service_message_ops.dart`
+  does not grow. The load back before a reply always counts. A chat's cost
+  is the
+  mean of its last three saves' waits and its last load. What it spares:
+  reading the whole chat again, its saved tokens at the speed KoboldCpp
+  itself prints after every request ("Processed:N in Xs", read by
   `parseKoboldSpeed`; `KoboldReadSpeed` keeps the biggest reads of this load
   of the model, and only those at least half as big as the biggest count,
   since reading slows as a prompt grows). The chat is kept while keeping
   costs less; otherwise it is let go: no load before its replies, no save
   after them. A chat grows, and reading it again with it, so a save is tried
   again after 2, then 4, 8 and so on more of its replies, and the same
-  weighing keeps it once it pays. Until the engine has read something big
-  enough to time on this load, a chat is kept (a chat's first reply is a
-  full read, so a speed is there before most decisions). A first save into
-  a slot never written on this load also makes that slot's buffer, so it
-  decides nothing: the chat's next save does. The other chats are still
+  weighing keeps it once it pays. A chat is kept while no wait of its saves
+  is known, and until the engine has read something big enough to time on
+  this load (a chat's first reply is a full read, so a speed is there before
+  most decisions). A first save into a slot never written on this load also
+  makes that slot's buffer, so its wait says nothing: the chat's next save
+  does. A new load of the model forgets every wait, and a deleted chat its
+  own. The other chats are still
   kept, but for the least recently used one when every slot was in use: the
   save took its slot and wrote over its cache (as for a delete during a
   save, below). A save that never answers in the call's 45 seconds lets
@@ -1372,15 +1401,33 @@ call wait too, the system-role check of the test's model goes through, Stop
 takes a held reply out without stopping anything, and an abort meanwhile
 leaves the test's prompt alone), `generation_status_held_test` and
 `ChatMessageList.genStatus.test.tsx` (the words on the desktop and the
-phone), `kobold_slot_keeper_cost_test` (the weighing: the same slow save
-lets a short chat go and keeps a long one, the load counts with the save, a
-slow first save into a new slot decides nothing, nothing measured keeps the
-chat, a chat let go is tried again after 2 and 4 more replies and kept once
-it has grown, and with every slot in use it takes the oldest chat with it),
+phone), `kobold_slot_keeper_cost_test` (the weighing, with the next turn
+starting as each reply ends so all of each save is waited for: the same slow
+save lets a short chat go and keeps a long one, the load counts with the
+save, a slow first save into a new slot decides nothing, nothing measured
+keeps the chat, a chat let go is tried again after 2 and 4 more replies and
+kept once it has grown, and with every slot in use it takes the oldest chat
+with it), `kobold_felt_wait_test` (the wait felt, on a clock the test moves:
+a save done before the next turn costs nothing, a turn during one waits for
+what is left of it and only the first start counts, the first save into a
+slot and a save not made say nothing, the last three waits average and the
+last load adds to them, a delete and a new load forget),
+`kobold_slot_keeper_felt_test` (through the real service: a slow save done
+before the next message keeps the chat, one still running counts only what
+is left of it, a check of the turn first in line waits for it, and the turn
+before's passes that wait behind it are not counted),
+`chat_turn_start_felt_test` (the chat service's turn starts, through the
+real service: with Realism on, a send and a regenerate started while the
+save runs, whose checks go first, and with the clock off a Continue and an
+impersonate, are each held up by the save and let a short chat go; a
+message sent once the save is done, or a slash command the app answers
+itself while it runs, keeps it; each call was taken out once to see its
+test fail),
 `kobold_read_speed_test` (the speed from KoboldCpp's line: only reads big
 enough, the biggest lead, a new load starts over),
-`kobold_slot_keeper_slow_save_test` (through the real service the engine's
-own speed line decides, and nothing is remembered; a save that runs out of
+`kobold_slot_keeper_slow_save_test` (through the real service, with the next
+turn starting as each reply ends, the engine's own speed line decides, and
+nothing is remembered; a save that runs out of
 time, over real HTTP, lets every chat go for the load, also without being
 remembered), `kobold_keeper_idle_test` (the idle
 clock counts from the end of a slow save), `kobold_wire_test` (the abort
@@ -1412,6 +1459,7 @@ it keeps is a table of saved caches by session id.
 | Delete, edit history | nothing is recorded per message; KoboldCpp compares the tokens and reads from the first one that changed | n/a |
 | Delete a chat (app or phone), a character with its chats, a group, the Settings cleanup of chats nobody owns | the keeper lets go of each chat's saved cache; its slot is the next one used | yes (a test each) |
 | A chat that costs more to keep than to read again, after any reply above | every reply path ends in the same save (`chatEnd`), so the same weighing lets it go whichever path it came from, and tries it again as it grows; not a failure | yes (tests) |
+| The next turn starts while that save runs: send, regenerate (and a swipe past the last alternate), impersonate, Continue, a group's next speaker, a Scene Guest | the chat service tells the keeper at the top of send, regenerate and impersonate, and as each reply it generates starts; what is left of the save is the chat's wait. A slash command the app answers itself is not a turn. Continue waits for the turn before to settle first, so it is counted only from its reply's start | yes (a test each for send, regenerate, Continue, impersonate and a slash command; group speakers and guests start on Continue's line) |
 | Scene Guest turn | the guest's line is a reply like any other (`paramsOf`), named with the host's chat | yes (a test) |
 | Voice call message | the same send path in call mode: a reply naming the chat | yes (a test) |
 | Any of the above while the editor's speed test runs (desktop or phone) | the reply and the turn's judges, passes and tool calls wait in front of the line until chat's model is back, then go as they would have; Stop takes a held reply out | yes (tests) |
@@ -1424,7 +1472,11 @@ lane (`clerkSideLaneParams`) and carry no chat, and `generateWithTools`, which
 would ignore one anyway (a test on each side); `paramsOf` against impersonate,
 Scene Guest and the voice call (all name the chat; a test each); 1:1 against
 group (one session id each; a test); desktop against web (no setting, no
-screen; the words are built in Dart).
+screen; the words are built in Dart); the turn starts, send against
+regenerate, impersonate and Continue (a test each), and a group's next
+speaker and a Scene Guest against Continue (the same line, at the start of
+`_generateResponse`). The web and phone call the same service methods, so
+their turns start in the same places.
 
 **Live** (`test/live/kobold_slot_keeper_live_test.dart`): ten chat turns,
 about 1,500 tokens of rules and 200 more of history each turn plus a changing
@@ -1432,10 +1484,11 @@ tail of 300, three helpers of 600 to 1,200 tokens after each turn (two
 streams and a tool call), then a regenerated reply; once with the keeper off
 and once on. What the engine says it read (`Processed:` in its own log) is
 the measure. The tables below were taken with those 1,500 tokens of rules;
-the test now has about 4,300, since under the weighing a chat that short is
-rightly let go on the 0.5B model, which reads it again faster than it is
-saved and loaded back (the long chat and the Realism chat were made long
-for the same reason).
+the test now has about 4,300, since under the whole-save weighing a chat
+that short was rightly let go on the 0.5B model, which reads it again faster
+than it is saved and loaded back (the long chat and the Realism chat were
+made long for the same reason). Under the wait felt, the script's saves cost
+nothing: no turn of it starts while one runs.
 
 Measured on Apple Silicon (a Mac with 128 GB, busy with other test runs at
 the time, so the times are rough). "read" is what the engine says it
