@@ -4,17 +4,16 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-import 'package:front_porch_ai/ui/pages/home/cards/character_grid_card.dart';
-import 'package:front_porch_ai/ui/pages/home/cards/folder_grid_card.dart';
-import 'package:front_porch_ai/ui/pages/home/cards/group_grid_card.dart';
-import 'package:front_porch_ai/ui/pages/home/widgets/home_grid_search_bar.dart';
-import 'package:front_porch_ai/ui/pages/home/widgets/home_grid_toolbar.dart';
-import 'package:front_porch_ai/ui/pages/home/widgets/library_grid_keys.dart';
+import 'package:front_porch_ai/ui/pages/home/cards/cards.dart';
+import 'package:front_porch_ai/ui/pages/home/library_selection.dart';
+import 'package:front_porch_ai/ui/pages/home/widgets/widgets.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/ui/widgets/library_view.dart';
 import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/services.dart';
+import 'package:front_porch_ai/utils/utils.dart';
 
 export 'package:front_porch_ai/ui/widgets/library_view.dart' show SearchScope;
 
@@ -77,6 +76,8 @@ class CharacterCardGrid extends StatelessWidget {
     this.onGroupContextMenuAction,
     this.onSelectAll,
     this.onSelectNone,
+    this.selection,
+    this.onDropOnLevel,
   });
 
   final String searchQuery;
@@ -152,6 +153,14 @@ class CharacterCardGrid extends StatelessWidget {
   /// Select none: clears every pick, hidden ones too.
   final VoidCallback? onSelectNone;
 
+  /// The picks as one controller. With it the grid takes a box drag,
+  /// Shift-, Ctrl- and Cmd-clicks, and drags of the whole selection (library
+  /// phases 2–3); without it, the plain callbacks above as before.
+  final LibrarySelection? selection;
+
+  /// A drop on a level of the path in the toolbar; null is the top level.
+  final void Function(Object item, String? folderId)? onDropOnLevel;
+
   LibraryView _view() => libraryViewOf(
     characters: repo.characters,
     groups: groupRepo.groups,
@@ -201,6 +210,8 @@ class CharacterCardGrid extends StatelessWidget {
                       selectAll: moreToAdd ? addShown : null,
                       selectNone: selectedCount > 0 ? onSelectNone : null,
                     ),
+              liveDrag: (selection?.dragCount ?? 0) > 0,
+              onDropOnLevel: onDropOnLevel,
               sortMode: sortMode,
               gridScale: gridScale,
               modeToggle: modeToggle,
@@ -230,7 +241,11 @@ class CharacterCardGrid extends StatelessWidget {
               child: LibraryGridKeys(
                 selecting: picking,
                 onSelectAll: addShown,
-                onEscape: picking ? onCancelSelection : null,
+                // Esc calls off a drag in flight first, then the picks.
+                onEscape:
+                    selection != null && (picking || selection!.dragCount > 0)
+                    ? selection!.escape
+                    : (picking ? onCancelSelection : null),
                 child: _buildGrid(context, view),
               ),
             ),
