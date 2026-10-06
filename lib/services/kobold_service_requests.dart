@@ -120,13 +120,6 @@ extension KoboldServiceRequests on KoboldService {
     notify();
   }
 
-  /// One fresh timing prompt for the MMQ trial ([timeKoboldPrompt]). It
-  /// changes what the engine keeps in its cache like any request does, so it
-  /// waits its turn in the line and nothing overlaps it: not the save of a
-  /// chat, not a reply.
-  Future<Duration> _timePrompt(int round) =>
-      _runSerialized(() => timeKoboldPrompt(_baseUrl, round));
-
   /// Run [body] when its turn comes, with the engine to itself. The one
   /// copy of the protocol every request that is not a reply follows, so no
   /// two drift apart. It changes the engine's cache, which the slot keeper
@@ -275,4 +268,7 @@ extension KoboldServiceRequests on KoboldService {
   bool _dropStoppedReplies() => _requests.dropStoppedReplies();
 
   Future<void> _waitForIdle() => _requests.queue.waitForIdle();
+
+  /// A speed test holds the app's requests now (see [holdForSpeedTest]).
+  bool get speedTestHolds => _requests.speedTest != null;
 }

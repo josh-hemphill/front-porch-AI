@@ -55,6 +55,10 @@ class KoboldBackendChoice {
   /// Whether the model can go on a card (Apple Silicon counts).
   bool get onCard => unified || backend != KoboldGpuBackend.none;
 
+  /// The backend as a speed test's stamp names it: 'cuda', 'rocm',
+  /// 'vulkan', 'metal', or 'cpu' with no card.
+  String get label => !onCard ? 'cpu' : memory.name;
+
   /// The memory rules the model follows here. With no card, CUDA's stand
   /// in: nothing is placed on a card then.
   KoboldMemoryBackend get memory => unified
@@ -90,9 +94,10 @@ class KoboldBackendChoice {
     );
   }
 
-  /// The batch auto mode holds the tuning to: KoboldCpp's own when nothing
-  /// goes on a card, the one chosen in Settings when [automatic] is off,
-  /// else null (the tuning picks the largest that fits).
+  /// The physical batch auto mode holds the tuning to: KoboldCpp's own when
+  /// nothing goes on a card, the one chosen in Settings when [automatic] is
+  /// off, else null (the tuning starts from [koboldStartBatch], or what the
+  /// speed test measured, within the memory ceiling).
   int? fixedBatch({required bool automatic, required int chosen}) => !onCard
       ? kKoboldAutoBatches.first
       : automatic

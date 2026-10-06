@@ -45,6 +45,7 @@ part 'kobold_service_idle.dart';
 part 'kobold_service_keeper.dart';
 part 'kobold_service_process.dart';
 part 'kobold_service_requests.dart';
+part 'kobold_service_speed.dart';
 
 class KoboldService extends ChangeNotifier
     with WidgetsBindingObserver
@@ -343,8 +344,8 @@ class KoboldService extends ChangeNotifier
   /// The keeper keeps it and the recent chats Settings asks for.
   void openChat(String? chat) => _openChat(chat);
 
-  /// One prompt for the editor's MMQ timing, sent in the line.
-  Future<Duration> timePrompt(int round) => _timePrompt(round);
+  /// One speed test prompt, sent in the line: the engine's own speeds for it.
+  Future<KoboldSpeed?> timeTurn(int round) => _timeTurn(round);
 
   /// The editor's speed test is about to load its own preset: the app's own
   /// requests wait for chat's model until the function this returns is

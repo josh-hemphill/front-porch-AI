@@ -68,6 +68,56 @@ enum ContextManagementMode {
 
 enum KoboldGpuBackend { none, cuda, vulkan }
 
+/// Where a preset's settings were measured by a speed test, written into the
+/// preset as `measured` (KoboldCpp ignores it): the card as the machine names
+/// it ('' without one), the backend ('cuda', 'rocm', 'vulkan', 'metal' or
+/// 'cpu'), and KoboldCpp's version and the day, for the record. [auto]: the
+/// Local model card's test saved it, as auto mode's own for its model.
+class KoboldMeasured {
+  const KoboldMeasured({
+    required this.card,
+    required this.backend,
+    this.engine,
+    this.on,
+    this.auto = false,
+  });
+
+  final String card;
+  final String backend;
+  final String? engine;
+  final String? on;
+  final bool auto;
+
+  /// Measured on this machine: the same card through the same backend.
+  bool isHere({required String card, required String backend}) =>
+      this.card == card && this.backend == backend;
+
+  Map<String, dynamic> toJson() => {
+    'card': card,
+    'backend': backend,
+    'engine': ?engine,
+    'on': ?on,
+    if (auto) 'auto': true,
+  };
+
+  /// Null for anything that is not a stamp this app wrote.
+  static KoboldMeasured? fromJson(Object? v) {
+    if (v is! Map) return null;
+    final card = v['card'];
+    final backend = v['backend'];
+    if (card is! String || backend is! String) return null;
+    final engine = v['engine'];
+    final on = v['on'];
+    return KoboldMeasured(
+      card: card,
+      backend: backend,
+      engine: engine is String ? engine : null,
+      on: on is String ? on : null,
+      auto: v['auto'] == true,
+    );
+  }
+}
+
 /// One KoboldCpp launch configuration: what a `.kcpps` file says, in the
 /// terms this app manages. Keys the app does not manage ride along in
 /// [extras] so a preset made in KoboldCpp's own launcher survives a round
@@ -77,6 +127,7 @@ class KoboldLaunchConfig {
     this.modelPath = '',
     this.contextSize = 16384,
     this.batchSize = 512,
+    this.logicalBatchSize,
     this.threads,
     this.gpuLayers = autoLayers,
     this.autofitPaddingMb,
@@ -101,6 +152,7 @@ class KoboldLaunchConfig {
     this.useMtp = false,
     this.contextShift = true,
     this.cudaOptions = const [],
+    this.measured,
     this.extras = const {},
   });
 
@@ -109,7 +161,16 @@ class KoboldLaunchConfig {
 
   final String modelPath;
   final int contextSize;
+
+  /// The physical batch: the tokens computed at once, which sets the working
+  /// memory. Every estimate of what fits keys off it.
   final int batchSize;
+
+  /// The logical batch, for an engine that splits the two (from 1.122):
+  /// `batchsize` holds it and `ubatchsize` holds [batchSize]. Null writes
+  /// [batchSize] as the one `batchsize`, which every engine reads as the
+  /// physical batch.
+  final int? logicalBatchSize;
 
   /// Null leaves the thread count to KoboldCpp.
   final int? threads;
@@ -176,15 +237,23 @@ class KoboldLaunchConfig {
 
   /// CUDA options besides the card ("rowsplit", "lowvram"), kept as written.
   final List<String> cudaOptions;
+
+  /// Where a speed test measured these settings; null when none did.
+  final KoboldMeasured? measured;
   final Map<String, dynamic> extras;
 
   bool get layersAreAutomatic => gpuLayers < 0;
 
+  /// [singleBatch] drops [logicalBatchSize]: the batch is written as one
+  /// field again.
   KoboldLaunchConfig copyWith({
     String? modelPath,
     int? contextSize,
     int? batchSize,
+    int? logicalBatchSize,
+    bool singleBatch = false,
     int? gpuLayers,
+    bool? useMmap,
     bool? useMlock,
     KvQuant? kvQuant,
     bool? flashAttention,
@@ -206,14 +275,18 @@ class KoboldLaunchConfig {
     bool? useMtp,
     bool? contextShift,
     bool? mmprojOnCpu,
+    KoboldMeasured? measured,
   }) => KoboldLaunchConfig(
     modelPath: modelPath ?? this.modelPath,
     contextSize: contextSize ?? this.contextSize,
     batchSize: batchSize ?? this.batchSize,
+    logicalBatchSize: singleBatch
+        ? null
+        : logicalBatchSize ?? this.logicalBatchSize,
     threads: threads ?? this.threads,
     gpuLayers: gpuLayers ?? this.gpuLayers,
     autofitPaddingMb: autofitPaddingMb ?? this.autofitPaddingMb,
-    useMmap: useMmap,
+    useMmap: useMmap ?? this.useMmap,
     useMlock: useMlock ?? this.useMlock,
     kvQuant: kvQuant ?? this.kvQuant,
     flashAttention: flashAttention ?? this.flashAttention,
@@ -234,6 +307,7 @@ class KoboldLaunchConfig {
     useMtp: useMtp ?? this.useMtp,
     contextShift: contextShift ?? this.contextShift,
     cudaOptions: cudaOptions,
+    measured: measured ?? this.measured,
     extras: extras,
   );
 }

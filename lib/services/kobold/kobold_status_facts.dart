@@ -10,6 +10,7 @@ import 'kobold_backend_choice.dart';
 import 'kobold_context_verdict.dart';
 import 'kobold_fit.dart';
 import 'kobold_keeper_budget.dart';
+import 'kobold_speed_plan.dart';
 
 /// What the local model card says in auto mode, worked out once for each
 /// change of model, settings or machine: never on a rebuild.
@@ -19,6 +20,7 @@ class KoboldStatusFacts {
     required this.choices,
     required this.verdicts,
     required this.largestGood,
+    required this.batch,
     this.warning,
   });
 
@@ -32,8 +34,13 @@ class KoboldStatusFacts {
   /// ([koboldShortModelWarning]); null when it was not.
   final String? warning;
 
+  /// The physical batch the verdicts judge, as a launch runs it here. Never
+  /// shown: auto mode names no settings.
+  final int batch;
+
   /// For the app's own settings, the model at [model] read as [info] of
-  /// [bytes], on this machine.
+  /// [bytes], on this machine. [measured]: what the speed test found for
+  /// this model here, which a launch runs (see [koboldMeasuredKnobs]).
   static KoboldStatusFacts? of({
     required StorageService storage,
     required HardwareInfo? hardware,
@@ -41,6 +48,7 @@ class KoboldStatusFacts {
     required GGUFModelInfo? info,
     required int? bytes,
     bool? unified,
+    KoboldKnobs? measured,
   }) {
     if (info == null || bytes == null || hardware == null) return null;
     final b = storage.backendSettings;
@@ -66,9 +74,9 @@ class KoboldStatusFacts {
         backend: gpu.backend,
         gpuId: gpu.gpuId,
         rocm: gpu.rocm,
-        flashAttention: b.flashAttentionEnabled,
+        flashAttention: measured?.flashAttention ?? b.flashAttentionEnabled,
         kvQuant: b.kvQuant,
-        mlock: b.mlockEnabled,
+        mlock: measured?.mlock ?? b.mlockEnabled,
         rocmFlashAttentionFailed: b.rocmFlashAttentionFailed,
       ),
       model: KoboldModelFacts(
@@ -96,7 +104,12 @@ class KoboldStatusFacts {
       automatic: b.batchAutomatic,
       chosen: b.blasBatchSize,
     );
-    final tuning = koboldAutoTuning(fit, machine, batchSize: batch);
+    final tuning = koboldAutoTuning(
+      fit,
+      machine,
+      batchSize: batch,
+      measured: measured?.batch,
+    );
     final choices = koboldContextChoices(
       current: b.contextSize,
       modelMax: info.contextLength,
@@ -106,6 +119,7 @@ class KoboldStatusFacts {
       machine: machine,
       choices: choices,
       batchSize: batch,
+      measured: measured?.batch,
       gpuLayers: gpuLayers,
       moeCpuBlocks: moeCpuBlocks,
     );
@@ -145,6 +159,7 @@ class KoboldStatusFacts {
       choices: choices,
       verdicts: {for (final v in verdicts.verdicts) v.contextSize: v},
       largestGood: verdicts.largestGood,
+      batch: tuning.batchSize,
       warning: koboldShortModelWarning(info.contextLength),
     );
   }

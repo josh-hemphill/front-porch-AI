@@ -16,6 +16,7 @@ class KcppsDraft {
     this.contextSize = 16384,
     this.kvQuant = KvQuant.f16,
     this.batchSize = 512,
+    this.logicalBatchSize,
     this.flashAttention = true,
     this.mmq,
     this.greedy = false,
@@ -35,6 +36,7 @@ class KcppsDraft {
     this.gpuId,
     this.moreGpuIds = const [],
     this.cudaOptions = const [],
+    this.measured,
     this.extras = const {},
   });
 
@@ -42,7 +44,11 @@ class KcppsDraft {
   final String modelPath;
   final int contextSize;
   final KvQuant kvQuant;
+
+  /// The physical batch (see [KoboldLaunchConfig.batchSize]); the batch field
+  /// edits it. [logicalBatchSize] is kept as the preset has it.
   final int batchSize;
+  final int? logicalBatchSize;
   final bool flashAttention;
   final bool? mmq;
 
@@ -87,6 +93,9 @@ class KcppsDraft {
   /// Vulkan cards after [gpuId], kept as the preset has them.
   final List<int> moreGpuIds;
   final List<String> cudaOptions;
+
+  /// Where a speed test measured the preset (see [KoboldMeasured]).
+  final KoboldMeasured? measured;
   final Map<String, dynamic> extras;
 
   /// The form for a preset read from a file. [recurrent]: the model has
@@ -105,6 +114,7 @@ class KcppsDraft {
       contextSize: c.contextSize,
       kvQuant: c.kvQuant,
       batchSize: c.batchSize,
+      logicalBatchSize: c.logicalBatchSize,
       flashAttention: c.flashAttention,
       mmq: c.mmq,
       greedy: koboldPaddingIsGreedy(c.autofitPaddingMb),
@@ -136,6 +146,7 @@ class KcppsDraft {
       gpuId: c.gpuId,
       moreGpuIds: c.moreGpuIds,
       cudaOptions: c.cudaOptions,
+      measured: c.measured,
       extras: c.extras,
     );
   }
@@ -186,6 +197,8 @@ class KcppsDraft {
       mmprojOnCpu: mmprojOnCpu,
       threads: threads,
       moreGpuIds: moreGpuIds,
+      logicalBatchSize: logicalBatchSize,
+      measured: measured,
     );
   }
 
@@ -222,12 +235,16 @@ class KcppsDraft {
     return map;
   }
 
+  /// [singleBatch] writes the batch as one field again (see
+  /// [KoboldLaunchConfig.logicalBatchSize]).
   KcppsDraft copyWith({
     String? name,
     String? modelPath,
     int? contextSize,
     KvQuant? kvQuant,
     int? batchSize,
+    int? logicalBatchSize,
+    bool singleBatch = false,
     bool? flashAttention,
     bool? mmq,
     bool? greedy,
@@ -244,12 +261,17 @@ class KcppsDraft {
     bool? useMtp,
     KoboldGpuBackend? backend,
     int? gpuId,
+    KoboldMeasured? measured,
+    bool unmeasured = false,
   }) => KcppsDraft(
     name: name ?? this.name,
     modelPath: modelPath ?? this.modelPath,
     contextSize: contextSize ?? this.contextSize,
     kvQuant: kvQuant ?? this.kvQuant,
     batchSize: batchSize ?? this.batchSize,
+    logicalBatchSize: singleBatch
+        ? null
+        : logicalBatchSize ?? this.logicalBatchSize,
     flashAttention: flashAttention ?? this.flashAttention,
     mmq: mmq ?? this.mmq,
     greedy: greedy ?? this.greedy,
@@ -270,8 +292,25 @@ class KcppsDraft {
     gpuId: gpuId ?? this.gpuId,
     moreGpuIds: moreGpuIds,
     cudaOptions: cudaOptions,
+    measured: unmeasured ? null : measured ?? this.measured,
     extras: extras,
   );
+
+  /// This form after a hand edit of [was]: a setting a speed test measures
+  /// (the batch, flash attention, MMQ) changed by hand is not what was
+  /// measured, so the stamp goes ("Not measured on this card yet.") and Save
+  /// drops it. An edit that brings its own stamp (a timing) keeps it.
+  KcppsDraft editedFrom(KcppsDraft was) {
+    final m = measured;
+    final changed =
+        batchSize != was.batchSize ||
+        logicalBatchSize != was.logicalBatchSize ||
+        flashAttention != was.flashAttention ||
+        mmq != was.mmq;
+    return m != null && identical(m, was.measured) && changed
+        ? copyWith(unmeasured: true)
+        : this;
+  }
 }
 
 /// The settings that go with sliding window, kept as a file has them while
