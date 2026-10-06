@@ -151,7 +151,6 @@ class KoboldService extends ChangeNotifier
   /// Feed a console chunk to [liveProgress]; notify at most every 150ms
   /// (Generating lines arrive once per token).
   void _ingestLiveProgress(String data) {
-    _requests.readSpeed.note(data, _loadGeneration);
     if (!liveProgress.ingest(data)) return;
     final now = DateTime.now();
     if (now.difference(_lastLiveNotify).inMilliseconds >= 150) {
@@ -340,9 +339,9 @@ class KoboldService extends ChangeNotifier
   /// A chat was deleted: the keeper lets go of its saved cache.
   void forgetChat(String chat) => _forgetChat(chat);
 
-  /// The user started a turn: the keeper counts what is left of a save
-  /// still running as the wait keeping that chat costs.
-  void noteTurnStart() => _requests.keeper?.turnStarts();
+  /// The chat the user has open changed (null: none, back in the library).
+  /// The keeper keeps it and the recent chats Settings asks for.
+  void openChat(String? chat) => _openChat(chat);
 
   /// One prompt for the editor's MMQ timing, sent in the line.
   Future<Duration> timePrompt(int round) => _timePrompt(round);

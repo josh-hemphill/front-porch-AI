@@ -5,12 +5,41 @@
 // loaded, and how many. Decided from what the engine was given, not asked of
 // it: a rule that fails here saves a call to an engine that cannot help.
 
+import 'dart:math' as math;
+
 import 'package:front_porch_ai/utils/utils.dart';
 
 import 'kcpps_codec.dart';
 
-/// What the keeper does for one loaded model: keeps [chats] conversations,
-/// or stays out and says [why].
+/// "Keep recent chats ready" in Settings → Advanced: how many chats besides
+/// the open one the keeper may keep. 0, the default, keeps only the open
+/// chat. KoboldCpp saves five, and one of them is the open chat's.
+const List<int> kKoboldKeepRecentChoices = [0, 1, 2, 3, 4];
+
+/// One of [kKoboldKeepRecentChoices] as Settings names it.
+String koboldKeepRecentLabel(int chats) => chats == 0 ? 'Off' : '$chats';
+
+/// The chats the keeper keeps: the open chat, always, whatever the memory
+/// (its slot is never weighed), and up to [recent] of the chats used before
+/// it, as far as [room] goes. The one rule: the keeper counts with it, and
+/// so does the Local model card.
+int koboldKeeperChats({required int recent, required int room}) =>
+    1 + math.min(math.max(0, recent), math.max(0, room - 1));
+
+/// How many chats there is room for beside the model: KoboldCpp's five save
+/// slots, a full context counted for each (a slot's buffer never shrinks),
+/// in the system memory left once the model's own share and 2 GB for
+/// everything else are set aside.
+int koboldKeeperRoom(KoboldKeeperMemory memory) => suggestSmartCacheSlots(
+  promptKinds: kKoboldSaveSlots,
+  slotMb: memory.slotMb,
+  freeRamMb: memory.freeRamMb,
+  modelRamMb: memory.modelRamMb,
+).slots;
+
+/// What the keeper does for one loaded model: keeps the open chat with room
+/// for [chats] in all, or stays out and says [why]. How many it keeps is
+/// [koboldKeeperChats] of that room, as Settings has it at the time.
 class KoboldKeeperPlan {
   const KoboldKeeperPlan.keep(this.chats) : why = null, undecided = false;
   const KoboldKeeperPlan.off(String this.why) : chats = 0, undecided = false;
@@ -18,13 +47,15 @@ class KoboldKeeperPlan {
   /// What the engine runs is not known yet; ask again at the next request.
   const KoboldKeeperPlan.later() : chats = 0, why = null, undecided = true;
 
+  /// The room on this load; 0 when memory has none, and the open chat is
+  /// kept all the same.
   final int chats;
 
   /// Plain words, for the engine log.
   final String? why;
   final bool undecided;
 
-  bool get keeps => chats > 0;
+  bool get keeps => why == null && !undecided;
 }
 
 /// Said at the start when auto mode leaves the chats to KoboldCpp's own
@@ -97,19 +128,9 @@ KoboldKeeperPlan koboldKeeperPlan({
       'kept ready.',
     );
   }
-  if (memory == null) return const KoboldKeeperPlan.keep(1);
-  final fit = suggestSmartCacheSlots(
-    promptKinds: kKoboldSaveSlots,
-    slotMb: memory.slotMb,
-    freeRamMb: memory.freeRamMb,
-    modelRamMb: memory.modelRamMb,
-  );
-  return fit.slots > 0
-      ? KoboldKeeperPlan.keep(fit.slots)
-      : const KoboldKeeperPlan.off(
-          'There is not enough free memory to keep chats ready next to this '
-          'model.',
-        );
+  // Memory only bounds the recent chats: the open one is kept even where it
+  // is short (maintainer ruling, 2026-10-06). Unknown figures allow none.
+  return KoboldKeeperPlan.keep(memory == null ? 1 : koboldKeeperRoom(memory));
 }
 
 int _number(Object? v) =>
