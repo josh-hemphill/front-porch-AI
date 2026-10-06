@@ -54,7 +54,9 @@ import 'package:front_porch_ai/ui/dialogs/dialogs.dart';
 // State is split across part files (private extensions) to stay under 500.
 part 'home/home_page_chrome.dart';
 part 'home/home_page_chrome.actions.dart';
+part 'home/home_page_library_actions.dart';
 part 'home/home_page_handlers.dart';
+part 'home/home_page_move.dart';
 part 'home/home_page_dialogs.dart';
 part 'home/home_page_dialogs.import.dart';
 part 'home/home_page_drop.dart';
@@ -73,7 +75,12 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   String _searchQuery = '';
   String? _activeFolderId; // null = top level view
-  SearchScope _searchScope = SearchScope.currentFolder;
+  // The top level and folders remember separate search scopes (#346): they
+  // offer different choices, and the top level defaults to Everywhere.
+  SearchScope _topSearchScope = SearchScope.allCharacters;
+  SearchScope _folderSearchScope = SearchScope.currentFolder;
+  SearchScope get _searchScope =>
+      _activeFolderId == null ? _topSearchScope : _folderSearchScope;
   final _searchController = TextEditingController();
 
   // Multi-select mode (used for organizing into folders, bulk actions, etc.)
@@ -115,21 +122,27 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     final storage = Provider.of<StorageService>(context, listen: false);
-    _sortMode = storage.uiSettings.sortMode;
-    _gridScale = storage.uiSettings.gridScale;
+    _readViewPrefs(storage);
     // StorageService._init() is async — settings may not be loaded yet.
     // Wait for init to complete so persisted values are reflected.
     storage.initialized.then((_) {
       if (!mounted) return;
-      setState(() {
-        _sortMode = storage.uiSettings.sortMode;
-        _gridScale = storage.uiSettings.gridScale;
-      });
+      setState(() => _readViewPrefs(storage));
     });
     Future.microtask(() => _refreshLastActivityCache());
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _maybeOpenChatFromEnv(),
     );
+  }
+
+  void _readViewPrefs(StorageService storage) {
+    final prefs = storage.uiSettings;
+    final scopes = SearchScope.values.asNameMap();
+    _sortMode = prefs.sortMode;
+    _gridScale = prefs.gridScale;
+    _topSearchScope = scopes[prefs.topSearchScope] ?? SearchScope.allCharacters;
+    _folderSearchScope =
+        scopes[prefs.folderSearchScope] ?? SearchScope.currentFolder;
   }
 
   // The notifiers we subscribed to, held so dispose() can unsubscribe: they
@@ -369,6 +382,8 @@ class _HomePageState extends State<HomePage> {
               onDeleteGroup: _handleDeleteGroup,
               onAfterNavigateBack: _refreshLastActivityCache,
               onGroupContextMenuAction: _handleGroupContextMenuAction,
+              onSelectAll: _selectAllVisible,
+              onSelectNone: _selectNone,
             ),
           ),
         );
