@@ -24,15 +24,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'comfy_workflow.dart';
-import 'image/comfy_catalog.dart';
-import 'image/comfy_create_presets.dart';
-import 'image/comfy_edit_workflow.dart';
-import 'image/comfy_gguf_city96_gate.dart';
-import 'image/comfy_gguf_loaders.dart';
-import 'image/comfy_progress_socket.dart';
-import 'image/comfy_run_ledger.dart';
-import 'image/comfy_template_index.dart';
-import 'image/image_submit_error.dart';
+import 'image/image.dart';
 
 export 'image/comfy_run_ledger.dart' show ComfyRunCancelled;
 
@@ -73,12 +65,7 @@ class ComfyUiService {
   /// strips trailing slashes, and prepends `http://` when no scheme is given
   /// (`localhost:8188`, `192.168.1.20:7860` → valid URLs instead of a silent
   /// connection failure). Shared by the A1111 paths in ImageGenService. Pure.
-  static String ensureHttpScheme(String url) {
-    var u = url.trim().replaceAll(RegExp(r'/+$'), '');
-    if (u.isEmpty) return u;
-    if (!u.contains('://')) u = 'http://$u';
-    return u;
-  }
+  static String ensureHttpScheme(String url) => normalizeImageServerUrl(url);
 
   /// Known A1111-style → ComfyUI sampler name mappings, used when the stored
   /// sampler (shared across backends) isn't already a ComfyUI-native name.
