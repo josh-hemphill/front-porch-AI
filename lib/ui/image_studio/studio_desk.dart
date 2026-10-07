@@ -11,6 +11,7 @@ import 'package:front_porch_ai/services/comfy_ui_service.dart';
 import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/storage/settings/image_gen_settings.dart';
+import 'package:front_porch_ai/ui/widgets/widgets.dart';
 
 import 'studio_widgets.dart';
 

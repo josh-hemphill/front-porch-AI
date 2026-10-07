@@ -146,26 +146,25 @@ extension on _StudioDeskState {
     final url = settings.comfyUiUrl;
     final confirmed = City96Gate.instance.hasExistingSupport(url);
     if (!confirmed) {
-      final yes = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Use existing GGUF support?'),
-          content: Text(
-            'Choose this if your workflow already runs in ComfyUI with a compatible loader or extension. '
-            'Front Porch will skip its GGUF compatibility check for $url until Front Porch restarts. '
-            'ComfyUI will still validate the workflow.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Use existing support'),
-            ),
-          ],
+      final yes = await showWarmDialog<bool>(
+        context,
+        title: 'Use existing GGUF support?',
+        content: WarmDialogText(
+          'Choose this if your workflow already runs in ComfyUI with a '
+          'compatible loader or extension. Front Porch will skip its GGUF '
+          'compatibility check for $url until Front Porch restarts. ComfyUI '
+          'will still validate the workflow.',
         ),
+        actions: [
+          Builder(builder: (ctx) => warmDialogCancel(ctx, value: false)),
+          Builder(
+            builder: (ctx) => warmDialogConfirm(
+              ctx,
+              label: 'Use existing support',
+              onPressed: () => Navigator.of(ctx).pop(true),
+            ),
+          ),
+        ],
       );
       if (yes != true ||
           !mounted ||
