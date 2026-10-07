@@ -25,6 +25,7 @@ import 'package:shelf/shelf_io.dart' as shelf_io;
 
 import 'package:front_porch_ai/database/database.dart';
 import 'package:front_porch_ai/services/services.dart';
+import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/web/auth/auth_service.dart';
 import 'package:front_porch_ai/services/web/facade/facades.dart';
 import 'package:front_porch_ai/services/web/server_bootstrap.dart';
@@ -116,6 +117,7 @@ class WebServerHost extends ChangeNotifier {
   // freeze on web without the tick.
   VoidCallback? _genStatusListener;
   VoidCallback? _llmReadyListener;
+  VoidCallback? _packBoardListener;
   VoidCallback? _speedTestListener;
   bool? _lastLlmReady;
   String? _lastLlmHint;
@@ -392,6 +394,7 @@ class WebServerHost extends ChangeNotifier {
         _llmReadyListener != null ||
         _speedTestListener != null ||
         _imageProgressListener != null ||
+        _packBoardListener != null ||
         _libraryListener != null ||
         _settingsListener != null ||
         _genStatusTicker != null ||
@@ -424,6 +427,10 @@ class WebServerHost extends ChangeNotifier {
       _speedTestListener = null;
     }
     _lastLlmReady = null;
+    if (_packBoardListener != null) {
+      expressionPackBoard.removeListener(_packBoardListener!);
+      _packBoardListener = null;
+    }
     _lastLlmHint = null;
     if (_imageProgressListener != null) {
       _imageGenService?.removeListener(_imageProgressListener!);

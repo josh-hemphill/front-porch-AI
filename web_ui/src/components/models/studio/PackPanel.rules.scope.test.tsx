@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { afterEach, expect, it, vi } from 'vitest';
+import { act } from 'react';
 import {
-  button, click, container, createElement, mount, posts, refuse, reset,
+  button, click, container, createElement, mount, pickOption, posts, refuse, reset,
   serve, settle, unmount, until,
 } from './deskTestKit';
 
@@ -27,12 +28,18 @@ it('uses local wording once, then lets the next pack use global defaults', async
   serve({
     'GET /api/characters': [{ id: 'c1', name: 'Review character' }],
     'GET /api/image/expression-pack': refuse(404, 'No pack'),
+    'GET /api/image/expression-pack/source': { image: 'data:image/png;base64,AAAA' },
     'GET /api/image/expression-pack/settings': rules,
     'POST /api/image/expression-pack/preview': { previews: [] },
     'POST /api/image/expression-pack': view(),
+    'POST /api/image/expression-pack/discard': {},
   });
-  mount(createElement(PackPanel, { prompt: 'portrait', picture: null }));
+  mount(createElement(PackPanel, { initialPrompt: 'portrait', initialPicture: null }));
   await settle();
+  // The workspace picks no target on its own; the pack is built from the
+  // card's portrait once a character is chosen.
+  pickOption('select[aria-label="Character"]', 'c1');
+  await until(() => !button('Start pack')!.disabled);
   click('Prompt rules...');
   await until(() => !!container.querySelector('dialog'));
   await until(() => !button('Use for this pack')!.disabled);
@@ -41,6 +48,11 @@ it('uses local wording once, then lets the next pack use global defaults', async
   click('Start pack');
   await settle();
   expect(posts('/api/image/expression-pack')[0].body).toHaveProperty('promptRules', rules);
+  // A started pack holds its target; Reset pack discards it before another start.
+  click('Reset pack');
+  await until(() => [...container.querySelectorAll('button')].filter((b) => b.textContent === 'Reset pack').length === 2);
+  act(() => { [...container.querySelectorAll('button')].filter((b) => b.textContent === 'Reset pack').at(-1)!.click(); });
+  await until(() => !button('Start pack')!.disabled);
   click('Start pack');
   await settle();
   expect(posts('/api/image/expression-pack')[1].body).not.toHaveProperty('promptRules');
@@ -51,7 +63,7 @@ it('does not offer rule editing or continuation for a desktop-owned pack', async
     'GET /api/characters': [{ id: 'c1', name: 'Review character' }],
     'GET /api/image/expression-pack': view('desktop'),
   });
-  mount(createElement(PackPanel, { prompt: 'portrait', picture: null }));
+  mount(createElement(PackPanel, { initialPrompt: 'portrait', initialPicture: null }));
   await settle();
   expect(container.textContent).toContain('Started on the computer.');
   expect(button('Edit pack prompt rules...')).toBeUndefined();

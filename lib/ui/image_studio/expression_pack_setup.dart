@@ -39,6 +39,7 @@ class ExpressionPackSetup extends StatefulWidget {
     required this.onCancel,
     required this.onStart,
     this.storage,
+    this.busy = false,
     this.note,
     this.promptRules,
     this.onRulesChanged,
@@ -46,6 +47,7 @@ class ExpressionPackSetup extends StatefulWidget {
   });
 
   final StorageService? storage;
+  final bool busy;
   final ExpressionPromptRules? promptRules;
   final ValueChanged<ExpressionPromptRules>? onRulesChanged;
   final Map<String, String> originalPrompts;
@@ -315,7 +317,7 @@ class _ExpressionPackSetupState extends State<ExpressionPackSetup> {
             ),
             const SizedBox(width: 10),
             ElevatedButton.icon(
-              onPressed: _effectiveCount == 0
+              onPressed: widget.busy || _effectiveCount == 0
                   ? null
                   : () => widget.onStart(
                       fullSet: _fullSet,

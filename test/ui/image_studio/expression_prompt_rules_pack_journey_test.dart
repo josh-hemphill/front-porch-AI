@@ -14,8 +14,7 @@ import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/capability/capability.dart';
 import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
-import 'package:front_porch_ai/ui/image_studio/expression_pack_dialog.dart';
-import 'package:front_porch_ai/ui/image_studio/expression_pack_widgets.dart';
+import 'package:front_porch_ai/ui/image_studio/studio_widgets.dart';
 import 'package:front_porch_ai/ui/avatar_creation/avatar_creation_widgets.dart';
 
 class PortraitImages extends ChangeNotifier implements ImageGenService {
@@ -25,6 +24,21 @@ class PortraitImages extends ChangeNotifier implements ImageGenService {
   String get statusMessage => '';
   @override
   bool get isGenerating => false;
+  @override
+  Uint8List? get genPreview => null;
+  @override
+  double? get genProgress => null;
+  // The workspace tab hosts the desk, which reads the a1111 catalog.
+  @override
+  Future<bool> testLocalConnection(String baseUrl) async => true;
+  @override
+  Future<List<String>> fetchA1111Models(String baseUrl) async => ['portrait'];
+  @override
+  Future<List<LoraOption>> fetchA1111Loras(String baseUrl) async => [];
+  @override
+  Future<List<String>> fetchA1111Samplers(String baseUrl) async => [];
+  @override
+  Future<List<String>> fetchA1111Schedulers(String baseUrl) async => [];
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
   final prompts = <String>[];
@@ -54,20 +68,29 @@ void main() {
     testWidgets(
       'actual pack setup forwards ${useLocal ? 'local' : 'cancelled default'} rules and grid edits affect rerolls',
       (tester) async {
+        // The pack lives in the Expressions workspace now: the description is
+        // typed into the tab and the source is the last Studio picture.
         final rig = await PackRuleRig.open(tester);
-        await rig.pump(
-          tester,
-          (context) => ExpressionPackDialog.launch(
-            context,
-            characterDbId: rig.card.dbId!,
-            characterName: rig.card.name,
-            repository: rig.repository,
-            candidateBase: rig.image.picture,
-            basePrompt: 'portrait',
-            negativePrompt: '',
-          ),
+        await rig.pumpWorkspace(tester);
+        final useLast = find.widgetWithText(
+          TextButton,
+          'Use last Studio picture',
         );
-        await tester.tap(find.text('Open'));
+        // The tab reads the card and the desk its catalog first; the progress
+        // bar they show never settles under pumpAndSettle.
+        await settleIo(
+          tester,
+          () =>
+              useLast.evaluate().isNotEmpty &&
+              tester.widget<TextButton>(useLast).onPressed != null &&
+              !tester.hasRunningAnimations,
+        );
+        await tester.enterText(
+          find.byKey(const Key('expression-description')),
+          'portrait',
+        );
+        await tester.ensureVisible(useLast);
+        await tester.tap(useLast);
         await settleIo(
           tester,
           () => find.byType(ExpressionPackSetup).evaluate().isNotEmpty,
@@ -226,6 +249,26 @@ class PackRuleRig {
               onPressed: () => open(context),
               child: const Text('Open'),
             ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  /// The Expressions workspace tab as Image Studio hosts it, with [image]'s
+  /// picture offered as the last Studio picture.
+  Future<void> pumpWorkspace(WidgetTester tester) => tester.pumpWidget(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider<StorageService>.value(value: storage),
+        ChangeNotifierProvider<ImageGenService>.value(value: image),
+        ChangeNotifierProvider<CharacterRepository>.value(value: repository),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: StudioExpressionTab(
+            initialCharacterId: card.dbId,
+            lastStudioImage: image.picture,
           ),
         ),
       ),

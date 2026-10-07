@@ -24,8 +24,7 @@ import 'package:front_porch_ai/services/image/image.dart'
     show kComfyUploadedWorkflowId;
 import 'package:front_porch_ai/services/image_gen_service.dart';
 import 'package:front_porch_ai/services/storage_service.dart';
-import 'package:front_porch_ai/ui/image_studio/expression_pack_dialog.dart';
-import 'package:front_porch_ai/ui/image_studio/expression_pack_setup.dart';
+import 'package:front_porch_ai/ui/image_studio/studio_widgets.dart';
 
 import '../../services/web/desk_graphs.dart';
 import '../../services/web/image_desk_harness.dart';
@@ -101,35 +100,43 @@ Future<void> _open(
   Uint8List candidate,
   String until,
 ) async {
+  await tester.binding.setSurfaceSize(const Size(1100, 1200));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
     MultiProvider(
       providers: [
         ChangeNotifierProvider<StorageService>.value(value: rig.storage),
         ChangeNotifierProvider<ImageGenService>.value(value: rig.image),
+        ChangeNotifierProvider<CharacterRepository>.value(value: rig.repo),
       ],
       child: MaterialApp(
-        home: Builder(
-          builder: (context) => TextButton(
-            onPressed: () => ExpressionPackDialog.launch(
-              context,
-              characterDbId: rig.characterId,
-              characterName: 'Aerin',
-              repository: rig.repo,
-              candidateBase: candidate,
-              basePrompt: 'elf knight',
-              negativePrompt: '',
-            ),
-            child: const Text('open'),
+        home: Scaffold(
+          body: StudioExpressionTab(
+            initialCharacterId: rig.characterId,
+            lastStudioImage: candidate,
           ),
         ),
       ),
     ),
   );
-  await tester.tap(find.text('open'));
+  for (var i = 0; i < 40; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 25)),
+    );
+    await tester.pump();
+  }
+  await tester.ensureVisible(find.text('Use last Studio picture'));
+  await tester.tap(find.text('Use last Studio picture'));
   // The check talks to a real server: give real time, then let the widget
   // zone catch up, until what is waited for appears.
   for (var i = 0; i < 60; i++) {
     if (find.textContaining(until).evaluate().isNotEmpty) break;
+    if (until == 'Expression pack can’t start' &&
+        find.text('Start (8)').evaluate().isNotEmpty) {
+      await tester.ensureVisible(find.text('Start (8)'));
+      await tester.tap(find.text('Start (8)'));
+      await tester.pump();
+    }
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 100)),
     );
@@ -140,19 +147,31 @@ Future<void> _open(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('an Edit graph that is not ready is explained before any setup, '
-      'and nothing is generated', (tester) async {
-    final rig = await _rig(tester, editReady: false);
-    await _open(tester, rig, _png(), 'Expression pack can’t start');
+  testWidgets(
+    'an Edit graph that is not ready is explained in a dialog after Start, '
+    'and nothing is generated',
+    (tester) async {
+      final rig = await _rig(tester, editReady: false);
+      await _open(tester, rig, _png(), 'Expression pack can’t start');
 
-    expect(find.text('Expression pack can’t start'), findsOneWidget);
-    expect(find.textContaining('runs your Edit graph'), findsOneWidget);
-    expect(find.textContaining('Starter'), findsNothing, reason: 'no setup');
+      expect(find.text('Expression pack can’t start'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'An expression pack on ComfyUI runs your Edit graph',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Starter'),
+        findsWidgets,
+        reason: 'workspace setup remains behind the warning',
+      );
 
-    await tester.tap(find.text('Got it'));
-    await tester.pumpAndSettle();
-    expect(rig.comfy.postedAll, isEmpty);
-  });
+      await tester.tap(find.text('Got it'));
+      await tester.pumpAndSettle();
+      expect(rig.comfy.postedAll, isEmpty);
+    },
+  );
 
   for (final (name, base, note) in [
     (
@@ -187,9 +206,8 @@ void main() {
         tester,
         rig,
         Uint8List.fromList([...'GIF89a'.codeUnits, 1, 0, 1, 0, 0, 0, 0]),
-        'Unreadable image',
+        'PNG, JPEG or still WebP',
       );
-      expect(find.text('Unreadable image'), findsOneWidget);
       expect(find.textContaining('PNG, JPEG or still WebP'), findsOneWidget);
       expect(find.textContaining('Starter'), findsNothing);
     },

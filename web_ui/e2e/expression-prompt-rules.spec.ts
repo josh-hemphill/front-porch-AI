@@ -9,7 +9,8 @@ test('pack editor saves defaults explicitly and keeps cancelled local wording', 
   const original = await (await page.request.get(path)).json() as PromptRules;
   try {
     await openRoute(page, '/models');
-    await page.getByRole('button', { name: 'Expression pack', exact: true }).click();
+    // The workspace's mode switch is a tab list.
+    await page.getByRole('tab', { name: 'Expression pack', exact: true }).click();
     await page.getByRole('button', { name: 'Prompt rules...', exact: true }).click();
     const editor = page.getByRole('dialog', { name: 'Prompt rules' });
     await expect(editor.getByLabel('Prefix')).toHaveValue(original.prefix);

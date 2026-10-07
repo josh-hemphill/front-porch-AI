@@ -21,7 +21,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'expression_pack_widgets.dart';
 import 'package:provider/provider.dart';
 
 import 'package:front_porch_ai/services/capability/capability.dart';
@@ -29,23 +28,22 @@ import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/expression_pack_qc.dart';
 import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
-import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/ui/widgets/widgets.dart';
 
-import 'vision_gate.dart';
+import 'studio_widgets.dart';
 
-part 'expression_pack_dialog.base.dart';
+part 'expression_pack_dialog.view.dart';
 part 'expression_pack_dialog.qc.dart';
-part 'expression_pack_dialog.actions.dart';
 
-/// The Expression-pack flow: turn one base portrait into a labeled set of
-/// expression avatars — edit-first (instruction edits off the base) with an
-/// automatic img2img fallback where edit truly doesn't exist. [launch] runs
-/// the pre-flight (backend guard, base-image resolution, and automatic
-/// aspect-preserving size normalization — no crop step) and then shows this
-/// two-step dialog (setup, then the live generation grid).
+/// Expression pack setup and results embedded in the Expressions workspace.
 class ExpressionPackDialog extends StatefulWidget {
-  const ExpressionPackDialog._({
+  const ExpressionPackDialog.workspace({
+    super.key,
+    this.onImported,
+    this.onSessionChanged,
+    this.onDiscard,
+    this.preparePrompt,
+    this.preparingPrompt = false,
     required this.characterDbId,
     required this.characterName,
     required this.repository,
@@ -59,6 +57,11 @@ class ExpressionPackDialog extends StatefulWidget {
     required this.existingEmotions,
     this.note,
   });
+  final VoidCallback? onImported;
+  final ValueChanged<bool>? onSessionChanged;
+  final VoidCallback? onDiscard;
+  final Future<String> Function()? preparePrompt;
+  final bool preparingPrompt;
 
   final String characterDbId;
   final String characterName;
@@ -82,127 +85,11 @@ class ExpressionPackDialog extends StatefulWidget {
   /// Shown in the setup when the base was converted to a PNG.
   final String? note;
 
-  /// Run the whole flow. Returns true iff a pack was imported.
-  static Future<bool> launch(
-    BuildContext context, {
-    required String characterDbId,
-    required String characterName,
-    required CharacterRepository repository,
-    required Uint8List? candidateBase,
-    required String basePrompt,
-    required String negativePrompt,
-  }) async {
-    // Capture providers before any async gap.
-    final storage = Provider.of<StorageService>(context, listen: false);
-    final imageGen = Provider.of<ImageGenService>(context, listen: false);
-
-    // The same decision the pack will be started with: a ComfyUI Edit graph
-    // that is not ready, or a remote API without an edit model, stops here
-    // with the reason instead of quietly making the pack some other way.
-    final plan = await planExpressionPack(storage);
-    if (!context.mounted) return false;
-    if (!plan.canStart) {
-      await showWarmDialog(
-        context,
-        title: 'Expression pack can’t start',
-        icon: Icons.theater_comedy,
-        accent: AppColors.formMasterAccent,
-        content: WarmDialogText(plan.refusal!),
-        actions: [warmDialogCancel(context, label: 'Got it')],
-      );
-      return false;
-    }
-
-    // Base portrait: the studio's current result/reference when it has one
-    // (style-matched to what the user is making right now), else the
-    // character's current card portrait, falling back to
-    // existing expression avatars).
-    final base =
-        candidateBase ??
-        await _primeAvatarBytes(
-          repository,
-          storage,
-          characterDbId,
-          characterName,
-        );
-    if (!context.mounted) return false;
-    if (base == null) {
-      await showWarmDialog(
-        context,
-        title: 'No base portrait',
-        icon: Icons.theater_comedy,
-        accent: AppColors.formMasterAccent,
-        content: const WarmDialogText(
-          'This character has no avatar image yet — generate a portrait in '
-          'the Studio (or set a card avatar) first; the pack is built from '
-          'a base image.',
-        ),
-        actions: [warmDialogCancel(context, label: 'Got it')],
-      );
-      return false;
-    }
-
-    // Fully automatic base prep — no crop step (maintainer decision: zero
-    // friction; the pack must simply match the avatar's shape). The
-    // normalizer preserves the source aspect ratio, so the generated
-    // expressions look like the avatar the user already sees in the sidebar.
-    // Anyone wanting different framing can pick a pre-cropped reference
-    // image in the Studio first.
-    String? refused;
-    final normalized = await preparePackBase(
-      base,
-      onRefused: (r) => refused = r.message,
-    );
-    if (!context.mounted) return false;
-    if (normalized == null) {
-      await showWarmDialog(
-        context,
-        title: 'Unreadable image',
-        icon: Icons.broken_image_outlined,
-        content: WarmDialogText(
-          refused ??
-              'That image could not be decoded — try a different portrait.',
-        ),
-        actions: [warmDialogCancel(context, label: 'Got it')],
-      );
-      return false;
-    }
-
-    // Labels the character already has — lets the setup default to
-    // generating only the MISSING emotions on a second run, instead of
-    // regenerating (and, with replace on, overwriting) the kept ones.
-    final existingEmotions = (await repository.getAvatarImages(characterDbId))
-        .map((a) => (a.label ?? '').toLowerCase())
-        .where((l) => l.isNotEmpty)
-        .toSet();
-    if (!context.mounted) return false;
-
-    final imported = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => ExpressionPackDialog._(
-        characterDbId: characterDbId,
-        characterName: characterName,
-        repository: repository,
-        storage: storage,
-        imageGen: imageGen,
-        baseImage: normalized.bytes,
-        baseWidth: normalized.width,
-        baseHeight: normalized.height,
-        note: normalized.converted ? kPackConvertedNote : null,
-        basePrompt: basePrompt,
-        negativePrompt: negativePrompt,
-        existingEmotions: existingEmotions,
-      ),
-    );
-    return imported == true;
-  }
-
   @override
-  State<ExpressionPackDialog> createState() => _ExpressionPackDialogState();
+  State<ExpressionPackDialog> createState() => ExpressionPackDialogState();
 }
 
-class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
+class ExpressionPackDialogState extends State<ExpressionPackDialog> {
   ExpressionPackSession? _session;
   late ExpressionPromptRules _promptRules = widget
       .storage
@@ -213,6 +100,7 @@ class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
   bool _replaceExisting = true;
   bool _cancelRequested = false;
   bool _importing = false;
+  bool _imported = false;
 
   /// The base portrait, encoded once and shared by every vision call.
   late final String _baseB64 = base64Encode(widget.baseImage);
@@ -244,173 +132,210 @@ class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
     required bool replaceExisting,
     required bool skipExisting,
   }) async {
-    if (_checkingWorkflow) return;
+    if (_checkingWorkflow ||
+        widget.preparingPrompt ||
+        widget.imageGen.isGenerating) {
+      return;
+    }
+    if (!_canOwnBoard()) return;
     setState(() => _checkingWorkflow = true);
-    _replaceExisting = replaceExisting;
-    final chosen = fullSet ? kFullExpressionSet : kCuratedExpressionSet;
-    final emotions = skipExisting
-        ? [
-            for (final e in chosen)
-              if (!widget.existingEmotions.contains(e)) e,
-          ]
-        : chosen;
-    final plan = await planExpressionPack(widget.storage);
-    if (!mounted) return;
-    if (!plan.canStart) {
-      setState(() => _checkingWorkflow = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(plan.refusal!),
-          duration: const Duration(seconds: 10),
-        ),
-      );
-      return;
-    }
-    final flight = await beginExpressionPack(
-      imageGen: widget.imageGen,
-      plan: plan,
-      promptRules: _promptRules,
-      emotions: emotions,
-      basePrompt: '${widget.basePrompt}, $kExpressionFraming',
-      negativePrompt: widget.negativePrompt,
-      denoise: denoise,
-      size: '${widget.baseWidth}x${widget.baseHeight}',
-      baseImage: widget.baseImage,
-      characterName: widget.characterName,
-      characterId: widget.characterDbId,
-      replaceExisting: replaceExisting,
-      onCancelled: () {
-        if (mounted) setState(() => _cancelRequested = true);
-      },
-    );
-    if (!mounted) {
-      flight.session?.cancel();
-      return;
-    }
-    setState(() {
-      _checkingWorkflow = false;
-      _session = flight.session;
-    });
-    if (flight.session == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            flight.busy
-                ? kAlreadyGeneratingMessage
-                : (flight.error ?? 'The expression pack could not start.'),
+    widget.onSessionChanged?.call(true);
+    try {
+      _replaceExisting = replaceExisting;
+      final chosen = fullSet ? kFullExpressionSet : kCuratedExpressionSet;
+      final emotions = skipExisting
+          ? [
+              for (final e in chosen)
+                if (!widget.existingEmotions.contains(e)) e,
+            ]
+          : chosen;
+      final plan = await planExpressionPack(widget.storage);
+      if (!mounted) return;
+      if (!plan.canStart) {
+        setState(() => _checkingWorkflow = false);
+        widget.onSessionChanged?.call(false);
+        await showWarmDialog<void>(
+          context,
+          title: 'Expression pack can’t start',
+          icon: Icons.warning_amber,
+          content: WarmDialogText(
+            plan.refusal ?? 'Add a pack description before generating.',
           ),
-        ),
+          actions: [warmDialogCancel(context, label: 'Got it')],
+        );
+        return;
+      }
+      final basePrompt = !plan.edit && widget.basePrompt.trim().isEmpty
+          ? await widget.preparePrompt?.call() ?? widget.basePrompt
+          : widget.basePrompt;
+      if (!mounted) return;
+      if (!plan.edit && basePrompt.trim().isEmpty) {
+        throw StateError('An image prompt could not be prepared.');
+      }
+      if (!_canOwnBoard()) {
+        setState(() => _checkingWorkflow = false);
+        widget.onSessionChanged?.call(false);
+        return;
+      }
+      final flight = await beginExpressionPack(
+        imageGen: widget.imageGen,
+        plan: plan,
+        promptRules: _promptRules,
+        emotions: emotions,
+        basePrompt: '$basePrompt, $kExpressionFraming',
+        negativePrompt: widget.negativePrompt,
+        denoise: denoise,
+        size: '${widget.baseWidth}x${widget.baseHeight}',
+        baseImage: widget.baseImage,
+        characterName: widget.characterName,
+        characterId: widget.characterDbId,
+        replaceExisting: replaceExisting,
+        onCancelled: () {
+          if (mounted) setState(() => _cancelRequested = true);
+        },
       );
+      if (!mounted) {
+        final abandoned = flight.session;
+        if (abandoned != null) {
+          abandoned.cancel();
+          expressionPackBoard.release(abandoned);
+          abandoned.dispose();
+        }
+        return;
+      }
+      setState(() {
+        _checkingWorkflow = false;
+        _session = flight.session;
+        widget.onSessionChanged?.call(_session != null);
+      });
+      if (flight.session == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              flight.busy
+                  ? kAlreadyGeneratingMessage
+                  : (flight.error ?? 'The expression pack could not start.'),
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _checkingWorkflow = false);
+      widget.onSessionChanged?.call(false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Pack could not start: $error')));
     }
+  }
+
+  bool _canOwnBoard() {
+    final other = expressionPackBoard.run;
+    if (other == null || identical(other.session, _session)) {
+      return true;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Another screen has an expression pack. Use the pack banner above to stop or discard a phone pack, or finish a desktop pack in its originating screen.',
+        ),
+      ),
+    );
+    return false;
   }
 
   /// Runs what is still pending, under the same hold of the generation lock.
-  @override
-  Widget build(BuildContext context) {
-    final session = _session;
-    return ChangeNotifierProvider<StorageService>.value(
-      value: widget.storage,
-      child: Dialog(
-        backgroundColor: AppColors.surfaceOf(context),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 720,
-            maxHeight: MediaQuery.of(context).size.height * 0.94,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _header(context),
-              Flexible(
-                child: _checkingWorkflow
-                    ? const Center(child: CircularProgressIndicator())
-                    : session == null
-                    ? SingleChildScrollView(
-                        padding: const EdgeInsets.all(20),
-                        child: ExpressionPackSetup(
-                          promptRules: _promptRules,
-                          onRulesChanged: (rules) => _promptRules = rules,
-                          originalPrompts: {
-                            for (final emotion in kFullExpressionSet)
-                              emotion: originalExpressionPrompt(
-                                emotion: emotion,
-                                basePrompt:
-                                    '${widget.basePrompt}, $kExpressionFraming',
-                                editMode:
-                                    ImageGenBackend.fromKey(
-                                          widget
-                                              .storage
-                                              .imageGenSettings
-                                              .imageGenBackend,
-                                        ) ==
-                                        ImageGenBackend.comfyUi ||
-                                    ImageReferenceResolver.packEditMode(
-                                      widget.storage.imageGenSettings,
-                                    ),
-                              ),
-                          },
-                          baseImage: widget.baseImage,
-                          characterName: widget.characterName,
-                          existingEmotions: widget.existingEmotions,
-                          note: widget.note,
-                          storage: widget.storage,
-                          onCancel: () => Navigator.of(context).pop(false),
-                          onStart: _start,
-                        ),
-                      )
-                    : ExpressionPackGrid(
-                        storage: widget.storage,
-                        session: session,
-                        imageGen: widget.imageGen,
-                        cancelRequested: _cancelRequested,
-                        importing: _importing,
-                        qc: _qc,
-                        resolvingVision: _resolvingVision,
-                        onVisionCheck: _runVisionCheck,
-                        onCancel: () {
-                          setState(() => _cancelRequested = true);
-                          session.cancel();
-                        },
-                        onResume: () => unawaited(_resume(session)),
-                        onImport: _import,
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
+  Future<void> _resume(ExpressionPackSession session) async {
+    if (widget.imageGen.isGenerating || _imported) return;
+    setState(() => _cancelRequested = false);
+    final names = await widget.imageGen.startExpressionPack(
+      [
+        for (final slot in session.slots)
+          if (slot.state == ExpressionSlotState.pending) slot.emotion,
+      ],
+      (_) async {
+        await session.run();
+        return const <String>[];
+      },
     );
+    if (!mounted) return;
+    if (names == null) {
+      setState(() => _cancelRequested = true);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(kAlreadyGeneratingMessage)));
+    }
   }
 
-  Widget _header(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.borderOf(context))),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.theater_comedy, color: AppColors.formMasterAccent),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Expression pack — ${widget.characterName}',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary(context),
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
+  Future<void> _import() async {
+    if (_importing || _imported) return;
+    final session = _session!;
+    final ownedRun = expressionPackBoard.run;
+    final onBoard = identical(ownedRun?.session, session);
+    if (onBoard) expressionPackBoard.setImporting(ownedRun!, true);
+    setState(() => _importing = true);
+    try {
+      final count = await ExpressionPackImporter.importPack(
+        repository: widget.repository,
+        storage: widget.storage,
+        characterDbId: widget.characterDbId,
+        characterName: widget.characterName,
+        slots: session.slots,
+        replaceSameLabel: _replaceExisting,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Imported $count expressions for ${widget.characterName} — '
+            'expressions enabled',
           ),
-          IconButton(
-            icon: Icon(Icons.close, color: AppColors.iconSecondary(context)),
-            onPressed: _close,
-          ),
-        ],
-      ),
-    );
+        ),
+      );
+      _imported = true;
+      final run = expressionPackBoard.run;
+      if (identical(run?.session, session)) run!.imported = count;
+      widget.onImported?.call();
+      setState(() => _importing = false);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _importing = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Import failed: $error')));
+    } finally {
+      if (onBoard) expressionPackBoard.setImporting(ownedRun!, false);
+    }
   }
+
+  bool get hasPack => _session != null || _checkingWorkflow;
+  bool owns(PackRun run) => identical(run.session, _session);
+
+  Future<bool> confirmDiscard() async {
+    if (_importing || _checkingWorkflow) return false;
+    if (_session == null || _imported) return true;
+    final discard = await showWarmDialog<bool>(
+      context,
+      title: 'Discard expression pack?',
+      icon: Icons.delete_outline,
+      content: const WarmDialogText(
+        'Stop this pack and discard its results? Imported expressions remain in the library.',
+      ),
+      actions: [
+        warmDialogCancel(context, label: 'Keep pack'),
+        warmDialogConfirm(
+          context,
+          label: 'Discard',
+          destructive: true,
+          onPressed: () => Navigator.of(context).pop(true),
+        ),
+      ],
+    );
+    if (discard != true || !mounted) return false;
+    _session?.cancel();
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) => _buildPack(context);
 }

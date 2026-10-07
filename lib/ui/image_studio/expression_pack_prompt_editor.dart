@@ -19,6 +19,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
@@ -33,6 +34,8 @@ Future<void> showPackRerollEditor(
   ExpressionPackSession session,
   int index,
 ) async {
+  final imageGen = context.read<ImageGenService?>();
+  if (imageGen?.isGenerating ?? false) return;
   final initialPrompt = session.effectivePromptFor(index);
   final controller = TextEditingController(text: initialPrompt);
   var denoise = session.effectiveDenoiseFor(index);
@@ -162,7 +165,7 @@ Future<void> showPackRerollEditor(
   final prompt = controller.text;
   await route.completed;
   controller.dispose();
-  if (confirmed == true) {
+  if (confirmed == true && !(imageGen?.isGenerating ?? false)) {
     unawaited(
       session.reroll(
         index,

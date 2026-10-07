@@ -3,7 +3,7 @@
 
 part of 'expression_pack_dialog.dart';
 
-extension _ExpressionPackDialogQc on _ExpressionPackDialogState {
+extension _ExpressionPackDialogQc on ExpressionPackDialogState {
   Future<void> _runVisionCheck() async {
     final session = _session;
     if (session == null || _resolvingVision || (_qc?.isRunning ?? false)) {

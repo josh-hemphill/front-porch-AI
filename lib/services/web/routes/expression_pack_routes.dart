@@ -13,6 +13,9 @@ import 'package:front_porch_ai/services/web/util/util.dart';
 class ExpressionPackRoutes {
   ExpressionPackRoutes(Router router, {required this.image}) {
     router.get('/api/image/expression-pack', _status);
+    router.get('/api/image/expression-pack/source', _source);
+    router.post('/api/image/expression-pack/write-prompt', _writePrompt);
+    router.post('/api/image/expression-pack/discard', _discard);
     router.get(
       '/api/image/expression-pack/settings',
       (_) => JsonResponse.ok(image.packPromptDefaults()),
@@ -45,6 +48,48 @@ class ExpressionPackRoutes {
 
   final ImageFacade image;
 
+  Future<shelf.Response> _writePrompt(shelf.Request request) async {
+    final (body, failed) = await _body(request);
+    if (body == null) return failed!;
+    final instruction = '${body['instruction'] ?? ''}'.trim();
+    if (instruction.length > 12000) {
+      return _refused(
+        const DeskRefused('too_large', 'That is too long to work from.', 413),
+      );
+    }
+    try {
+      return JsonResponse.ok({
+        'prompt': await image.craftPackPrompt(
+          '${body['characterId'] ?? ''}',
+          instruction: instruction.isEmpty ? null : instruction,
+        ),
+      });
+    } on DeskRefused catch (e) {
+      return _refused(e);
+    }
+  }
+
+  Future<shelf.Response> _source(shelf.Request request) async {
+    try {
+      return JsonResponse.ok(
+        await image.packPortrait(
+          request.url.queryParameters['characterId'] ?? '',
+        ),
+      );
+    } on DeskRefused catch (e) {
+      return _refused(e);
+    }
+  }
+
+  shelf.Response _discard(shelf.Request request) {
+    try {
+      image.discardPack();
+      return JsonResponse.ok({'discarded': true});
+    } on DeskRefused catch (e) {
+      return _refused(e);
+    }
+  }
+
   static shelf.Response _refused(DeskRefused e) =>
       JsonResponse.error(e.status, e.message, extra: {'code': e.code});
 
@@ -52,7 +97,13 @@ class ExpressionPackRoutes {
     shelf.Request request,
   ) async {
     try {
-      return (await RequestBody.readJsonMap(request), null);
+      return (
+        await RequestBody.readJsonMap(
+          request,
+          maxBytes: RequestBody.uploadMaxBytes,
+        ),
+        null,
+      );
     } on BodyTooLarge {
       return (
         null,

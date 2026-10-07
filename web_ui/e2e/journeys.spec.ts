@@ -13,6 +13,46 @@ import { expect, openRoute, SERIAL, test } from './support/fixtures';
 
 const REPLY = process.env.FPAI_REPLY ?? '';
 
+test('expression workspace keeps its own prompt and picture across tabs', async ({ page, allowHttp }) => {
+  const original = await (await page.request.get('/api/image/config')).json() as {
+    backend: string; localUrl: string;
+  };
+  // No image backend runs in this sandbox. Exercise preparation against the
+  // real app; generation and import remain covered by the Flutter pack journey.
+  allowHttp((url, status) => status === 404 && /\/api\/image\/expression-pack\/source/.test(url));
+  try {
+    const configured = await page.request.post('/api/image/config', {
+      data: { backend: 'a1111', localUrl: 'http://127.0.0.1:9', currentPassword: process.env.FPAI_PASSWORD },
+    });
+    expect(configured.ok()).toBe(true);
+    await openRoute(page, '/models');
+    const panel = page.locator('#studio-pack-panel');
+    await page.getByRole('tab', { name: 'Expression pack', exact: true }).click();
+    await panel.getByLabel('Character', { exact: true }).selectOption({ label: 'Porch Tester' });
+    await panel.getByLabel('Image prompt', { exact: true }).fill('A deliberate pack portrait');
+    await panel.getByLabel('Pack picture file').setInputFiles({
+      name: 'pack-source.png', mimeType: 'image/png',
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'),
+    });
+    await expect(panel).toContainText('Source: pack-source.png');
+    await expect(panel.getByRole('button', { name: 'Start pack', exact: true })).toBeEnabled();
+    await page.getByRole('tab', { name: 'Create', exact: true }).click();
+    await expect(panel).toBeHidden();
+    await page.getByRole('tab', { name: 'Edit', exact: true }).click();
+    await page.getByRole('tab', { name: 'Expression pack', exact: true }).click();
+    await expect(panel.getByLabel('Image prompt', { exact: true })).toHaveValue('A deliberate pack portrait');
+    await expect(panel).toContainText('Source: pack-source.png');
+    await panel.getByRole('button', { name: 'Use character portrait', exact: true }).click();
+    await expect(panel).not.toContainText('Source: pack-source.png');
+    await expect(panel.getByLabel('Image prompt', { exact: true })).toHaveValue('A deliberate pack portrait');
+  } finally {
+    const restored = await page.request.post('/api/image/config', {
+      data: { backend: original.backend, localUrl: original.localUrl, currentPassword: process.env.FPAI_PASSWORD },
+    });
+    expect(restored.ok()).toBe(true);
+  }
+});
+
 const rows = (page: Page) => page.locator('.chat-messages .msg-row');
 const lastRow = (page: Page) => rows(page).last();
 const action = (row: Locator, title: string) => row.locator(`.msg-actions button[title="${title}"]`);

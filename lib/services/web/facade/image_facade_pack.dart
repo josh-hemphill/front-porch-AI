@@ -15,6 +15,17 @@ extension ImageStudioPacks on ImageFacade {
   /// Starts a pack for [f]`['characterId']`. It answers at once with the
   /// pack's state; the pictures are made in the background.
   Future<Map<String, Object?>> startPack(Map<String, dynamic> f) async {
+    requireIdlePackImport();
+    if (f['workspace'] == true && _board.run != null) {
+      throw const DeskRefused(
+        'existing_pack',
+        'Choose New pack to discard the current results first.',
+        409,
+      );
+    }
+    if (f['workspace'] == true && _image.isGenerating) {
+      throw const DeskRefused('busy', kAlreadyGeneratingMessage, 409);
+    }
     final rules = _readPromptRules(f);
     final repo = _characters;
     if (repo == null) {
@@ -60,7 +71,10 @@ extension ImageStudioPacks on ImageFacade {
               why.tooLarge ? 413 : 400,
             );
     }
-    final prompt = '${f['prompt'] ?? ''}'.trim();
+    var prompt = '${f['prompt'] ?? ''}'.trim();
+    if (!plan.edit && prompt.isEmpty && f['workspace'] == true) {
+      prompt = await craftPackPrompt(id);
+    }
     if (!plan.edit && prompt.isEmpty) {
       throw const DeskRefused(
         'needs_prompt',
@@ -104,6 +118,14 @@ extension ImageStudioPacks on ImageFacade {
       0.30,
       0.85,
     );
+    if (f['workspace'] == true && _board.run != null) {
+      throw const DeskRefused(
+        'existing_pack',
+        'Choose New pack to discard the current results first.',
+        409,
+      );
+    }
+    requireIdlePackImport();
     final flight = await withoutCity96Ask(
       () => beginExpressionPack(
         imageGen: _image,
@@ -162,6 +184,13 @@ extension ImageStudioPacks on ImageFacade {
         409,
       );
     }
+    if (run.importing) {
+      throw const DeskRefused(
+        'importing',
+        'Wait for the pack import to finish.',
+        409,
+      );
+    }
     if (run.session.isRunning) {
       throw const DeskRefused('running', 'It is still making pictures.', 409);
     }
@@ -187,14 +216,19 @@ extension ImageStudioPacks on ImageFacade {
         409,
       );
     }
-    run.imported = await ExpressionPackImporter.importPack(
-      repository: repo,
-      storage: _storage,
-      characterDbId: run.characterId!,
-      characterName: run.characterName,
-      slots: run.session.slots,
-      replaceSameLabel: run.replaceExisting,
-    );
+    _board.setImporting(run, true);
+    try {
+      run.imported = await ExpressionPackImporter.importPack(
+        repository: repo,
+        storage: _storage,
+        characterDbId: run.characterId!,
+        characterName: run.characterName,
+        slots: run.session.slots,
+        replaceSameLabel: run.replaceExisting,
+      );
+    } finally {
+      _board.setImporting(run, false);
+    }
     return _board.view()!;
   }
 
@@ -217,6 +251,13 @@ extension ImageStudioPacks on ImageFacade {
       throw const DeskRefused(
         'already_imported',
         'Those pictures are already imported.',
+        409,
+      );
+    }
+    if (run.importing) {
+      throw const DeskRefused(
+        'importing',
+        'Wait for the pack import to finish.',
         409,
       );
     }

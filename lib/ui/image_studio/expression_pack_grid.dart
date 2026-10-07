@@ -19,12 +19,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'expression_pack_widgets.dart';
 
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/expression_pack_qc.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/utils/utils.dart';
+import 'expression_pack_widgets.dart';
 
 /// Step 2 of the Expression-pack dialog: the live generation grid. One cell
 /// per emotion, generated sequentially by the [ExpressionPackSession]; this
@@ -39,6 +39,7 @@ class ExpressionPackGrid extends StatelessWidget {
     required this.imageGen,
     required this.cancelRequested,
     required this.importing,
+    this.imported = false,
     required this.qc,
     required this.resolvingVision,
     required this.onVisionCheck,
@@ -52,6 +53,7 @@ class ExpressionPackGrid extends StatelessWidget {
   final ImageGenService imageGen;
   final bool cancelRequested;
   final bool importing;
+  final bool imported;
 
   /// The dialog-owned Vision QC controller (null until the first check).
   final ExpressionPackQc? qc;
@@ -67,7 +69,7 @@ class ExpressionPackGrid extends StatelessWidget {
     return ListenableBuilder(
       // QC verdicts land on the slots via the controller's own notifications,
       // so the grid re-renders on either source.
-      listenable: qc == null ? session : Listenable.merge([session, qc]),
+      listenable: Listenable.merge([session, imageGen, ?qc]),
       builder: (context, _) {
         final total = session.slots.length;
         return Column(
@@ -109,8 +111,12 @@ class ExpressionPackGrid extends StatelessWidget {
                   childAspectRatio: 0.74,
                 ),
                 itemCount: total,
-                itemBuilder: (context, i) =>
-                    _PackCell(session: session, index: i, imageGen: imageGen),
+                itemBuilder: (context, i) => _PackCell(
+                  session: session,
+                  index: i,
+                  imageGen: imageGen,
+                  locked: importing || imported,
+                ),
               ),
             ),
             _footer(context),
@@ -148,7 +154,7 @@ class ExpressionPackGrid extends StatelessWidget {
       if (settings != null) {
         buttons.add(
           TextButton(
-            onPressed: importing
+            onPressed: importing || imported
                 ? null
                 : () async {
                     final rules = await showExpressionPromptRulesEditor(
@@ -192,7 +198,7 @@ class ExpressionPackGrid extends StatelessWidget {
         if (buttons.isNotEmpty) buttons.add(const SizedBox(width: 10));
         buttons.add(
           OutlinedButton.icon(
-            onPressed: onResume,
+            onPressed: imported || imageGen.isGenerating ? null : onResume,
             icon: Icon(
               Icons.play_arrow,
               size: 16,
@@ -215,7 +221,9 @@ class ExpressionPackGrid extends StatelessWidget {
         if (buttons.isNotEmpty) buttons.add(const SizedBox(width: 10));
         buttons.add(
           ElevatedButton.icon(
-            onPressed: (session.keptCount == 0 || importing) ? null : onImport,
+            onPressed: (session.keptCount == 0 || importing || imported)
+                ? null
+                : onImport,
             icon: importing
                 ? const SizedBox(
                     width: 14,
@@ -223,7 +231,11 @@ class ExpressionPackGrid extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.download_done, size: 16),
-            label: Text('Import ${session.keptCount} expressions'),
+            label: Text(
+              imported
+                  ? 'Expressions imported'
+                  : 'Import ${session.keptCount} expressions',
+            ),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.formMasterAccent,
               foregroundColor: AppColors.onChaosAccent,
@@ -256,11 +268,13 @@ class _PackCell extends StatelessWidget {
     required this.session,
     required this.index,
     required this.imageGen,
+    required this.locked,
   });
 
   final ExpressionPackSession session;
   final int index;
   final ImageGenService imageGen;
+  final bool locked;
 
   @override
   Widget build(BuildContext context) {
@@ -373,7 +387,9 @@ class _PackCell extends StatelessWidget {
                       child: Checkbox(
                         value: slot.keep,
                         activeColor: AppColors.formMasterAccent,
-                        onChanged: (v) => session.setKeep(index, v ?? false),
+                        onChanged: locked
+                            ? null
+                            : (v) => session.setKeep(index, v ?? false),
                       ),
                     ),
                   ),
@@ -394,7 +410,8 @@ class _PackCell extends StatelessWidget {
                       // Same seed + same settings = the same image, so a
                       // re-roll is ALWAYS the editor: tweak prompt/strength
                       // (pack-consistent seed) or opt into fresh noise.
-                      onPressed: session.isRunning
+                      onPressed:
+                          locked || session.isRunning || imageGen.isGenerating
                           ? null
                           : () => unawaited(
                               showPackRerollEditor(context, session, index),
@@ -431,9 +448,13 @@ class _PackCell extends StatelessWidget {
                   Icons.refresh,
                   color: AppColors.iconSecondary(context),
                 ),
-                onPressed: session.isRunning
+                onPressed: locked || session.isRunning || imageGen.isGenerating
                     ? null
-                    : () => unawaited(session.reroll(index)),
+                    : () {
+                        if (!imageGen.isGenerating) {
+                          unawaited(session.reroll(index));
+                        }
+                      },
               ),
             ],
           ),

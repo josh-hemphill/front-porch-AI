@@ -1,9 +1,12 @@
 // Copyright (C) 2026 Front Porch AI
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../../api/client";
 import type { Picture } from "./DeskRail";
+import { PackDraft } from './PackDraft';
+import { PackDiscardConfirmation } from './PackDiscardConfirmation';
+import type { Mode } from './types';
 import { PromptRulesEditor } from "./PromptRulesEditor";
 import {
   cancelPack,
@@ -18,6 +21,10 @@ import {
   startPack,
   type PackStart,
   type PackView,
+  fetchPackPortrait,
+  discardPack,
+  onPackChanged,
+  craftPackPrompt,
 } from "./packApi";
 
 interface CharacterRow {
@@ -51,7 +58,11 @@ const message = (e: unknown, fallback: string) =>
  * import what it made. The pictures are made on the computer, by the Edit
  * graph or with the reason it cannot; nothing here decides that.
  */
-export function PackPanel(props: { prompt: string; picture: Picture | null }) {
+export function PackPanel(props: {
+  initialPrompt?: string; initialPicture?: Picture | null;
+  lastSaved?: { name: string; url: string } | null;
+  sharedBusy?: boolean; configMode?: Mode; onBusy?: (busy: boolean) => void;
+}) {
   const [pack, setPack] = useState<PackView | null>(null);
   const [rules, setRules] = useState<PromptRules | null>(null);
   const [editingRules, setEditingRules] = useState<"setup" | "pack" | null>(
@@ -70,16 +81,50 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
   const [startProblem, setStartProblem] = useState("");
   const [packProblem, setPackProblem] = useState("");
   const [stopped, setStopped] = useState(false);
+  const [description, setDescription] = useState(props.initialPrompt ?? '');
+  const [crafting, setCrafting] = useState(false);
+  const target = useRef('');
+  target.current = character;
+  const [picture, setPicture] = useState<Picture | null>(props.initialPicture ?? null);
+  const [portrait, setPortrait] = useState<string | null>(null);
+  const [portraitLoading, setPortraitLoading] = useState(false);
+  const [pictureLoading, setPictureLoading] = useState(false);
+  const [portraitTick, setPortraitTick] = useState(0);
+  const [statusLoaded, setStatusLoaded] = useState(false);
+  const [captured, setCaptured] = useState(false);
+  const [confirmNew, setConfirmNew] = useState(false);
+  const newPackButton = useRef<HTMLButtonElement>(null);
+  const frozen = pack != null || busy || crafting || !statusLoaded;
+  const showCaptured = captured && pack?.origin === 'phone' && pack.characterId === character;
 
+  const refreshEpoch = useRef(0);
   const refresh = useCallback(() => {
+    const ticket = ++refreshEpoch.current;
     fetchPack()
-      .then(setPack)
+      .then((value) => { if (ticket === refreshEpoch.current) setPack(value); })
       .catch((e: unknown) => {
-        if (e instanceof ApiError && e.status === 404) setPack(null);
-      });
+        if (ticket === refreshEpoch.current && e instanceof ApiError && e.status === 404) setPack(null);
+      }).finally(() => { if (ticket === refreshEpoch.current) setStatusLoaded(true); });
   }, []);
 
   const running = pack?.running === true;
+  const onBusy = props.onBusy;
+  useEffect(() => onBusy?.(running || busy), [running, busy, onBusy]);
+  useEffect(() => {
+    return onPackChanged(refresh);
+  }, [refresh]);
+  useEffect(() => {
+    if (!character || pack || busy) return;
+    let live = true;
+    setPortraitLoading(true);
+    setPortrait(null);
+    fetchPackPortrait(character).then((value) => {
+      if (live) setPortrait(value.image);
+    }).catch((e: unknown) => {
+      if (live) setStartProblem(message(e, 'Could not read the current card portrait.'));
+    }).finally(() => { if (live) setPortraitLoading(false); });
+    return () => { live = false; };
+  }, [character, pack, busy, portraitTick]);
   const editRules = (scope: "setup" | "pack") => {
     if (scope === "pack" && pack?.promptRules) {
       setEditingRules(scope);
@@ -104,13 +149,20 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
   // already has in the answer.
   useEffect(() => {
     refresh();
+    const visible = () => { if (!document.hidden) refresh(); };
+    window.addEventListener('focus', visible);
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      window.removeEventListener('focus', visible);
+      document.removeEventListener('visibilitychange', visible);
+    };
   }, [refresh]);
 
   useEffect(() => {
-    if (!running) return;
+    if (!running && !pack?.importing) return;
     const timer = window.setInterval(refresh, 2000);
     return () => window.clearInterval(timer);
-  }, [running, refresh]);
+  }, [running, refresh, pack?.importing]);
 
   useEffect(() => {
     let live = true;
@@ -121,7 +173,7 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
         setCharacters(rows);
         const saved = remembered();
         setCharacter(
-          rows.some((r) => r.id === saved) ? saved : (rows[0]?.id ?? ""),
+          rows.some((r) => r.id === saved) ? saved : "",
         );
       })
       .catch(() => {
@@ -132,27 +184,45 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
     };
   }, []);
 
+  const craft = async () => {
+    if (!character || frozen || props.sharedBusy) return;
+    const id = character;
+    setCrafting(true);
+    setStartProblem('');
+    try {
+      const value = await craftPackPrompt(id, description);
+      if (target.current === id) setDescription(value.prompt);
+    } catch (e) {
+      setStartProblem(message(e, 'Could not write the image prompt.'));
+    } finally { setCrafting(false); }
+  };
+
   const start = () => {
+    if (frozen || props.sharedBusy || portraitLoading || pictureLoading) return;
     const body: PackStart = {
       characterId: character,
       set: full ? "full" : "starter",
       skipExisting,
       replaceExisting,
       denoise,
-      prompt: props.prompt,
+      prompt: description,
     };
+    if (picture?.kind === "file") body.referenceImage = picture.dataUrl;
+    if (picture?.kind === "saved") body.referenceFilename = picture.name;
+    body.workspace = true;
+    body.baseSource = 'currentPortrait';
+    if (!picture && portrait) body.referenceImage = portrait;
+    refreshEpoch.current++;
     if (rules) body.promptRules = rules;
-    if (props.picture?.kind === "file")
-      body.referenceImage = props.picture.dataUrl;
-    if (props.picture?.kind === "saved")
-      body.referenceFilename = props.picture.name;
     setBusy(true);
     setLeft(new Set());
     setStartProblem("");
     setStopped(false);
     startPack(body)
-      .then((view) => {
-        setPack(view);
+      .then((value) => {
+        refreshEpoch.current++;
+        setPack(value);
+        setCaptured(true);
         setRules(null);
         setEditingRules(null);
       })
@@ -166,6 +236,7 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
     setPackProblem("");
     cancelPack()
       .then((view) => {
+        refreshEpoch.current++;
         setPack(view);
         setStopped(true);
       })
@@ -179,10 +250,11 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
     const keep = pack.slots
       .filter((s) => s.state === "done" && !left.has(s.emotion))
       .map((s) => s.emotion);
+    refreshEpoch.current++;
     setBusy(true);
     setPackProblem("");
     importPack(keep)
-      .then(setPack)
+      .then((value) => { refreshEpoch.current++; setPack(value); })
       .catch((e: unknown) =>
         setPackProblem(message(e, "Could not import the pack.")),
       )
@@ -190,11 +262,12 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
   };
 
   const iterate = (emotion?: string) => {
+    refreshEpoch.current++;
     setBusy(true);
     setPackProblem("");
     setStopped(false);
     (emotion ? rerollPack(emotion) : resumePack())
-      .then(setPack)
+      .then((value) => { refreshEpoch.current++; setPack(value); })
       .catch((e: unknown) =>
         setPackProblem(message(e, "Could not continue the pack.")),
       )
@@ -213,6 +286,22 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
     ? pack.slots.filter((s) => s.state === "done" && !left.has(s.emotion))
         .length
     : 0;
+  const newPack = async () => {
+    refreshEpoch.current++;
+    setBusy(true);
+    setPackProblem('');
+    try {
+      await discardPack();
+      refreshEpoch.current++;
+      setPack(null);
+      setCaptured(false);
+      setConfirmNew(false);
+      setLeft(new Set());
+      setStopped(false);
+    } catch (e) {
+      setPackProblem(message(e, 'Could not discard this pack.'));
+    } finally { setBusy(false); }
+  };
   return (
     <div className="fp-pack" data-region="pack">
       <p>
@@ -220,17 +309,34 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
         ComfyUI it runs your Edit graph; if that graph is not ready it stops and
         says what is missing.
       </p>
+      {pack && !showCaptured ? <p>
+        Target: {pack.characterName}. This pack retains its original source portrait and description.
+      </p> : null}
+      {!pack || showCaptured ? <PackDraft
+        description={description} onDescription={setDescription}
+        edit={props.configMode === 'edit'} onCraft={() => void craft()} crafting={crafting}
+        picture={picture} onPicture={setPicture} portrait={portrait}
+        portraitLoading={portraitLoading}
+        characterName={characters.find((c) => c.id === character)?.name ?? ''}
+        characterId={character} onPictureLoading={setPictureLoading}
+        onReloadPortrait={() => { setPortrait(null); setPortraitLoading(true); setPortraitTick((value) => value + 1); }}
+        lastSaved={props.lastSaved} frozen={frozen} onProblem={setStartProblem} /> : null}
+      <fieldset className="fp-pack-options" disabled={frozen}>
+      <legend>Pack target and options</legend>
       <label>
         Character
         <select
           aria-label="Character"
-          value={character}
-          disabled={running}
+          value={pack ? pack.characterId ?? '' : character}
+          disabled={running || frozen}
           onChange={(e) => {
+            setDescription('');
+            setPicture(null);
             setCharacter(e.target.value);
             remember(e.target.value);
           }}
         >
+          <option value="">Choose a character</option>
           {characters.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -284,14 +390,10 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
           onChange={(e) => setDenoise(Number(e.target.value))}
         />
       </label>
-      <p>
-        {props.picture
-          ? `Built from ${props.picture.name}.`
-          : "Built from the character’s portrait. Choose a picture above to use another."}
-      </p>
+      </fieldset>
       <button
         type="button"
-        disabled={busy || running}
+        disabled={frozen || props.sharedBusy === true}
         onClick={() => editRules("setup")}
       >
         Prompt rules...
@@ -299,7 +401,7 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
       {editingRules && (editingRules === "pack" ? pack?.promptRules : rules) ? (
         <PromptRulesEditor
           rules={(editingRules === "pack" ? pack?.promptRules : rules)!}
-          prompt={props.prompt}
+          prompt={description}
           full={full}
           activePack={editingRules === "pack"}
           onClose={() => setEditingRules(null)}
@@ -314,7 +416,8 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
       ) : null}
       <button
         type="button"
-        disabled={busy || running || !character}
+        disabled={busy || running || !character || frozen || props.sharedBusy === true ||
+          pictureLoading || portraitLoading || (!picture && !portrait) || crafting}
         onClick={start}
       >
         Start pack
@@ -322,6 +425,11 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
       {startProblem ? <p role="alert">{startProblem}</p> : null}
       {pack ? (
         <div data-region="pack-status">
+          {!running && pack.origin === 'phone' ? <button type="button" ref={newPackButton}
+            title="Clear pack results and unlock the target, prompt, and source. Imported expressions stay in the library."
+            disabled={busy || props.sharedBusy || pack.importing} onClick={() => setConfirmNew(true)}>Reset pack</button> : null}
+          {confirmNew ? <PackDiscardConfirmation busy={busy} trigger={newPackButton}
+            onDiscard={() => void newPack()} onKeep={() => setConfirmNew(false)} /> : null}
           <p>
             {pack.characterName}: {pack.done} of {pack.total} made
             {running ? " — working…" : ""}
@@ -336,7 +444,7 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
           {!running && pack.origin === "phone" && pack.imported == null ? (
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || props.sharedBusy}
               onClick={() => editRules("pack")}
             >
               Edit pack prompt rules...
@@ -362,7 +470,7 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
                 pack.imported == null ? (
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || props.sharedBusy}
                     onClick={() => iterate(slot.emotion)}
                   >
                     Reroll {slot.emotion}
@@ -394,7 +502,7 @@ export function PackPanel(props: { prompt: string; picture: Picture | null }) {
           pack.origin === "phone" &&
           pack.imported == null &&
           pack.slots.some((slot) => slot.state === "pending") ? (
-            <button type="button" disabled={busy} onClick={() => iterate()}>
+            <button type="button" disabled={busy || props.sharedBusy} onClick={() => iterate()}>
               Generate remaining
             </button>
           ) : null}

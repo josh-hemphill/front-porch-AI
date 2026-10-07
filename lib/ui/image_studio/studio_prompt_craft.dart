@@ -31,8 +31,8 @@ LLMService? _liveStudioLlm(
   LLMService? launchLlm, {
   bool toast = false,
 }) {
-  final live = Provider.of<LLMProvider>(context, listen: false).activeService;
-  if (live.isReady) return live;
+  final live = Provider.of<LLMProvider?>(context, listen: false)?.activeService;
+  if (live?.isReady == true) return live;
   if (launchLlm != null && launchLlm.isReady) return launchLlm;
   if (toast) {
     ScaffoldMessenger.of(context).showSnackBar(

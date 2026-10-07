@@ -59,6 +59,10 @@ class StudioDesk extends StatefulWidget {
 
 class _StudioDeskState extends State<StudioDesk> {
   bool _edit = false;
+  bool get _configurationLocked => !mounted || studioSettingsLocked(context);
+  void _write(VoidCallback action) {
+    if (!_configurationLocked) action();
+  }
 
   bool get _editing => widget.editMode ?? _edit;
   bool _adult = false;
@@ -193,155 +197,166 @@ class _StudioDeskState extends State<StudioDesk> {
     final dtSampler = editing
         ? settings.editSampler
         : settings.drawThingsSampler;
-    return StudioStove(
-      backendName: studioBackendName(backend),
-      backend: backend,
-      url: _url(settings),
-      onBackend: settings.setImageGenBackend,
-      onEditUrl: () => _editUrl(settings),
-      address: backend == 'comfyui'
-          ? StudioComfyAddress(
-              url: settings.comfyUiUrl,
-              explicit: settings.comfyUiUrlExplicit,
-              offer: _comfyOffer,
-              onSave: (url) async {
-                rebuildState(() => _comfyOffer = null);
-                await settings.setComfyUiUrl(url);
-                if (url.isEmpty) await _lookForComfy();
-              },
-            )
-          : null,
-      remoteNote: backend == 'remote'
-          ? StudioRemoteKeyNote(settings: settings, storage: storage)
-          : null,
-      reachable: _reachable(backend, report),
-      checkedDown: (_catalogUrl ?? '').startsWith('down:'),
-      diffusionCount: backend == 'drawthings' || backend == 'remote'
-          ? _models.length
-          : _unet.length + _gguf.length,
-      loraCount: _loras.length,
-      familyLabel: primary.isEmpty
-          ? 'No model chosen'
-          : (family == ModelFamily.unknown ? 'Model' : family.label),
-      primaryFile: primary,
-      why: why,
-      onGraphs: () => openGraphs(settings),
-      onModels: uploadedGraph ? null : () => _openModels(settings),
-      onGetModel: () => openCivitai(settings, lora: false),
-      checkpointOnly: support.checkpointOnly,
-      support: support.rows,
-      onChangeSupport: (token) => _openModels(settings, token: token),
-      loras: [
-        for (final row in loraChecks)
-          StudioStoveLora(
-            row.file,
-            studioLoraBadge(
-              ImageModelFamily.compatibility(
-                row.family,
-                family,
-                metadataBacked: row.metadataBacked,
+    return StudioSettingsGate(
+      busy: context.watch<ImageGenService?>()?.isGenerating ?? false,
+      child: StudioStove(
+        backendName: studioBackendName(backend),
+        backend: backend,
+        url: _url(settings),
+        onBackend: (value) => _write(() => settings.setImageGenBackend(value)),
+        onEditUrl: () => _editUrl(settings),
+        address: backend == 'comfyui'
+            ? StudioComfyAddress(
+                url: settings.comfyUiUrl,
+                explicit: settings.comfyUiUrlExplicit,
+                offer: _comfyOffer,
+                onSave: (url) async {
+                  if (_configurationLocked) return;
+                  rebuildState(() => _comfyOffer = null);
+                  await settings.setComfyUiUrl(url);
+                  if (url.isEmpty) await _lookForComfy();
+                },
+              )
+            : null,
+        remoteNote: backend == 'remote'
+            ? StudioRemoteKeyNote(settings: settings, storage: storage)
+            : null,
+        reachable: _reachable(backend, report),
+        checkedDown: (_catalogUrl ?? '').startsWith('down:'),
+        diffusionCount: backend == 'drawthings' || backend == 'remote'
+            ? _models.length
+            : _unet.length + _gguf.length,
+        loraCount: _loras.length,
+        familyLabel: primary.isEmpty
+            ? 'No model chosen'
+            : (family == ModelFamily.unknown ? 'Model' : family.label),
+        primaryFile: primary,
+        why: why,
+        onGraphs: () => openGraphs(settings),
+        onModels: uploadedGraph ? null : () => _openModels(settings),
+        onGetModel: () => openCivitai(settings, lora: false),
+        checkpointOnly: support.checkpointOnly,
+        support: support.rows,
+        onChangeSupport: (token) => _openModels(settings, token: token),
+        loras: [
+          for (final row in loraChecks)
+            StudioStoveLora(
+              row.file,
+              studioLoraBadge(
+                ImageModelFamily.compatibility(
+                  row.family,
+                  family,
+                  metadataBacked: row.metadataBacked,
+                ),
               ),
             ),
-          ),
-      ],
-      loraBlocked: ready?.kind == StudioReady.loraMismatch,
-      onAddLora: () => openLoras(settings, primary),
-      onGetLora: () => openCivitai(settings, lora: true),
-      onAnyway: () async {
-        await settings.prefs?.setString(
-          settings.k('image_studio_lora_override_family'),
-          family.name,
-        );
-        settings.notify();
-      },
-      width: width,
-      height: height,
-      onSize: (nextWidth, nextHeight) =>
-          settings.setImageGenSize('${nextWidth}x$nextHeight'),
-      steps: stepCount,
-      cfg: cfg,
-      sampler: settings.imageGenSampler,
-      scheduler: settings.imageGenScheduler,
-      samplers: _samplers,
-      schedulers: _schedulers,
-      onSteps: (value) {
-        final parsed = int.tryParse(value);
-        if (parsed == null) return;
-        if (editing) {
-          settings.setEditSteps(parsed);
-        } else {
-          settings.setImageGenSteps(parsed);
-        }
-      },
-      onCfg: (value) {
-        final parsed = double.tryParse(value);
-        if (parsed == null) return;
-        if (editing) {
-          settings.setEditCfgScale(parsed);
-        } else {
-          settings.setImageGenCfgScale(parsed);
-        }
-      },
-      onSampler: settings.setImageGenSampler,
-      onScheduler: settings.setImageGenScheduler,
-      drawThings: backend == 'drawthings',
-      drawThingsSampler: dtSampler,
-      onDrawThingsSampler: (value) {
-        if (editing) {
-          settings.setEditSampler(value);
-        } else {
-          settings.setDrawThingsSampler(value);
-        }
-      },
-      knobs: StudioDeskKnobs(
-        settings: settings,
-        edit: editing,
-        comfyShiftGraph:
-            (ready?.tokens.contains(ComfyEditTokens.shift) ?? false)
-            ? _workflowId(settings)
+        ],
+        loraBlocked: ready?.kind == StudioReady.loraMismatch,
+        onAddLora: () => openLoras(settings, primary),
+        onGetLora: () => openCivitai(settings, lora: true),
+        onAnyway: () async {
+          if (_configurationLocked) return;
+          await settings.prefs?.setString(
+            settings.k('image_studio_lora_override_family'),
+            family.name,
+          );
+          settings.notify();
+        },
+        width: width,
+        height: height,
+        onSize: (nextWidth, nextHeight) =>
+            _write(() => settings.setImageGenSize('${nextWidth}x$nextHeight')),
+        steps: stepCount,
+        cfg: cfg,
+        sampler: settings.imageGenSampler,
+        scheduler: settings.imageGenScheduler,
+        samplers: _samplers,
+        schedulers: _schedulers,
+        onSteps: (value) {
+          if (_configurationLocked) return;
+          final parsed = int.tryParse(value);
+          if (parsed == null) return;
+          if (editing) {
+            settings.setEditSteps(parsed);
+          } else {
+            settings.setImageGenSteps(parsed);
+          }
+        },
+        onCfg: (value) {
+          if (_configurationLocked) return;
+          final parsed = double.tryParse(value);
+          if (parsed == null) return;
+          if (editing) {
+            settings.setEditCfgScale(parsed);
+          } else {
+            settings.setImageGenCfgScale(parsed);
+          }
+        },
+        onSampler: (value) => _write(() => settings.setImageGenSampler(value)),
+        onScheduler: (value) =>
+            _write(() => settings.setImageGenScheduler(value)),
+        drawThings: backend == 'drawthings',
+        drawThingsSampler: dtSampler,
+        onDrawThingsSampler: (value) {
+          if (_configurationLocked) return;
+          if (editing) {
+            settings.setEditSampler(value);
+          } else {
+            settings.setDrawThingsSampler(value);
+          }
+        },
+        knobs: StudioDeskKnobs(
+          canWrite: () => !_configurationLocked,
+          settings: settings,
+          edit: editing,
+          comfyShiftGraph:
+              (ready?.tokens.contains(ComfyEditTokens.shift) ?? false)
+              ? _workflowId(settings)
+              : null,
+          comfyOwnShift: ready?.ownShift ?? kEditRecommendedShift,
+        ),
+        readyLine: studioReadyLine(
+          ready: enabled,
+          checking: report == null,
+          blockedLora: ready?.kind == StudioReady.loraMismatch ? primary : null,
+          missing: ready?.kind == StudioReady.missingFile
+              ? studioMissingEncoderLine(primary: primary, rows: support.rows)
+              : '',
+        ),
+        generateEnabled: enabled,
+        onGenerate: widget.onGenerate,
+        showGenerate: widget.showGenerate,
+        errorText: widget.errorText,
+        generating: widget.generating,
+        onRetry: _retryCatalog,
+        showModes: widget.editMode == null,
+        editing: editing,
+        onMode: (value) {
+          setState(() => _edit = value);
+          _checkReady();
+        },
+        status: studioReadyStatus(ready),
+        loaderSupportAction:
+            backend == 'comfyui' &&
+                (ready?.kind == StudioReady.needsLoaderUpdate ||
+                    City96Gate.instance.hasExistingSupport(settings.comfyUiUrl))
+            ? TextButton(
+                onPressed: widget.generating
+                    ? null
+                    : () => _useExistingLoaderSupport(settings),
+                child: Text(
+                  City96Gate.instance.hasExistingSupport(settings.comfyUiUrl)
+                      ? 'Recheck GGUF support'
+                      : 'Use existing GGUF support…',
+                ),
+              )
             : null,
-        comfyOwnShift: ready?.ownShift ?? kEditRecommendedShift,
+        onUpdateLoader:
+            ready?.kind == StudioReady.needsLoaderUpdate &&
+                ready!.canUpdateLoader
+            ? () => _updateLoader(settings)
+            : null,
       ),
-      readyLine: studioReadyLine(
-        ready: enabled,
-        checking: report == null,
-        blockedLora: ready?.kind == StudioReady.loraMismatch ? primary : null,
-        missing: ready?.kind == StudioReady.missingFile
-            ? studioMissingEncoderLine(primary: primary, rows: support.rows)
-            : '',
-      ),
-      generateEnabled: enabled,
-      onGenerate: widget.onGenerate,
-      showGenerate: widget.showGenerate,
-      errorText: widget.errorText,
-      generating: widget.generating,
-      onRetry: _retryCatalog,
-      showModes: widget.editMode == null,
-      editing: editing,
-      onMode: (value) {
-        setState(() => _edit = value);
-        _checkReady();
-      },
-      status: studioReadyStatus(ready),
-      loaderSupportAction:
-          backend == 'comfyui' &&
-              (ready?.kind == StudioReady.needsLoaderUpdate ||
-                  City96Gate.instance.hasExistingSupport(settings.comfyUiUrl))
-          ? TextButton(
-              onPressed: widget.generating
-                  ? null
-                  : () => _useExistingLoaderSupport(settings),
-              child: Text(
-                City96Gate.instance.hasExistingSupport(settings.comfyUiUrl)
-                    ? 'Recheck GGUF support'
-                    : 'Use existing GGUF support…',
-              ),
-            )
-          : null,
-      onUpdateLoader:
-          ready?.kind == StudioReady.needsLoaderUpdate && ready!.canUpdateLoader
-          ? () => _updateLoader(settings)
-          : null,
     );
   }
 
@@ -385,6 +400,7 @@ class _StudioDeskState extends State<StudioDesk> {
   }
 
   Future<void> _saveUrl(ImageGenSettings settings, String value) {
+    if (_configurationLocked) return Future.value();
     switch (settings.imageGenBackend) {
       case 'comfyui':
         return settings.setComfyUiUrl(value);
