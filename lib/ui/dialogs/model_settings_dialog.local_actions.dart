@@ -22,6 +22,46 @@ part of 'model_settings_dialog.dart';
 /// except `setState` -> `rebuildState` (extensions can't call a State's
 /// protected members).
 extension _ModelSettingsLocalActions on _ModelSettingsDialogState {
+  /// The user chose [path] as the preset, from the list or with Browse, or
+  /// none when it is null. It is kept for the model it loads
+  /// ([chooseKoboldPreset]). A running engine is left alone: the start button
+  /// below applies it.
+  Future<void> _choosePreset(String? path) async {
+    final storage = Provider.of<StorageService>(context, listen: false);
+    await chooseKoboldPreset(storage, path);
+    if (!mounted) return;
+    // A preset that names its model on this computer owns the choice.
+    if (path != null &&
+        storage.backendSettings.kcppsHasModel &&
+        _kcppsModelExists.of(storage.backendSettings.kcppsModelPath)) {
+      rebuildState(() {
+        _selectedModelPath = null;
+      });
+    }
+  }
+
+  /// The layer count box saves as it is typed, so the launch can read it from
+  /// storage. Text that is not a number saves nothing: an emptied box is not 0,
+  /// which keeps the model off the card.
+  void _saveGpuLayers(String text) {
+    final layers = int.tryParse(text);
+    if (layers == null) return;
+    Provider.of<StorageService>(
+      context,
+      listen: false,
+    ).backendSettings.setGpuLayers(layers);
+  }
+
+  /// The context box saves as it is typed, like the layer count box.
+  void _saveContextSize(String text) {
+    final tokens = int.tryParse(text);
+    if (tokens == null || tokens <= 0) return;
+    Provider.of<StorageService>(
+      context,
+      listen: false,
+    ).backendSettings.setContextSize(tokens);
+  }
+
   Future<void> _restartBackend() async {
     final koboldService = Provider.of<KoboldService>(context, listen: false);
     final backendManager = Provider.of<BackendManager>(context, listen: false);
@@ -61,13 +101,6 @@ extension _ModelSettingsLocalActions on _ModelSettingsDialogState {
       return;
     }
 
-    storage.backendSettings.setGpuLayers(
-      int.tryParse(_gpuLayersController.text) ?? 0,
-    );
-    storage.backendSettings.setContextSize(
-      int.tryParse(_contextSizeController.text) ?? 16384,
-    );
-
     // Taken now: the dialog can be closed while the engine stops and starts,
     // and the launch below must still happen.
     final navigator = Navigator.of(context);
@@ -84,8 +117,10 @@ extension _ModelSettingsLocalActions on _ModelSettingsDialogState {
     await Future.delayed(const Duration(seconds: 1));
 
     // This dialog has no graphics-backend control, so it records none: a
-    // choice never made stays "let the app pick from the hardware". The
-    // launch reads everything else from the settings saved above. A preset
+    // choice never made stays "let the app pick from the hardware". Nothing
+    // else is written here either: every box saves as it is typed, and this
+    // dialog's copy of the context can be older than storage (a chosen preset
+    // sets its own, the phone sets it too). The launch reads storage. A preset
     // whose file is gone is cleared by the launch, which then goes ahead
     // and says so.
     final result = await koboldService.launch(

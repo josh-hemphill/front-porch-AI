@@ -44,7 +44,7 @@ void main() {
   /// the engine from it, the way the app launches.
   Future<LiveEngine> launch(String name, KoboldLaunchConfig config) async {
     final staged = File(p.join(adminDir.path, name))
-      ..writeAsStringSync(writeKcpps(config));
+      ..writeAsStringSync(encodeKcpps(kcppsMap(config)));
     final engine = await LiveEngine.start(exe, [
       '--config',
       staged.path,
@@ -109,7 +109,11 @@ void main() {
         'draftamount': 6,
       });
       final read = readKcpps(theirs) as KcppsOk;
-      expect(read.unmanagedKeys, containsAll(['draftmodel', 'draftamount']));
+      // The draft model and how many tokens it drafts are the preset
+      // editor's, kept as written.
+      expect(read.config.draftModelPath, liveEngineModel);
+      expect(read.config.draftAmount, 6);
+      expect(kcppsMap(read.config)['draftamount'], 6);
 
       await launch('fpai-draft.kcpps', read.config);
       final reply = await livePost(port, '/api/v1/generate', {

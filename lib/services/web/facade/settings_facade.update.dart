@@ -24,6 +24,48 @@
 part of 'settings_facade.dart';
 
 extension SettingsFacadeUpdate on SettingsFacade {
+  /// Why [body] must not be stored, in plain words, or null. Asked before
+  /// anything is written, so a refused save changes nothing.
+  String? refusal(Map<String, dynamic> body) =>
+      _presetRefusal(body) ?? _intelMacRefusal(body);
+
+  /// While KoboldCpp runs a preset, the preset's context is the context and
+  /// every place that sets it is locked ([koboldPresetOwnsContext], in the
+  /// desktop's words). The page sends the whole form with every save, so the
+  /// context it read coming back is not a change. The same save may be
+  /// switching the backend, and the rule is asked for the one it switches to.
+  String? _presetRefusal(Map<String, dynamic> body) {
+    final b = _storage.backendSettings;
+    final ctx = body['contextSize'];
+    if (ctx is! num || ctx.toInt() == b.contextSize) return null;
+    final next =
+        SettingsFacade._parse(body['backend']?.toString() ?? '') ??
+        _llm.activeBackend;
+    return koboldPresetOwnsContext(
+          backend: next.name,
+          kcppsPath: b.activeKcppsPath,
+        )
+        ? kPresetOwnsContext
+        : null;
+  }
+
+  /// An Intel Mac cannot run KoboldCpp. The desktop greys it out in its chat
+  /// backend and Realism evals host pickers, and says
+  /// [kIntelMacLocalUnsupported]; a save that would switch either one to it
+  /// (an older phone still offers it) is refused in that sentence. A page
+  /// whose backend already is KoboldCpp sends it back with the rest of the
+  /// form, which is not a switch.
+  String? _intelMacRefusal(Map<String, dynamic> body) {
+    bool kobold(Object? type) =>
+        SettingsFacade._parse(type?.toString() ?? '') == BackendType.kobold;
+    final switches =
+        (kobold(body['backend']) && _llm.activeBackend != BackendType.kobold) ||
+        (kobold(body['workerBackend']) && !kobold(_storage.workerBackendType));
+    return switches && _llm.backendManager.isIntelMac
+        ? kIntelMacLocalUnsupported
+        : null;
+  }
+
   Future<void> update(Map<String, dynamic> body) async {
     final g = _storage.generationSettings;
     final b = _storage.backendSettings;
@@ -215,7 +257,15 @@ extension SettingsFacadeUpdate on SettingsFacade {
     }
 
     final ctx = body['contextSize'];
-    if (ctx is num) await b.setContextSize(ctx.toInt());
+    if (ctx is num && _presetRefusal(body) == null) {
+      await b.setContextSize(ctx.toInt());
+    }
+    // Read by the running engine's idle clock: writing it is the update.
+    final idle = body['koboldIdleUnloadMinutes'];
+    if (idle is num) await b.setIdleUnloadMinutes(idle.toInt());
+    // Read by the keeper as it works, like the idle clock.
+    final recent = body['koboldKeepRecentChats'];
+    if (recent is num) await b.setKeepRecentChats(recent.toInt());
     if (body['gpuLayersNoteSeen'] == true) await b.dismissGpuLayersNote();
 
     final reasoning = body['reasoningEnabled'];

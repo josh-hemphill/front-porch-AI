@@ -155,21 +155,25 @@ class SetupStep extends StatelessWidget {
                 const SizedBox(height: 16),
                 Builder(
                   builder: (ctx) {
-                    final k = Provider.of<KoboldService>(ctx);
+                    final phase = Provider.of<KoboldService>(ctx).phase;
                     final isTransitioning =
-                        k.isStarting || (k.isRunning && !k.modelReady);
-                    final dotColor = k.modelReady
-                        ? Colors.green.shade300
-                        : isTransitioning
-                        ? Colors.orange.shade300
-                        : Colors.red.shade300;
-                    final label = k.modelReady
-                        ? 'Ready'
-                        : k.isStarting
-                        ? 'Starting...'
-                        : k.isRunning
-                        ? 'Loading model...'
-                        : 'Stopped';
+                        phase == KoboldPhase.starting ||
+                        phase == KoboldPhase.loading;
+                    final dotColor = switch (phase) {
+                      KoboldPhase.ready => Colors.green.shade300,
+                      KoboldPhase.unloaded => AppColors.slateFaintOf(ctx),
+                      KoboldPhase.starting ||
+                      KoboldPhase.loading => Colors.orange.shade300,
+                      KoboldPhase.stopped => Colors.red.shade300,
+                    };
+                    final label = switch (phase) {
+                      KoboldPhase.ready => 'Ready',
+                      // It loads again with the next request.
+                      KoboldPhase.unloaded => 'Unloaded while idle',
+                      KoboldPhase.starting => 'Starting...',
+                      KoboldPhase.loading => 'Loading model...',
+                      KoboldPhase.stopped => 'Stopped',
+                    };
                     return Row(
                       children: [
                         _BackendStatusDot(

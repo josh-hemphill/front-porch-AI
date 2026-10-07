@@ -24,6 +24,35 @@ part of 'settings_page.dart';
 /// the page's private launch state, so behavior is identical to when they
 /// lived inline. AppColors exclusive.
 extension _SettingsLaunchControls on _SettingsPageState {
+  /// A new chat model or preset goes into a running KoboldCpp at once: a
+  /// reload by name, a restart only when that is not acted on. When it was
+  /// not loaded, the reason is said the way a Start says its own, and the
+  /// model dropdown follows the stored choice again.
+  void _reloadChatIfRunning() {
+    final llm = context.read<LLMProvider>();
+    if (!llm.koboldService.isProcessRunning) return;
+    // Taken before the wait: the page may be gone when it ends.
+    final messenger = ScaffoldMessenger.of(context);
+    unawaited(
+      llm
+          .reloadChatKobold()
+          .then((result) {
+            final words = result?.message;
+            if (words != null) {
+              messenger.showSnackBar(SnackBar(content: Text(words)));
+            }
+            // A model that was not loaded was not kept either: the stored
+            // choice is back on what runs, and the dropdown names it again.
+            if (result?.refusal != null && mounted) {
+              rebuildState(() => _selectedModelPath = null);
+            }
+          })
+          .catchError(
+            (Object e) => debugPrint('[Settings] chat reload failed: $e'),
+          ),
+    );
+  }
+
   /// Apply GPU defaults based on detected hardware info.
   void _applyHardwareDefaults(HardwareInfo hw) {
     final storage = Provider.of<StorageService>(context, listen: false);
@@ -144,7 +173,8 @@ extension _SettingsLaunchControls on _SettingsPageState {
   }
 
   Future<void> _pickStoragePath() async {
-    String? selectedDirectory = await PickerPrefs.getDirectoryPath(
+    String? selectedDirectory = await GuardedPicker.getDirectoryPath(
+      context,
       category: PickerPrefs.catDirectory,
     );
     if (selectedDirectory != null) {
@@ -237,18 +267,10 @@ extension _SettingsLaunchControls on _SettingsPageState {
       return;
     }
 
-    final gpuLayers = int.tryParse(_gpuLayersController.text) ?? 0;
-    final contextSize = int.tryParse(_contextSizeController.text) ?? 16384;
-
-    storage.backendSettings.setGpuLayers(gpuLayers);
-    storage.backendSettings.setContextSize(contextSize);
-    storage.backendSettings.setUseCublas(_useCublas);
-    storage.backendSettings.setUseVulkan(_useVulkan);
-    storage.backendSettings.setUseMetal(_useMetal);
-    storage.backendSettings.setUseRocm(_useRocm);
-
-    // Saved above first: the launch reads its settings from storage, and
-    // records the model it resolves as the one in use.
+    // Nothing is written here: every control saves as it changes, and the
+    // launch reads storage. This page's copy of the context, layers and
+    // switches can be older than storage (the Local model card, the phone and
+    // "Reset to Automatic" write it directly), so writing it back undoes them.
     final result = await koboldService.launch(
       backendManager.backendPath!,
       pickedModel: _selectedModelPath,

@@ -33,6 +33,9 @@ class SetupService extends ChangeNotifier {
   SetupService(this._storageService, this._backendManager, this._koboldService);
 
   Future<void> runAutoSetup() async {
+    // Until the processor is known no Mac counts as an Intel one, so wait for
+    // it first (nothing awaits between the step check and the step set).
+    await _backendManager.architectureKnown;
     if (_currentStep != SetupStep.idle && _currentStep != SetupStep.error) {
       return;
     }
@@ -106,7 +109,11 @@ class SetupService extends ChangeNotifier {
       //    .kcpps preset that owns the model — the preset used to be its own
       //    "pseudoRemote" backend, but it is now just a launch option of the
       //    local backend, so a single autostart branch handles both.
+      //    An engine the user started meanwhile is left alone: a launch
+      //    would stop it and start it again. (One still starting already
+      //    refuses a second launch.)
       if (_storageService.backendSettings.autostartBackend &&
+          !_koboldService.isRunning &&
           resolveKoboldLaunch(_storageService).canLaunch) {
         _currentStep = SetupStep.startingBackend;
         notifyListeners();

@@ -18,18 +18,39 @@ import '../../golden/support/fakes.dart';
 import '../../golden/support/fakes_services.dart';
 import '../../golden/support/fakes_storage.dart';
 
+class _Kobold extends FakeKoboldService {
+  bool running = false;
+
+  @override
+  bool get isProcessRunning => running;
+}
+
 class _Llm extends FakeLLMProvider {
   int restarts = 0;
+  int reloads = 0;
+  final kobold = _Kobold();
+
+  @override
+  KoboldService get koboldService => kobold;
+
+  @override
+  Future<KoboldLaunchResult?> reloadChatKobold() async {
+    reloads++;
+    return null;
+  }
 
   @override
   Future<void> stopAllManagedProcesses() async {}
 
   @override
-  Future<void> ensureManagedBackendIsRunning({
+  Future<KoboldLaunchResult?> ensureManagedBackendIsRunning({
     bool forGpuSwap = false,
     String? modelPath,
     String? kcppsPath,
-  }) async => restarts++;
+  }) async {
+    restarts++;
+    return null;
+  }
 }
 
 void main() {
@@ -61,7 +82,6 @@ void main() {
       final launch = resolveKoboldLaunch(storage);
       expect(launch.modelPath, a);
       expect(launch.kcppsPath, isNull);
-      expect(launch.presetOwnsModel, isFalse);
       expect(launch.note, isNull);
     });
 
@@ -83,7 +103,6 @@ void main() {
       final launch = resolveKoboldLaunch(storage, pickedModel: a);
       expect(launch.modelPath, b);
       expect(launch.kcppsPath, owned);
-      expect(launch.presetOwnsModel, isTrue);
     });
 
     test('a preset from another computer keeps its settings and runs the '
@@ -99,7 +118,6 @@ void main() {
       final launch = resolveKoboldLaunch(storage);
       expect(launch.modelPath, a);
       expect(launch.kcppsPath, foreign);
-      expect(launch.presetOwnsModel, isFalse);
       expect(launch.note, contains('big-model.gguf'));
     });
 
@@ -222,6 +240,13 @@ void main() {
       // A path the app does not know is refused and changes nothing.
       expect(await facade.switchModel('/etc/passwd'), isFalse);
       expect(storage.backendSettings.lastUsedModelPath, big);
+
+      // With KoboldCpp running, the new model is loaded in place.
+      llm.kobold.running = true;
+      expect(await facade.switchModel(small), isTrue);
+      expect(llm.reloads, 1);
+      expect(llm.restarts, 1, reason: 'no second restart');
+      expect(resolveKoboldLaunch(storage).modelPath, small);
     });
   });
 }

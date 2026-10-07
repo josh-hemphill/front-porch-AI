@@ -21,6 +21,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 
 import 'package:front_porch_ai/models/models.dart';
+import 'package:front_porch_ai/services/kobold/kobold.dart';
 import 'package:front_porch_ai/services/llm_provider.dart';
 import 'package:front_porch_ai/services/storage/settings/remote_api_key_vault.dart';
 import 'package:front_porch_ai/services/storage/settings/remote_provider.dart';
@@ -85,7 +86,10 @@ Map<String, dynamic> storyLaneOptionsFor(
           },
     ],
     'koboldModels': _files(storage.modelsDir, const ['.gguf']),
-    'kcpps': _files(storage.binDir, const ['.kcpps']),
+    'kcpps': [
+      for (final f in kcppsPresetFiles(storage.binDir.path))
+        {'name': path.basename(f.path), 'path': f.path},
+    ],
   };
 }
 
@@ -105,13 +109,12 @@ String storyLaneLabel(
           ? 'Same as chat · ${storyShortModelName(options['chat']['model'])}'
           : 'Worker model · ${storyShortModelName(worker['model'])}';
     case StoryModelLane.host:
-      final host = llm.laneHost(
-        type: choice.backendType,
-        url: choice.apiUrl,
-        model: choice.model,
-        kcpps: choice.kcpps,
-      );
-      return host?.label ?? 'Another host · no model picked';
+      return llm.laneLabel(
+            type: choice.backendType,
+            url: choice.apiUrl,
+            model: choice.model,
+          ) ??
+          'Another host · no model picked';
   }
 }
 

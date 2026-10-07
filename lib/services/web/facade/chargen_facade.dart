@@ -34,6 +34,8 @@ import 'package:front_porch_ai/services/lore_extraction_service.dart';
 import 'package:front_porch_ai/services/web/facade/character_facade.dart';
 import 'package:front_porch_ai/services/web/streaming/stream_hub.dart';
 
+part 'chargen_facade.greetings.dart';
+
 /// Web adapter for the AI character creator. The generator itself
 /// ([CharacterGenService.generateCharacter]) is already fully headless — the
 /// desktop `creator_state_engine` is just a UI wrapper around it — so this is a
@@ -56,6 +58,14 @@ class ChargenFacade {
   final ImageGenService? _imageGen;
   final StorageService? _storage;
   final ChatService? _chat;
+
+  /// The Greetings step (chargen_facade.greetings.dart): the one greeting
+  /// being written, a cache of how characters created here wrote their
+  /// greetings (the card's own stamp is the record), and whether a whole
+  /// character is being created right now.
+  _GreetingJob? _greetingJob;
+  final Map<String, GreetingRecipe> _recipes = {};
+  bool _creating = false;
 
   /// Whether an LLM backend is ready to generate.
   bool get available => _llm.activeService.isReady;
@@ -153,7 +163,10 @@ class ChargenFacade {
           isLocalKobold:
               _llm.activeBackend == BackendType.kobold &&
               _llm.koboldService.isReady,
-          contextSize: _storage?.backendSettings.contextSize ?? 8192,
+          contextSize: switch (_storage?.backendSettings) {
+            final b? => b.promptContext(b.contextSize),
+            null => 8192,
+          },
         ),
       );
       final gen = CharacterGenService(svc);
@@ -192,6 +205,12 @@ class ChargenFacade {
           if (selection.greetings) 'firstMessage': result.firstMessage,
           if (selection.greetings)
             'alternateGreetings': result.alternateGreetings,
+          // How those greetings were written; the phone sends it back with
+          // them, so the copy does not keep the original's recipe.
+          if (selection.greetings)
+            'greetingRecipe':
+                (readGreetingRecipe(result) ?? const GreetingRecipe())
+                    .toStamp(),
           if (selection.lorebook && result.lorebook != null)
             'lorebook': result.lorebook!.toJson(),
           if (porch != null)
@@ -326,6 +345,7 @@ class ChargenFacade {
     Map<String, dynamic> fields,
     LLMService svc,
   ) async {
+    _creating = true;
     try {
       // Quick / Guided / Automated all flow through the same headless generator;
       // the web wizard assembles concept + characterContext per-mode (mirroring
@@ -395,6 +415,7 @@ class ChargenFacade {
         });
         return;
       }
+      _rememberRecipe(saved['id']?.toString(), gen.greetingRecipe);
       _hub?.broadcast({
         'event': 'chargen_done',
         'id': saved['id'],
@@ -402,6 +423,8 @@ class ChargenFacade {
       });
     } catch (e) {
       _hub?.broadcast({'event': 'chargen_error', 'error': '$e'});
+    } finally {
+      _creating = false;
     }
   }
 }

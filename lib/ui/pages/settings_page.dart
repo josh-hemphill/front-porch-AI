@@ -16,6 +16,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Front Porch AI. If not, see <https://www.gnu.org/licenses/>.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -84,6 +85,9 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final _gpuLayersController = TextEditingController(text: '0');
   final _contextSizeController = TextEditingController(text: '16384');
+
+  /// The context the Context Window box was last brought in step with.
+  int? _savedContext;
   double? _dragContextSize;
   double? _dragCallBuffer;
   final _apiController = TextEditingController();
@@ -108,19 +112,6 @@ class _SettingsPageState extends State<SettingsPage> {
   // fetch instantly; the background refresh still runs and replaces it.
   static List<RemoteModelInfo>? _modelsCache;
   static String? _modelsCacheKey;
-
-  // Memoized model file size for the VRAM gauge (settings_page.hardware.dart):
-  // the gauge is rebuilt PER FRAME while dragging the context slider, and it
-  // used to existsSync + lengthSync a multi-GB GGUF on every one of those
-  // frames. Resolved once per selected path instead.
-  int _modelSizeMbCache = 0;
-  String? _modelSizeMbForPath;
-
-  // Memoized KV-cost future for the same gauge (a fresh Future per rebuild
-  // made the FutureBuilder flip between exact and heuristic estimates every
-  // frame mid-drag).
-  Future<int?>? _kvBytesFuture;
-  String? _kvBytesFuturePath;
 
   // Latest text typed into the Web Server port field (settings_page.advanced):
   // it commits on focus loss too, and this has to outlive the rebuilds that
@@ -172,14 +163,13 @@ class _SettingsPageState extends State<SettingsPage> {
     _useRocm = storage.backendSettings.useRocm == true;
     // Mirror the persisted launch values into the controllers HERE, not only
     // inside _applyHardwareDefaults: that runs only once HardwareService has
-    // detected a GPU, and detection failures leave hardwareInfo null forever.
-    // Start Backend persists whatever the controllers hold, so on a box where
-    // probing fails the construction placeholders ('0' / '16384') — and a
-    // ROCm user's unmirrored acceleration flag — were written over the user's
-    // saved settings the moment they pressed the button.
+    // detected a GPU, and detection failures leave hardwareInfo null forever,
+    // which would leave the Advanced tab showing the construction
+    // placeholders ('0' / '16384') instead of the user's saved settings.
     _gpuLayersController.text = storage.backendSettings.gpuLayers.toString();
     _contextSizeController.text = storage.backendSettings.contextSize
         .toString();
+    _savedContext = storage.backendSettings.contextSize;
     // Apply hardware-based defaults once hardware info is available.
     // HardwareService.detectHardware() is already called in its constructor,
     // so we just use the cached result. If detection is still in progress,
@@ -217,7 +207,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _scanLocalPresets() {
     final storage = Provider.of<StorageService>(context, listen: false);
-    final files = scanKcppsPresets(storage.binDir);
+    final files = kcppsPresetFiles(storage.binDir.path);
     setState(() {
       _localPresets = files;
     });
@@ -364,22 +354,21 @@ class _SettingsPageState extends State<SettingsPage> {
     final storageService = Provider.of<StorageService>(context);
     final modelManager = Provider.of<ModelManager>(context);
 
-    // Auto-select first model if none selected and models exist. Skip when a
-    // kcpps preset with a valid model is active (use "Managed by kcpps").
+    // Auto-select a model if none selected and models exist: the last-used
+    // one when the scan has it (the Local model card names that one), else the
+    // first. Skip when a kcpps preset with a valid model is active (use
+    // "Managed by kcpps").
     final kcppsModelExists = _kcppsModelExists.of(
       storageService.backendSettings.kcppsModelPath,
     );
     if (_selectedModelPath == null &&
         modelManager.models.isNotEmpty &&
         !(storageService.backendSettings.kcppsHasModel && kcppsModelExists)) {
-      _selectedModelPath = modelManager.models.first.path;
+      _selectedModelPath = modelListStart(
+        modelManager.models,
+        storageService.backendSettings.lastUsedModelPath,
+      );
     }
-    // Warm architecture info for the (possibly just auto-selected) model so
-    // the first Auto-Configure or gauge update is accurate.
-    if (_selectedModelPath != null) {
-      modelManager.getModelArchitectureInfo(_selectedModelPath!);
-    }
-
     return BackendTab(
       apiUrlController: _remoteApiUrlController,
       apiKeyController: _remoteApiKeyController,
@@ -396,31 +385,25 @@ class _SettingsPageState extends State<SettingsPage> {
           setState(() {
             _selectedModelPath = val;
           });
-          selectKoboldModel(storageService, val);
-
-          // Warm the model details so the memory gauge is accurate.
-          modelManager.getModelArchitectureInfo(val); // fire-and-forget
+          selectKoboldModel(
+            storageService,
+            val,
+          ).then((_) => _reloadChatIfRunning());
         }
       },
       onVisionChanged: () => setState(() {}),
       onScanPresets: _scanLocalPresets,
-      onKcppsChanged: (val) {
-        storageService.backendSettings.setActiveKcppsPath(val);
-        if (_selectedModelPath != null && val != null) {
-          storageService.presetSettings.setModelPreset(
-            _selectedModelPath!,
-            val,
-          );
+      onKcppsChanged: (val) async {
+        final model = await chooseKoboldPreset(storageService, val);
+        if (!mounted) return;
+        if (val != null && model != null) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                'Preset saved for model: ${p.basename(_selectedModelPath!)}',
-              ),
+              content: Text('Preset saved for model: ${p.basename(model)}'),
             ),
           );
-        } else if (_selectedModelPath != null && val == null) {
-          storageService.presetSettings.setModelPreset(_selectedModelPath!, '');
         }
+        _reloadChatIfRunning();
         if (val != null &&
             storageService.backendSettings.kcppsHasModel &&
             _kcppsModelExists.of(
@@ -431,20 +414,16 @@ class _SettingsPageState extends State<SettingsPage> {
           });
         }
       },
-      onKcppsExternalClear: () {
-        storageService.backendSettings.setActiveKcppsPath(null);
-        if (_selectedModelPath != null) {
-          storageService.presetSettings.setModelPreset(_selectedModelPath!, '');
-        }
+      onKcppsExternalClear: () async {
+        await chooseKoboldPreset(storageService, null);
+        if (!mounted) return;
+        _reloadChatIfRunning();
       },
-      onKcppsBrowsePicked: (path) {
-        if (_selectedModelPath != null) {
-          storageService.presetSettings.setModelPreset(
-            _selectedModelPath!,
-            path,
-          );
-        }
+      onKcppsBrowsePicked: (path) async {
+        await chooseKoboldPreset(storageService, path);
+        if (!mounted) return;
         _scanLocalPresets();
+        _reloadChatIfRunning();
         if (storageService.backendSettings.kcppsHasModel &&
             _kcppsModelExists.of(
               storageService.backendSettings.kcppsModelPath,

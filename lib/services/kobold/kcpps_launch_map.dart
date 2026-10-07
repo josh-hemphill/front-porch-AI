@@ -17,6 +17,10 @@
 // along with Front Porch AI. If not, see <https://www.gnu.org/licenses/>.
 
 import 'kcpps_codec.dart';
+import 'kobold_app_config.dart';
+import 'kobold_launch_config.dart';
+import 'kobold_launch_failure.dart';
+import 'kobold_preset_read.dart';
 
 /// The config a launch runs for a user's preset: the file as it was written,
 /// with only what the app has to own laid over it.
@@ -27,6 +31,10 @@ import 'kcpps_codec.dart';
 /// with fast forward. [onNote] is told about that last one, and about a
 /// forced automatic fit that overrides the file's own layer count.
 ///
+/// [flashAttentionOff]: the ROCm build died on this machine with flash
+/// attention on, so it is switched off here too (with a compressed cache
+/// back to full size, which needs it), and [onNote] is told.
+///
 /// A file that does not mention sliding window is left as it is: KoboldCpp's
 /// own default then applies. The launch says so when the model has sliding
 /// window (see [kSwaLeftToKoboldNote]).
@@ -35,12 +43,21 @@ import 'kcpps_codec.dart';
 /// the file from the app's typed settings dropped what those cannot hold (a
 /// second graphics card, the CUDA options, a MoE layer count) and wrote the
 /// app's default wherever the file had left a choice to KoboldCpp.
+///
+/// Throws [KoboldPresetProblem], in plain words, for a preset that
+/// [kcppsPresetProblem] refuses (one that asks KoboldCpp to run a program or
+/// open itself to the internet, or that an older KoboldCpp saved with old
+/// setting names): every start, swap and timing trial is built here, so none
+/// of them can load one.
 Map<String, dynamic> kcppsPresetLaunchMap(
   Map<String, dynamic> preset, {
   required String modelPath,
   required String mmprojPath,
   void Function(String note)? onNote,
+  bool flashAttentionOff = false,
 }) {
+  final refused = kcppsPresetProblem(preset);
+  if (refused != null) throw KoboldPresetProblem(refused);
   final map = Map<String, dynamic>.of(preset);
   if (modelPath.isNotEmpty) map['model_param'] = modelPath;
   map['jinja'] = true;
@@ -53,5 +70,21 @@ Map<String, dynamic> kcppsPresetLaunchMap(
   }
   final forcedFit = kcppsForcedFitNote(map);
   if (forcedFit != null) onNote?.call(forcedFit);
+
+  // The ROCm build died on this machine with flash attention on. A
+  // compressed cache needs it, so that goes back to full size too.
+  if (flashAttentionOff && kcppsRunsFlashAttention(map)) {
+    map['noflashattention'] = true;
+    if (KvQuant.parse(map['quantkv']).needsFlashAttention) {
+      map['quantkv'] = KvQuant.f16.wire;
+    }
+    onNote?.call(
+      koboldFlashAttentionNote(
+        backend: KoboldGpuBackend.cuda,
+        rocm: true,
+        rocmFailedBefore: true,
+      )!,
+    );
+  }
   return map;
 }

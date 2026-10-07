@@ -11,6 +11,8 @@ import { FollowStreamingSettings } from '../components/FollowStreamingSettings';
 import { MessageSideSettings } from '../components/MessageSideSettings';
 import { PorchLifeSettings } from '../components/PorchLifeSettings';
 import { ModelTransportCard } from '../components/ModelTransportCard';
+import { IdleUnloadSettings } from '../components/IdleUnloadSettings';
+import { KeepRecentChatsSettings } from '../components/KeepRecentChatsSettings';
 import { applySpellCheckLang } from '../spellCheckLang';
 import {
   StepUpFields,
@@ -26,7 +28,9 @@ import { VoiceMediaSettings } from '../components/VoiceMediaSettings';
 import { WorkerBackendCard } from '../components/WorkerBackendCard';
 import { SuperGrokCard } from '../components/SuperGrokCard';
 import { urlHasStoredApiKey } from '../remoteApiKeys';
-import { BACKEND_OPTIONS, backendOptionId } from '../backendOptions';
+import { BACKEND_OPTIONS, INTEL_MAC_LOCAL_UNSUPPORTED, backendOptionId } from '../backendOptions';
+import { presetOwnsContext } from '../presetOwnsContext';
+import { useLocalUnsupported } from '../hooks/useLocalUnsupported';
 
 
 type Gen = GenSettings;
@@ -160,6 +164,9 @@ export function SettingsPage() {
       .then((st) => setTotpEnabled(!!st.totpEnabled))
       .catch(() => {});
   }, []);
+  // An Intel Mac host cannot run KoboldCpp: greyed out in the Backend
+  // picker, with the desktop's sentence beside it.
+  const localUnsupported = useLocalUnsupported();
 
   const reclaim = async () => {
     if (
@@ -301,7 +308,8 @@ export function SettingsPage() {
     (o) => o.id !== 'omlx' || s.omlxAvailable === true,
   );
   const isApi = s.backend === 'openRouter' || s.backend === 'omlx';
-  const isManagedLocal = s.backend === 'kobold';
+  // Not on an Intel Mac, as the Models page's KoboldCpp cards.
+  const isManagedLocal = s.backend === 'kobold' && !localUnsupported;
   const showUrlField = selectedId === 'custom';
   const showKeyField =
     selectedId === 'openrouter' ||
@@ -334,10 +342,17 @@ export function SettingsPage() {
           Backend
           <select value={selectedId} onChange={(e) => onBackendChange(e.target.value)}>
             {visibleBackends.map((o) => (
-              <option key={o.id} value={o.id}>{o.label}</option>
+              <option key={o.id} value={o.id} disabled={o.id === 'kobold' && localUnsupported}>
+                {o.label}
+              </option>
             ))}
           </select>
         </label>
+        {localUnsupported && (
+          <div className="cpu-warn" data-testid="chat-local-unsupported">
+            {INTEL_MAC_LOCAL_UNSUPPORTED}
+          </div>
+        )}
         <p className="muted small">Loaded model: <strong>{s.loadedModel}</strong> · context {s.contextSize}</p>
 
         {isManagedLocal && (
@@ -471,11 +486,16 @@ export function SettingsPage() {
         />
       </section>
 
+      {/* The desktop has these two in Advanced Launch Options. */}
+      {isManagedLocal && <IdleUnloadSettings />}
+      {isManagedLocal && <KeepRecentChatsSettings />}
+
       <GenerationSettingsFields
         backend={s.backend}
         isLocal={s.isLocal}
         remoteModelName={s.remoteModelName}
         contextSize={s.contextSize}
+        contextLocked={presetOwnsContext(s.backend, s.activeKcppsPath)}
         generation={s.generation}
         systemPrompt={s.systemPrompt}
         bannedPhrases={s.bannedPhrases}
