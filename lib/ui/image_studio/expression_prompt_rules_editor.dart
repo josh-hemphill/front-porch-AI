@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
+import 'package:front_porch_ai/ui/widgets/widgets.dart';
 
 Future<ExpressionPromptRules?> showExpressionPromptRulesEditor(
   BuildContext context, {
@@ -12,8 +13,8 @@ Future<ExpressionPromptRules?> showExpressionPromptRulesEditor(
   required Future<void> Function(ExpressionPromptRules) saveDefaults,
   required Map<String, String> originals,
   String Function(String emotion, ExpressionPromptRules rules)? previewPrompt,
-}) => showDialog<ExpressionPromptRules>(
-  context: context,
+}) => showWarmDialogOf<ExpressionPromptRules>(
+  context,
   builder: (_) => ExpressionPromptRulesEditor(
     rules: rules,
     globalDefaults: globalDefaults,
@@ -82,66 +83,69 @@ class _ExpressionPromptRulesEditorState
     final row = index == null ? null : _rows[index];
     final find = TextEditingController(text: row?.find ?? '');
     final replace = TextEditingController(text: row?.replace ?? '');
-    var sensitive = row?.caseSensitive ?? true;
-    String? error;
-    final result = await showDialog<ExpressionPromptReplacement>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setLocal) => AlertDialog(
-          title: const Text('Literal replacement'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: find,
-                  decoration: const InputDecoration(labelText: 'Find'),
-                  maxLength: 2048,
-                ),
-                TextField(
-                  controller: replace,
-                  decoration: const InputDecoration(labelText: 'Replace with'),
-                  maxLength: 2048,
-                ),
-                CheckboxListTile(
-                  value: sensitive,
-                  title: const Text('Case sensitive'),
-                  onChanged: (v) => setLocal(() => sensitive = v ?? true),
-                ),
-                if (error != null) Text(error!),
-              ],
+    // The buttons live outside the body, so the two values they share with
+    // it are notifiers rather than a StatefulBuilder's locals.
+    final sensitive = ValueNotifier<bool>(row?.caseSensitive ?? true);
+    final error = ValueNotifier<String?>(null);
+    final result = await showWarmDialog<ExpressionPromptReplacement>(
+      context,
+      title: 'Literal replacement',
+      width: 420,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: find,
+            decoration: const InputDecoration(labelText: 'Find'),
+            maxLength: 2048,
+          ),
+          TextField(
+            controller: replace,
+            decoration: const InputDecoration(labelText: 'Replace with'),
+            maxLength: 2048,
+          ),
+          ValueListenableBuilder<bool>(
+            valueListenable: sensitive,
+            builder: (_, value, _) => CheckboxListTile(
+              value: value,
+              title: const Text('Case sensitive'),
+              onChanged: (v) => sensitive.value = v ?? true,
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                try {
-                  Navigator.pop(
-                    context,
-                    ExpressionPromptReplacement(
-                      find: find.text,
-                      replace: replace.text,
-                      caseSensitive: sensitive,
-                    ),
-                  );
-                } on FormatException catch (e) {
-                  setLocal(() => error = e.message);
-                }
-              },
-              child: const Text('Use replacement'),
-            ),
-          ],
-        ),
+          ValueListenableBuilder<String?>(
+            valueListenable: error,
+            builder: (_, message, _) =>
+                message == null ? const SizedBox.shrink() : Text(message),
+          ),
+        ],
       ),
+      actions: [
+        warmDialogCancel(context),
+        warmDialogConfirm(
+          context,
+          label: 'Use replacement',
+          onPressed: () {
+            try {
+              Navigator.pop(
+                context,
+                ExpressionPromptReplacement(
+                  find: find.text,
+                  replace: replace.text,
+                  caseSensitive: sensitive.value,
+                ),
+              );
+            } on FormatException catch (e) {
+              error.value = e.message;
+            }
+          },
+        ),
+      ],
     );
     await Future<void>.delayed(const Duration(milliseconds: 250));
     find.dispose();
     replace.dispose();
+    sensitive.dispose();
+    error.dispose();
     if (!mounted || result == null) return;
     setState(() {
       _status = null;
@@ -172,10 +176,10 @@ class _ExpressionPromptRulesEditorState
       validationError = e.message;
       preview = null;
     }
-    return AlertDialog(
-      title: const Text('Prompt rules'),
+    return WarmDialog(
+      title: 'Prompt rules',
+      width: 620,
       content: SizedBox(
-        width: 620,
         height: 470,
         child: SingleChildScrollView(
           child: Column(
