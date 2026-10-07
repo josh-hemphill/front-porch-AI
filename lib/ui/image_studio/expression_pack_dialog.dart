@@ -21,23 +21,22 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'expression_pack_widgets.dart';
 import 'package:provider/provider.dart';
 
 import 'package:front_porch_ai/services/capability/capability.dart';
-import 'package:front_porch_ai/services/image/expression_pack_board.dart';
-import 'package:front_porch_ai/services/image/expression_pack_flight.dart';
 import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/expression_pack_qc.dart';
-import 'package:front_porch_ai/services/image_prompt/expression_prompts.dart';
+import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/ui/widgets/widgets.dart';
 
-import 'expression_pack_grid.dart';
-import 'expression_pack_setup.dart';
 import 'vision_gate.dart';
 
 part 'expression_pack_dialog.base.dart';
+part 'expression_pack_dialog.qc.dart';
+part 'expression_pack_dialog.actions.dart';
 
 /// The Expression-pack flow: turn one base portrait into a labeled set of
 /// expression avatars — edit-first (instruction edits off the base) with an
@@ -205,6 +204,11 @@ class ExpressionPackDialog extends StatefulWidget {
 
 class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
   ExpressionPackSession? _session;
+  late ExpressionPromptRules _promptRules = widget
+      .storage
+      .expressionSettings
+      .expressionPromptRules
+      .copy();
   bool _checkingWorkflow = false;
   bool _replaceExisting = true;
   bool _cancelRequested = false;
@@ -217,6 +221,7 @@ class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
   /// previous one. Null until the first "Vision check".
   ExpressionPackQc? _qc;
   bool _resolvingVision = false;
+  void _setDialogState(VoidCallback fn) => setState(fn);
 
   @override
   void dispose() {
@@ -233,31 +238,6 @@ class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
   /// Advisory only — badges and the explicit "Uncheck flagged" action. The
   /// resolve-or-explain step is the shared [resolveVisionFireWithExplainer]
   /// (click-time only, same gate as the creator panel).
-  Future<void> _runVisionCheck() async {
-    final session = _session;
-    if (session == null || _resolvingVision || (_qc?.isRunning ?? false)) {
-      return;
-    }
-    setState(() => _resolvingVision = true);
-    final fire = await resolveVisionFireWithExplainer(context);
-    if (!mounted) return;
-    setState(() => _resolvingVision = false);
-    if (fire == null) return;
-    final previous = _qc;
-    previous?.cancel();
-    final qc = ExpressionPackQc(
-      slots: session.slots,
-      baseImageB64: _baseB64,
-      fire: fire,
-    );
-    setState(() => _qc = qc);
-    // Safe immediate disposal: the grid's ListenableBuilder unsubscribes from
-    // the old controller during the rebuild, and ChangeNotifier explicitly
-    // permits removeListener after dispose.
-    previous?.dispose();
-    unawaited(qc.run());
-  }
-
   Future<void> _start({
     required bool fullSet,
     required double denoise,
@@ -289,6 +269,7 @@ class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
     final flight = await beginExpressionPack(
       imageGen: widget.imageGen,
       plan: plan,
+      promptRules: _promptRules,
       emotions: emotions,
       basePrompt: '${widget.basePrompt}, $kExpressionFraming',
       negativePrompt: widget.negativePrompt,
@@ -324,79 +305,6 @@ class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
   }
 
   /// Runs what is still pending, under the same hold of the generation lock.
-  Future<void> _resume(ExpressionPackSession session) async {
-    setState(() => _cancelRequested = false);
-    final names = await widget.imageGen.startExpressionPack(
-      [
-        for (final slot in session.slots)
-          if (slot.state == ExpressionSlotState.pending) slot.emotion,
-      ],
-      (_) async {
-        await session.run();
-        return const <String>[];
-      },
-    );
-    if (!mounted) return;
-    if (names == null) {
-      setState(() => _cancelRequested = true);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text(kAlreadyGeneratingMessage)));
-    }
-  }
-
-  Future<void> _import() async {
-    final session = _session!;
-    setState(() => _importing = true);
-    final count = await ExpressionPackImporter.importPack(
-      repository: widget.repository,
-      storage: widget.storage,
-      characterDbId: widget.characterDbId,
-      characterName: widget.characterName,
-      slots: session.slots,
-      replaceSameLabel: _replaceExisting,
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Imported $count expressions for ${widget.characterName} — '
-          'expressions enabled',
-        ),
-      ),
-    );
-    Navigator.of(context).pop(true);
-  }
-
-  /// Header X: confirm when a run is in flight (cancel stops after the
-  /// current image; the session is dispose-safe).
-  Future<void> _close() async {
-    final session = _session;
-    if (session != null && session.isRunning) {
-      final stop = await showWarmDialog<bool>(
-        context,
-        title: 'Stop generating?',
-        icon: Icons.stop_circle_outlined,
-        content: const WarmDialogText(
-          'The pack is still generating. Stop after the current image and '
-          'discard the results?',
-        ),
-        actions: [
-          warmDialogCancel(context, label: 'Keep going'),
-          warmDialogConfirm(
-            context,
-            label: 'Stop',
-            destructive: true,
-            onPressed: () => Navigator.of(context).pop(true),
-          ),
-        ],
-      );
-      if (stop != true || !mounted) return;
-      session.cancel();
-    }
-    if (mounted) Navigator.of(context).pop(false);
-  }
-
   @override
   Widget build(BuildContext context) {
     final session = _session;
@@ -422,6 +330,27 @@ class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
                     ? SingleChildScrollView(
                         padding: const EdgeInsets.all(20),
                         child: ExpressionPackSetup(
+                          promptRules: _promptRules,
+                          onRulesChanged: (rules) => _promptRules = rules,
+                          originalPrompts: {
+                            for (final emotion in kFullExpressionSet)
+                              emotion: originalExpressionPrompt(
+                                emotion: emotion,
+                                basePrompt:
+                                    '${widget.basePrompt}, $kExpressionFraming',
+                                editMode:
+                                    ImageGenBackend.fromKey(
+                                          widget
+                                              .storage
+                                              .imageGenSettings
+                                              .imageGenBackend,
+                                        ) ==
+                                        ImageGenBackend.comfyUi ||
+                                    ImageReferenceResolver.packEditMode(
+                                      widget.storage.imageGenSettings,
+                                    ),
+                              ),
+                          },
                           baseImage: widget.baseImage,
                           characterName: widget.characterName,
                           existingEmotions: widget.existingEmotions,
@@ -432,6 +361,7 @@ class _ExpressionPackDialogState extends State<ExpressionPackDialog> {
                         ),
                       )
                     : ExpressionPackGrid(
+                        storage: widget.storage,
                         session: session,
                         imageGen: widget.imageGen,
                         cancelRequested: _cancelRequested,

@@ -25,17 +25,17 @@ import 'package:flutter/widgets.dart' show TextEditingController;
 
 import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/capability/capability.dart';
-import 'package:front_porch_ai/services/image/expression_pack_board.dart';
-import 'package:front_porch_ai/services/image/expression_pack_flight.dart';
 import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/expression_pack_qc.dart';
-import 'package:front_porch_ai/services/image_prompt/expression_prompts.dart';
+import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
 import 'package:front_porch_ai/services/portrait_promotion.dart';
 import 'package:front_porch_ai/ui/dialogs/avatar_gallery/avatar_gallery_io.dart';
 import 'package:front_porch_ai/ui/image_studio/backend_catalog.dart';
 
 part 'avatar_creation_run.dart';
+part 'avatar_creation_prompt_rules.dart';
+part 'avatar_creation_lifecycle.dart';
 
 /// Where the card's portrait comes from in the "Portrait & Avatars" step.
 enum PortraitSource { upload, generate, none }
@@ -91,7 +91,9 @@ class AvatarCreationController extends ChangeNotifier {
     required String initialPrompt,
     CharacterCard? card,
   }) : promptController = TextEditingController(text: initialPrompt),
-       _card = card {
+       _card = card,
+       _packPromptRules = storage.expressionSettings.expressionPromptRules
+           .copy() {
     final configured = imageGen.isConfigured;
     source = configured ? PortraitSource.generate : PortraitSource.upload;
     packEnabled = configured && packPossible;
@@ -124,6 +126,7 @@ class AvatarCreationController extends ChangeNotifier {
   PortraitSource source = PortraitSource.upload;
   bool packEnabled = false;
   bool fullSet = false;
+  ExpressionPromptRules _packPromptRules;
 
   // ── Applied images ────────────────────────────────────────────────────────
   /// The portrait as applied to the card this session (uploaded or generated);
@@ -302,50 +305,11 @@ class AvatarCreationController extends ChangeNotifier {
   /// Hidden/shown per the shipped VisionSupportResolver, WITHOUT probing:
   /// known-unsupported → the toggle doesn't exist; known-supported → shown
   /// (default off); unknown → shown, resolved on toggle.
-  Future<void> initQcGate() async {
-    final support = await peekVisionSupport();
-    if (_disposed) return;
-    if (support != null &&
-        !support.supported &&
-        support.source != VisionSource.unknown) {
-      qcVisible = false;
-    } else {
-      qcVisible = true;
-      qcKnownSupported = support?.supported ?? false;
-    }
-    notifyListeners();
-  }
+  Future<void> initQcGate() => _initQcGate();
 
   /// Connection test (local backends) + model catalog for the engine strip
   /// and the edit-model row. Mirrors the Studio settings tab's auto-test.
-  Future<void> refreshEngine() async {
-    connectionOk = null;
-    modelOptions = [];
-    if (backend != ImageGenBackend.remote) {
-      final url = backendProbeUrl(storage);
-      if (url.isEmpty) {
-        notifyListeners();
-        return;
-      }
-      testingConnection = true;
-      notifyListeners();
-      final ok = await imageGen.testLocalConnection(url);
-      if (_disposed) return;
-      testingConnection = false;
-      connectionOk = ok;
-      if (!ok) {
-        notifyListeners();
-        return;
-      }
-    }
-    loadingModels = true;
-    notifyListeners();
-    final options = await fetchBackendModelOptions(imageGen, storage);
-    if (_disposed) return;
-    modelOptions = options;
-    loadingModels = false;
-    notifyListeners();
-  }
+  Future<void> refreshEngine() => _refreshEngine();
 
   // ── Upload paths (apply immediately via the existing plumbing) ───────────
   /// Sets [bytes] as the card's portrait: written over the existing in-app
@@ -480,15 +444,7 @@ class AvatarCreationController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _disposed = true;
-    session?.cancel();
-    session?.removeListener(_notify);
-    if (session != null) expressionPackBoard.release(session!);
-    session?.dispose();
-    qc?.cancel();
-    qc?.removeListener(_notify);
-    qc?.dispose();
-    promptController.dispose();
+    _disposeCreator();
     super.dispose();
   }
 }
