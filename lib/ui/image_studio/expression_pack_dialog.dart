@@ -28,43 +28,15 @@ import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/expression_pack_qc.dart';
 import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
-import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/ui/widgets/widgets.dart';
 
 import 'studio_widgets.dart';
 
-part 'expression_pack_dialog.base.dart';
-part 'expression_pack_launch.dart';
 part 'expression_pack_dialog.view.dart';
 part 'expression_pack_dialog.qc.dart';
 
-/// The Expression-pack flow: turn one base portrait into a labeled set of
-/// expression avatars — edit-first (instruction edits off the base) with an
-/// automatic img2img fallback where edit truly doesn't exist. [launch] runs
-/// the pre-flight (backend guard, base-image resolution, and automatic
-/// aspect-preserving size normalization — no crop step) and then shows this
-/// two-step dialog (setup, then the live generation grid).
+/// Expression pack setup and results embedded in the Expressions workspace.
 class ExpressionPackDialog extends StatefulWidget {
-  const ExpressionPackDialog._({
-    required this.characterDbId,
-    required this.characterName,
-    required this.repository,
-    required this.storage,
-    required this.imageGen,
-    required this.baseImage,
-    required this.baseWidth,
-    required this.baseHeight,
-    required this.basePrompt,
-    required this.negativePrompt,
-    required this.existingEmotions,
-    this.note,
-  }) : embedded = false,
-       onImported = null,
-       onSessionChanged = null,
-       onDiscard = null,
-       preparePrompt = null,
-       preparingPrompt = false;
-
   const ExpressionPackDialog.workspace({
     super.key,
     this.onImported,
@@ -84,9 +56,7 @@ class ExpressionPackDialog extends StatefulWidget {
     required this.negativePrompt,
     required this.existingEmotions,
     this.note,
-  }) : embedded = true;
-
-  final bool embedded;
+  });
   final VoidCallback? onImported;
   final ValueChanged<bool>? onSessionChanged;
   final VoidCallback? onDiscard;
@@ -114,24 +84,6 @@ class ExpressionPackDialog extends StatefulWidget {
 
   /// Shown in the setup when the base was converted to a PNG.
   final String? note;
-
-  static Future<bool> launch(
-    BuildContext context, {
-    required String characterDbId,
-    required String characterName,
-    required CharacterRepository repository,
-    required Uint8List? candidateBase,
-    required String basePrompt,
-    required String negativePrompt,
-  }) => _launchExpressionPack(
-    context,
-    characterDbId: characterDbId,
-    characterName: characterName,
-    repository: repository,
-    candidateBase: candidateBase,
-    basePrompt: basePrompt,
-    negativePrompt: negativePrompt,
-  );
 
   @override
   State<ExpressionPackDialog> createState() => ExpressionPackDialogState();
@@ -197,13 +149,14 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
       if (!plan.canStart) {
         setState(() => _checkingWorkflow = false);
         widget.onSessionChanged?.call(false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              plan.refusal ?? 'Add a pack description before generating.',
-            ),
-            duration: const Duration(seconds: 10),
+        await showWarmDialog<void>(
+          context,
+          title: 'Expression pack can’t start',
+          icon: Icons.warning_amber,
+          content: WarmDialogText(
+            plan.refusal ?? 'Add a pack description before generating.',
           ),
+          actions: [warmDialogCancel(context, label: 'Got it')],
         );
         return;
       }
@@ -272,15 +225,13 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
 
   bool _canOwnBoard() {
     final other = expressionPackBoard.run;
-    if (!widget.embedded ||
-        other == null ||
-        identical(other.session, _session)) {
+    if (other == null || identical(other.session, _session)) {
       return true;
     }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
-          'Another screen has an expression pack. Import or discard that pack on its original screen before starting here.',
+          'Another screen has an expression pack. Use the pack banner above to stop or discard a phone pack, or finish a desktop pack in its originating screen.',
         ),
       ),
     );
@@ -338,12 +289,8 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
       _imported = true;
       final run = expressionPackBoard.run;
       if (identical(run?.session, session)) run!.imported = count;
-      if (widget.embedded) {
-        widget.onImported?.call();
-        setState(() => _importing = false);
-      } else {
-        Navigator.of(context).pop(true);
-      }
+      widget.onImported?.call();
+      setState(() => _importing = false);
     } catch (error) {
       if (!mounted) return;
       setState(() => _importing = false);
@@ -381,39 +328,6 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
     if (discard != true || !mounted) return false;
     _session?.cancel();
     return true;
-  }
-
-  /// Header X: confirm when a run is in flight (cancel stops after the
-  /// current image; the session is dispose-safe).
-  Future<void> _close() async {
-    if (widget.embedded) {
-      if (await confirmDiscard()) widget.onDiscard?.call();
-      return;
-    }
-    final session = _session;
-    if (session != null && session.isRunning) {
-      final stop = await showWarmDialog<bool>(
-        context,
-        title: 'Stop generating?',
-        icon: Icons.stop_circle_outlined,
-        content: const WarmDialogText(
-          'The pack is still generating. Stop after the current image and '
-          'discard the results?',
-        ),
-        actions: [
-          warmDialogCancel(context, label: 'Keep going'),
-          warmDialogConfirm(
-            context,
-            label: 'Stop',
-            destructive: true,
-            onPressed: () => Navigator.of(context).pop(true),
-          ),
-        ],
-      );
-      if (stop != true || !mounted) return;
-      session.cancel();
-    }
-    if (mounted) Navigator.of(context).pop(false);
   }
 
   @override

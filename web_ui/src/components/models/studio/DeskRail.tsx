@@ -4,7 +4,6 @@
 import { useRef, useState } from 'react';
 import { ApiError } from '../../../api/client';
 import { writePrompt } from './deskApi';
-import { PackPanel } from './PackPanel';
 import type { Mode } from './types';
 
 export type Subject = 'free' | 'char' | 'persona';
@@ -43,11 +42,9 @@ export function DeskRail(props: {
   /** The picture the last generate made, if it was saved. */
   lastSaved: { name: string; url: string } | null;
   onNote: (message: string) => void;
-  showPack?: boolean;
 }) {
   const { mode, prompt } = props;
   const [writing, setWriting] = useState(false);
-  const [pack, setPack] = useState(false);
   const chooser = useRef<HTMLInputElement>(null);
 
   const write = () => {
@@ -144,12 +141,6 @@ export function DeskRail(props: {
         </div>
       ) : mode === 'edit' ? (
         <p>Pick a picture to edit.</p>
-      ) : null}
-      {props.showPack !== false ? <button type="button" aria-expanded={pack} onClick={() => setPack((open) => !open)}>
-        Expression pack
-      </button> : null}
-      {props.showPack !== false && pack ? (
-        <PackPanel prompt={prompt} picture={props.picture} />
       ) : null}
     </div>
   );

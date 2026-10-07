@@ -8,7 +8,6 @@ extension _ExpressionPackDialogView on ExpressionPackDialogState {
     final session = _session;
     final content = Column(
       children: [
-        if (!widget.embedded) _header(context),
         Expanded(
           child: _checkingWorkflow
               ? const Center(child: CircularProgressIndicator())
@@ -24,9 +23,7 @@ extension _ExpressionPackDialogView on ExpressionPackDialogState {
                     existingEmotions: widget.existingEmotions,
                     note: widget.note,
                     storage: widget.storage,
-                    onCancel: widget.embedded
-                        ? () => widget.onDiscard?.call()
-                        : () => Navigator.of(context).pop(false),
+                    onCancel: () => widget.onDiscard?.call(),
                     onStart: _start,
                   ),
                 )
@@ -50,51 +47,6 @@ extension _ExpressionPackDialogView on ExpressionPackDialogState {
         ),
       ],
     );
-    if (widget.embedded) return content;
-    return ChangeNotifierProvider<StorageService>.value(
-      value: widget.storage,
-      child: Dialog(
-        backgroundColor: AppColors.surfaceOf(context),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 720,
-            maxHeight: MediaQuery.of(context).size.height * 0.94,
-          ),
-          child: content,
-        ),
-      ),
-    );
-  }
-
-  Widget _header(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.borderOf(context))),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.theater_comedy, color: AppColors.formMasterAccent),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Expression pack — ${widget.characterName}',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary(context),
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          IconButton(
-            icon: Icon(Icons.close, color: AppColors.iconSecondary(context)),
-            onPressed: _close,
-          ),
-        ],
-      ),
-    );
+    return content;
   }
 }

@@ -83,7 +83,13 @@ extension _ImageStudioWorkspace on _ImageStudioState {
         ),
         modeTabs: StudioModeTabs(
           selected: _studioTab,
-          onChanged: (i) => rebuildState(() => _studioTab = i),
+          onChanged: (i) {
+            if (i == 2) {
+              _openExpressionPack();
+            } else {
+              rebuildState(() => _studioTab = i);
+            }
+          },
           enabled: true,
         ),
         editBody: EditView(

@@ -55,7 +55,7 @@ const message = (e: unknown, fallback: string) =>
  * graph or with the reason it cannot; nothing here decides that.
  */
 export function PackPanel(props: {
-  prompt: string; picture: Picture | null; workspace?: boolean;
+  initialPrompt?: string; initialPicture?: Picture | null;
   lastSaved?: { name: string; url: string } | null;
   sharedBusy?: boolean; configMode?: Mode; onBusy?: (busy: boolean) => void;
 }) {
@@ -73,11 +73,11 @@ export function PackPanel(props: {
   const [startProblem, setStartProblem] = useState("");
   const [packProblem, setPackProblem] = useState("");
   const [stopped, setStopped] = useState(false);
-  const [description, setDescription] = useState('');
+  const [description, setDescription] = useState(props.initialPrompt ?? '');
   const [crafting, setCrafting] = useState(false);
   const target = useRef('');
   target.current = character;
-  const [picture, setPicture] = useState<Picture | null>(null);
+  const [picture, setPicture] = useState<Picture | null>(props.initialPicture ?? null);
   const [portrait, setPortrait] = useState<string | null>(null);
   const [portraitLoading, setPortraitLoading] = useState(false);
   const [pictureLoading, setPictureLoading] = useState(false);
@@ -86,9 +86,7 @@ export function PackPanel(props: {
   const [captured, setCaptured] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
   const newPackButton = useRef<HTMLButtonElement>(null);
-  const draftPrompt = props.workspace ? description : props.prompt;
-  const draftPicture = props.workspace ? picture : props.picture;
-  const frozen = props.workspace === true && (pack != null || busy || crafting || !statusLoaded);
+  const frozen = pack != null || busy || crafting || !statusLoaded;
   const showCaptured = captured && pack?.origin === 'phone' && pack.characterId === character;
 
   const refreshEpoch = useRef(0);
@@ -105,11 +103,10 @@ export function PackPanel(props: {
   const onBusy = props.onBusy;
   useEffect(() => onBusy?.(running || busy), [running, busy, onBusy]);
   useEffect(() => {
-    if (!props.workspace) return;
     return onPackChanged(refresh);
-  }, [props.workspace, refresh]);
+  }, [refresh]);
   useEffect(() => {
-    if (!props.workspace || !character || pack || busy) return;
+    if (!character || pack || busy) return;
     let live = true;
     setPortraitLoading(true);
     setPortrait(null);
@@ -119,7 +116,7 @@ export function PackPanel(props: {
       if (live) setStartProblem(message(e, 'Could not read the current card portrait.'));
     }).finally(() => { if (live) setPortraitLoading(false); });
     return () => { live = false; };
-  }, [props.workspace, character, pack, busy, portraitTick]);
+  }, [character, pack, busy, portraitTick]);
   // Looked at once, and then only while a pack is running: with no pack, or
   // one that has stopped, nothing is asked. What this panel starts or stops it
   // already has in the answer.
@@ -174,24 +171,20 @@ export function PackPanel(props: {
   };
 
   const start = () => {
-    if (props.workspace && (frozen || props.sharedBusy || portraitLoading || pictureLoading)) return;
+    if (frozen || props.sharedBusy || portraitLoading || pictureLoading) return;
     const body: PackStart = {
       characterId: character,
       set: full ? "full" : "starter",
       skipExisting,
       replaceExisting,
       denoise,
-      prompt: draftPrompt,
+      prompt: description,
     };
-    if (draftPicture?.kind === "file")
-      body.referenceImage = draftPicture.dataUrl;
-    if (draftPicture?.kind === "saved")
-      body.referenceFilename = draftPicture.name;
-    if (props.workspace) {
-      body.workspace = true;
-      body.baseSource = 'currentPortrait';
-      if (!draftPicture && portrait) body.referenceImage = portrait;
-    }
+    if (picture?.kind === "file") body.referenceImage = picture.dataUrl;
+    if (picture?.kind === "saved") body.referenceFilename = picture.name;
+    body.workspace = true;
+    body.baseSource = 'currentPortrait';
+    if (!picture && portrait) body.referenceImage = portrait;
     refreshEpoch.current++;
     setBusy(true);
     setLeft(new Set());
@@ -282,10 +275,10 @@ export function PackPanel(props: {
         ComfyUI it runs your Edit graph; if that graph is not ready it stops and
         says what is missing.
       </p>
-      {props.workspace && pack && !showCaptured ? <p>
+      {pack && !showCaptured ? <p>
         Target: {pack.characterName}. This pack retains its original source portrait and description.
       </p> : null}
-      {props.workspace && (!pack || showCaptured) ? <PackDraft
+      {!pack || showCaptured ? <PackDraft
         description={description} onDescription={setDescription}
         edit={props.configMode === 'edit'} onCraft={() => void craft()} crafting={crafting}
         picture={picture} onPicture={setPicture} portrait={portrait}
@@ -294,13 +287,13 @@ export function PackPanel(props: {
         characterId={character} onPictureLoading={setPictureLoading}
         onReloadPortrait={() => { setPortrait(null); setPortraitLoading(true); setPortraitTick((value) => value + 1); }}
         lastSaved={props.lastSaved} frozen={frozen} onProblem={setStartProblem} /> : null}
-      <fieldset className="fp-pack-options" disabled={props.workspace ? frozen : running}>
+      <fieldset className="fp-pack-options" disabled={frozen}>
       <legend>Pack target and options</legend>
       <label>
         Character
         <select
           aria-label="Character"
-          value={props.workspace && pack ? pack.characterId ?? '' : character}
+          value={pack ? pack.characterId ?? '' : character}
           disabled={running || frozen}
           onChange={(e) => {
             setDescription('');
@@ -364,16 +357,10 @@ export function PackPanel(props: {
         />
       </label>
       </fieldset>
-      {!props.workspace ? <p>
-        {draftPicture
-          ? `Built from ${draftPicture.name}.`
-          : "Built from the character’s portrait. Choose a picture above to use another."}
-      </p> : null}
       <button
         type="button"
         disabled={busy || running || !character || frozen || props.sharedBusy === true ||
-          (props.workspace === true && (pictureLoading || portraitLoading || (!draftPicture && !portrait) ||
-            crafting))}
+          pictureLoading || portraitLoading || (!picture && !portrait) || crafting}
         onClick={start}
       >
         Start pack
@@ -381,7 +368,7 @@ export function PackPanel(props: {
       {startProblem ? <p role="alert">{startProblem}</p> : null}
       {pack ? (
         <div data-region="pack-status">
-          {props.workspace && !running && pack.origin === 'phone' ? <button type="button" ref={newPackButton}
+          {!running && pack.origin === 'phone' ? <button type="button" ref={newPackButton}
             title="Clear pack results and unlock the target, prompt, and source. Imported expressions stay in the library."
             disabled={busy || props.sharedBusy || pack.importing} onClick={() => setConfirmNew(true)}>Reset pack</button> : null}
           {confirmNew ? <PackDiscardConfirmation busy={busy} trigger={newPackButton}

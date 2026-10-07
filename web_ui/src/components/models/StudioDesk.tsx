@@ -221,12 +221,11 @@ export function StudioDesk(props: StudioDeskProps) {
           onPicture={setPicture}
           lastSaved={props.lastSaved ?? null}
           onNote={setNote}
-          showPack={false}
         />
         </div>
         {packVisited ? <div className="fp-desk-rail" id="studio-pack-panel" role="tabpanel"
           aria-labelledby="studio-tab-pack" hidden={tab !== 'pack'}>
-          <PackPanel prompt="" picture={null} workspace lastSaved={props.lastSaved ?? null}
+          <PackPanel lastSaved={props.lastSaved ?? null}
             sharedBusy={props.busy === true || (globalBusy ?? cfg.isGenerating) === true}
             configMode={configMode} onBusy={setPackBusy} />
         </div> : null}

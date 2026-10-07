@@ -10,6 +10,7 @@ import 'package:front_porch_ai/services/services.dart';
 
 import 'package:front_porch_ai/services/capability/capability.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
+import 'package:front_porch_ai/ui/widgets/widgets.dart';
 import 'package:front_porch_ai/utils/utils.dart';
 
 import 'studio_widgets.dart';
@@ -204,7 +205,7 @@ class StudioExpressionTabState extends State<StudioExpressionTab> {
     setState(() {
       _loading = true;
       _prepared = null;
-      _source = bytes;
+      _source = null;
       _error = '';
     });
     String? refusal;
@@ -219,6 +220,7 @@ class StudioExpressionTabState extends State<StudioExpressionTab> {
           : normalized == null
           ? refusal ?? 'This image could not be decoded.'
           : '';
+      _source = normalized?.bytes;
       _prepared = normalized == null
           ? null
           : (
@@ -233,7 +235,8 @@ class StudioExpressionTabState extends State<StudioExpressionTab> {
 
   Future<void> _upload() async {
     if (_frozen) return;
-    final files = await PickerPrefs.pickFiles(
+    final files = await GuardedPicker.pickFiles(
+      context,
       category: PickerPrefs.catImage,
       dialogTitle: 'Choose an expression source portrait',
       type: FileType.image,

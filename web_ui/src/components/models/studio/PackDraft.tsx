@@ -78,7 +78,7 @@ export function PackDraft(props: PackDraftProps) {
       <legend>Pack prompt and source</legend>
       {props.edit ? <p>Each expression supplies its own edit instruction. No base prompt is needed.</p> : <>
       <label>Image prompt
-        <textarea aria-label="Pack description" rows={4} value={props.description}
+        <textarea aria-label="Image prompt" rows={4} value={props.description}
           onChange={(e) => props.onDescription(e.target.value)} />
       </label>
       <button type="button" disabled={props.crafting || !props.characterId} onClick={props.onCraft}>
