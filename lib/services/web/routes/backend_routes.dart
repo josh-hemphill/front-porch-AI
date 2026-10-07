@@ -20,6 +20,7 @@ import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf_router/shelf_router.dart';
 
 import 'package:front_porch_ai/services/image/studio_model_roots.dart';
+import 'package:front_porch_ai/services/kobold/kobold.dart';
 import 'package:front_porch_ai/services/web/facade/facades.dart';
 import 'package:front_porch_ai/services/web/routes/civitai_routes.dart';
 import 'package:front_porch_ai/services/web/routes/expression_pack_routes.dart';
@@ -45,6 +46,9 @@ class WebBackendRoutes {
       router.post('/api/backend/engine/install', _installEngine);
       router.get('/api/backend/models', _models);
       router.post('/api/backend/models/switch', _switchModel);
+      router.get('/api/backend/local-model', _localModel);
+      router.post('/api/backend/local-model/preset', _setChatPreset);
+      router.post('/api/backend/local-model/context', _setLocalContext);
       router.post('/api/backend/models/delete', _deleteModel);
       router.get('/api/backend/models-folder', _modelsFolder);
       router.get('/api/backend/hf/search', _hfSearch);
@@ -99,8 +103,9 @@ class WebBackendRoutes {
       JsonResponse.ok(_backend!.status());
 
   Future<shelf.Response> _restart(shelf.Request r) async {
-    await _backend!.restart();
-    return JsonResponse.ok(_backend.status());
+    final refused = await _backend!.restart();
+    // Additive: why it was not started, or null.
+    return JsonResponse.ok({..._backend.status(), 'refused': refused});
   }
 
   Future<shelf.Response> _stop(shelf.Request r) async {
@@ -116,15 +121,59 @@ class WebBackendRoutes {
   Future<shelf.Response> _models(shelf.Request r) async =>
       JsonResponse.ok({'models': await _backend!.localModels()});
 
+  /// The "Local model" card and the chat-preset picker.
+  Future<shelf.Response> _localModel(shelf.Request r) async =>
+      JsonResponse.ok(await _backend!.localModel());
+
+  /// `{path}`: a preset in the engine folder, or null for the app's own
+  /// settings. Anything else is refused, and so is a preset the app will not
+  /// start KoboldCpp from (422, with the reason in `error`).
+  Future<shelf.Response> _setChatPreset(shelf.Request r) async {
+    final body = await _json(r);
+    final raw = body['path'];
+    if (raw != null && raw is! String) {
+      return JsonResponse.badRequest('path must be text or null');
+    }
+    final path = raw is String && raw.isNotEmpty ? raw : null;
+    try {
+      if (!await _backend!.setChatPreset(path)) {
+        return JsonResponse.error(404, 'Preset not found');
+      }
+    } on KoboldPresetProblem catch (e) {
+      return JsonResponse.error(422, e.message);
+    }
+    return JsonResponse.ok(await _backend.localModel());
+  }
+
+  /// `{context}`: tokens, [kKoboldContextMin] to [kKoboldContextMax].
+  Future<shelf.Response> _setLocalContext(shelf.Request r) async {
+    final body = await _json(r);
+    final context = body['context'];
+    if (context is! int || !await _backend!.setLocalContext(context)) {
+      return JsonResponse.badRequest(
+        'context must be a whole number of tokens from '
+        '${koboldTokens(kKoboldContextMin)} to '
+        '${koboldTokens(kKoboldContextMax)}, '
+        'and is set by the KoboldCpp preset while one is in use',
+      );
+    }
+    return JsonResponse.ok(await _backend.localModel());
+  }
+
   Future<shelf.Response> _switchModel(shelf.Request r) async {
     final body = await _json(r);
     final path = body['path']?.toString();
     if (path == null || path.isEmpty) {
       return JsonResponse.badRequest('path is required');
     }
-    final ok = await _backend!.switchModel(path);
+    String? refused;
+    final ok = await _backend!.switchModel(
+      path,
+      onRefused: (words) => refused = words,
+    );
     if (!ok) return JsonResponse.error(404, 'Model not found');
-    return JsonResponse.ok(_backend.status());
+    // Additive: why the running KoboldCpp could not load it, or null.
+    return JsonResponse.ok({..._backend.status(), 'refused': refused});
   }
 
   Future<shelf.Response> _hfSearch(shelf.Request r) async {

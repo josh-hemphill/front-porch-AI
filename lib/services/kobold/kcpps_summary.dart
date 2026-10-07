@@ -6,8 +6,7 @@
 
 import 'package:path/path.dart' as p;
 
-import 'package:front_porch_ai/utils/gguf_model_info.dart';
-import 'package:front_porch_ai/utils/smart_cache_estimate.dart';
+import 'package:front_porch_ai/utils/utils.dart';
 
 import 'kcpps_codec.dart';
 import 'kobold_context_verdict.dart';
@@ -28,6 +27,18 @@ String koboldModelName(String path) {
   final cut = words.indexWhere(quant.hasMatch);
   final kept = cut <= 0 ? words : words.sublist(0, cut);
   return kept.isEmpty ? p.basename(path) : kept.join(' ');
+}
+
+/// "NVIDIA GeForce GTX 1060 6GB" as "GeForce GTX 1060": the card's name
+/// without the maker's prefix, trademark marks or memory size. Empty when the
+/// machine names no card.
+String koboldCardShortName(String gpuName) {
+  if (gpuName.isEmpty || gpuName == 'Unknown GPU') return '';
+  return gpuName
+      .replaceAll(RegExp(r'\((R|TM)\)', caseSensitive: false), '')
+      .replaceFirst(RegExp(r'^NVIDIA\s+', caseSensitive: false), '')
+      .replaceFirst(RegExp(r'\s+\d+\s*GB$', caseSensitive: false), '')
+      .trim();
 }
 
 /// "16k chat · fitted to the card · smart cache off".
@@ -78,24 +89,65 @@ String koboldMemoryWords(int mb) => mb >= 1024 && mb % 1024 == 0
     ? '${(mb / 1024).toStringAsFixed(1)} GB'
     : '$mb MB';
 
+/// Graphics cards [c] spreads its model over: the Vulkan cards it names, or
+/// for CUDA (no card named, or "all") every one of [machineCards], the cards
+/// this computer has. When that is known, a preset made on another computer
+/// never counts more cards than this one has.
+int koboldCardsUsed(KoboldLaunchConfig c, {int? machineCards}) {
+  final machine = machineCards == null || machineCards < 1
+      ? null
+      : machineCards;
+  final named = 1 + c.moreGpuIds.length;
+  return switch (c.backend) {
+    KoboldGpuBackend.vulkan =>
+      machine == null || named <= machine ? named : machine,
+    KoboldGpuBackend.cuda
+        when c.gpuId == null || c.cudaOptions.contains('all') =>
+      machine ?? 1,
+    _ => 1,
+  };
+}
+
+/// "Spread over graphics cards 0 and 1, split 3 to 1."
+String koboldSpreadWords(KoboldLaunchConfig c, int cards) {
+  final ids = [?c.gpuId, ...c.moreGpuIds];
+  final which = c.backend == KoboldGpuBackend.vulkan && ids.length > 1
+      ? 'graphics cards ${ids.take(ids.length - 1).join(', ')} and ${ids.last}'
+      : 'all $cards graphics cards';
+  final split = c.extras['tensor_split'];
+  String n(Object? v) =>
+      v is num && v == v.roundToDouble() ? '${v.toInt()}' : '$v';
+  final ratio = split is List && split.length > 1
+      ? ', split ${split.map(n).join(' to ')}'
+      : '';
+  return 'Spread over $which$ratio.';
+}
+
 /// The preset as a few plain sentences.
 ///
 /// [recurrent]: the model has recurrent layers, so KoboldCpp may make more
 /// smart cache slots than asked. [shortOfMemory]: no slots because the
-/// computer has no room for them.
+/// computer has no room for them. [machineCards]: the graphics cards this
+/// computer has, when known. [swaLeftToKobold]: the preset leaves sliding
+/// window to KoboldCpp with fast forward on, for a model that has it, which
+/// [kSwaLeftToKoboldNote] says.
 String kcppsPlainWords(
   KoboldLaunchConfig c, {
   bool recurrent = false,
   bool shortOfMemory = false,
+  int? machineCards,
+  bool swaLeftToKobold = false,
 }) {
   final model = c.modelPath.isEmpty
       ? 'the model chosen in Settings'
       : koboldModelName(c.modelPath);
   final out = <String>[];
+  final cards = koboldCardsUsed(c, machineCards: machineCards);
+  final card = cards > 1 ? 'cards' : 'card';
   if (c.layersAreAutomatic) {
     final spare = c.autofitPaddingMb;
     out.add(
-      'Loads $model and lets KoboldCpp fit it to your card'
+      'Loads $model and lets KoboldCpp fit it to your $card'
       '${spare == null ? '' : ', keeping ${koboldMemoryWords(spare)} spare'}.',
     );
   } else {
@@ -104,7 +156,7 @@ String kcppsPlainWords(
               '${c.moeCpuLayers == null || c.moeCpuLayers! >= 999 ? 'every layer' : 'the first ${c.moeCpuLayers} layers'}'
               ' in system memory'
         : '';
-    out.add('Loads $model with ${c.gpuLayers} layers on the card$experts.');
+    out.add('Loads $model with ${c.gpuLayers} layers on the $card$experts.');
   }
   final swa = c.contextMode == ContextManagementMode.slidingWindowAttention;
   final size = switch (c.kvQuant) {
@@ -116,6 +168,7 @@ String kcppsPlainWords(
     'memory $size, reads ${koboldTokens(c.batchSize)} tokens at a time, and '
     '${swa ? 'reads the whole chat again for every reply' : 'starts replies fast on long chats'}.',
   );
+  if (swaLeftToKobold) out.add(kSwaLeftToKoboldNote);
   if (!swa) {
     final slots = koboldSmartCacheSlots(
       asked: c.smartCacheSlots,
@@ -129,11 +182,22 @@ String kcppsPlainWords(
           : 'No smart cache slots${shortOfMemory ? ': this computer is short of memory' : ''}.',
     );
   }
+  if (cards > 1) out.add(koboldSpreadWords(c, cards));
   if (!c.flashAttention) out.add('Flash attention is off.');
   if (c.mmq == false) out.add('MMQ is off.');
+  final drafts = c.draftModelPath.isNotEmpty || c.useMtp;
   if (c.draftModelPath.isNotEmpty) {
     out.add(
       '${koboldModelName(c.draftModelPath)} guesses ahead to write faster.',
+    );
+  }
+  if (c.useMtp) {
+    out.add("The model's own draft heads guess ahead to write faster.");
+  }
+  if (drafts) {
+    out.add(
+      'It guesses ${c.draftAmount ?? 4} tokens at a time, and answers one '
+      'request at a time while it does.',
     );
   }
   if (c.mmprojPath.isNotEmpty) {
@@ -143,8 +207,8 @@ String kcppsPlainWords(
           : 'It can see pictures.',
     );
   }
-  if (c.draftModelPath.isNotEmpty && c.mmprojPath.isNotEmpty) {
-    out.add('A draft model and a vision file should not be used together.');
+  if (drafts && c.mmprojPath.isNotEmpty) {
+    out.add('Guessing ahead and a vision file should not be used together.');
   }
   return out.join(' ');
 }

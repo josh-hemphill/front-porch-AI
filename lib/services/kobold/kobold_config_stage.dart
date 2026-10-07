@@ -29,6 +29,21 @@ const String kStagedConfigPrefix = 'fpai-';
 /// The staged config for the chat model.
 const String kStagedChatConfig = '${kStagedConfigPrefix}chat.kcpps';
 
+/// The one address the app's KoboldCpp listens on and the app talks to: this
+/// computer only. KoboldCpp's own default is every network the computer is
+/// on. The command line stays as it is, so the address rides in the config
+/// the app stages for a launch or a swap: KoboldCpp applies `host` from
+/// `--config` at launch and never changes it on a live reload.
+const String kKoboldHost = '127.0.0.1';
+
+/// KoboldCpp's own idle unload, off. The app runs the unload itself, and
+/// loads chat's setup back before the next request; KoboldCpp's timer has no
+/// way to do that, so a preset's own value would leave an engine with no
+/// model behind the app's back. Like [kKoboldHost] it rides in the staged
+/// config, over whatever a preset said: KoboldCpp reads it from `--config` at
+/// launch and ignores it on a live reload.
+const int kKoboldAdminUnloadTimeout = 0;
+
 /// A role's config as staged for the engine: the file name to reload by,
 /// a key for its content (two roles with the same content are the same
 /// thing to the engine), and what it loads.
@@ -39,6 +54,8 @@ class KoboldStagedRole {
     required this.key,
     required this.modelPath,
     required this.kcppsPath,
+    required this.expectedModel,
+    required this.contextSize,
   });
 
   final String filename;
@@ -46,6 +63,14 @@ class KoboldStagedRole {
   final String key;
   final String modelPath;
   final String kcppsPath;
+
+  /// The model name KoboldCpp reports once this config is loaded.
+  final String expectedModel;
+
+  /// The context KoboldCpp runs once this config is loaded. Null when the
+  /// config sets none: KoboldCpp's own default differs by version (1.117.1
+  /// runs 12,288, 1.122.1 runs 16,384).
+  final int? contextSize;
 }
 
 /// Write [json] as `[dir]/[name]`, whole or not at all: a temp file is
@@ -71,6 +96,18 @@ Future<File> stageKoboldConfig(String dir, String name, String json) async {
     // Windows will not rename over a file another process has open.
     if (await target.exists()) await target.delete();
     return temp.rename(target.path);
+  }
+}
+
+/// The config staged as [name] in [dir], or null when there is none or it
+/// cannot be read.
+Future<String?> readStagedKoboldConfig(String dir, String name) async {
+  final file = File(p.join(dir, name));
+  try {
+    return await file.readAsString();
+  } on FileSystemException catch (e) {
+    debugPrint('[Kobold] ${file.path} could not be read: $e');
+    return null;
   }
 }
 

@@ -32,6 +32,17 @@ class KoboldSwapTimeout implements Exception {
       : 'KoboldCpp did not act on the reload within ${waited.inSeconds}s';
 }
 
+/// A reload KoboldCpp answered but did not load: it went back to the config
+/// it was started with.
+class KoboldSwapFailed implements Exception {
+  const KoboldSwapFailed(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// How long a model file of [sizeBytes] may take to load before the app
 /// gives up: a minute, plus eight seconds for every gigabyte (a slow disk
 /// reads about that much), capped at fifteen minutes.
@@ -51,21 +62,30 @@ Duration koboldLoadTimeout(int sizeBytes) {
 bool koboldIsNewProcess(double uptimeSeconds, Duration sinceRequest) =>
     uptimeSeconds < sinceRequest.inMilliseconds / 1000 - 0.25;
 
+/// How often [waitForKoboldReload] asks the engine.
+const Duration _pollEvery = Duration(milliseconds: 150);
+
 /// Waits for a reload that was just asked for to really take effect: first
 /// for the engine to start a new model process ([uptime], null while
 /// nothing answers), then for [ready]. "The request returned" and "the
 /// server answers" mean neither.
+///
+/// [since] is when the reload was asked for: the time before the request
+/// was sent. Without it the wait counts from when it starts, and an app
+/// that read the answer late (a busy moment) may start after the engine has
+/// already restarted; that new process would then look no younger than the
+/// wait and never count, and the wait would last until [timeout].
 ///
 /// Throws [KoboldSwapTimeout] after [timeout].
 Future<void> waitForKoboldReload({
   required Future<double?> Function() uptime,
   required Future<bool> Function() ready,
   required Duration timeout,
-  Duration poll = const Duration(milliseconds: 150),
+  DateTime? since,
   DateTime Function() now = DateTime.now,
   Future<void> Function(Duration)? pause,
 }) async {
-  final asked = now();
+  final asked = since ?? now();
   final wait = pause ?? (d) => Future<void>.delayed(d);
   var restarted = false;
   while (true) {
@@ -78,6 +98,6 @@ Future<void> waitForKoboldReload({
     if (since >= timeout) {
       throw KoboldSwapTimeout(restarted: restarted, waited: since);
     }
-    await wait(poll);
+    await wait(_pollEvery);
   }
 }

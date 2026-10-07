@@ -7,8 +7,9 @@
 // survive a reload. Replies come from the host's stand-in backend; the text
 // is FPAI_REPLY.
 
+import { readFile } from 'node:fs/promises';
 import type { Locator, Page } from '@playwright/test';
-import { expect, openRoute, test } from './support/fixtures';
+import { expect, openRoute, SERIAL, test } from './support/fixtures';
 
 const REPLY = process.env.FPAI_REPLY ?? '';
 
@@ -63,7 +64,7 @@ test.describe('signing in', () => {
   });
 });
 
-test.describe.serial('a conversation', () => {
+test.describe.serial('a conversation', { tag: SERIAL }, () => {
   test('open a character, start a fresh chat, and get a reply', async ({ page }) => {
     await openPorchChat(page);
     await page.locator('.conversations-btn').click();
@@ -194,6 +195,65 @@ test('edit a character, save, and nothing else on the card is lost', async ({ pa
   expect(after.firstMessage).toBe(before.firstMessage);
 });
 
+// The AI creator's Greetings step (#370) on a character made for this test,
+// so Porch Tester's greetings (which the conversation journeys read) are left
+// alone; the character is deleted whatever happens. The stand-in backend
+// writes every greeting as FPAI_REPLY.
+test('the creator\'s Greetings step: a steered rewrite, an edit, a delete and an add are saved', async ({
+  page,
+}) => {
+  const created = await page.request.post('/api/characters/create', {
+    data: {
+      name: `Greeting Journey ${test.info().project.name}`,
+      firstMessage: '*The lamp turns.* "You came."',
+      alternateGreetings: ['A storm on the jetty.', 'Fog over the harbor.'],
+    },
+  });
+  expect(created.ok(), `create: ${created.status()}`).toBe(true);
+  const id = String(((await created.json()) as { id: string | number }).id);
+  const detail = async () =>
+    (await (await page.request.get(`/api/characters/${id}/detail`)).json()) as {
+      firstMessage: string;
+      alternateGreetings: string[];
+    };
+  try {
+    await openRoute(page, `/create-ai?greetings=${id}`);
+    await expect(page.getByTestId('greetings-step')).toBeVisible();
+    const count = page.getByTestId('greeting-count');
+    await expect(count).toHaveText('2 of 5');
+
+    // A steered rewrite of the first message is written and saved.
+    const first = page.getByTestId('greeting-card-0');
+    await first.getByLabel('Steer the rewrite (optional)').fill('start at the harbor at dawn');
+    await first.getByRole('button', { name: 'Regenerate' }).click();
+    await expect(first.getByLabel('First message text')).toHaveValue(REPLY, { timeout: 60_000 });
+    await expect.poll(async () => (await detail()).firstMessage).toBe(REPLY);
+
+    // An alternate edited in place is saved once typing pauses.
+    await page.getByTestId('greeting-card-1').getByLabel('Alternate 1 text').fill('A calm morning on the jetty.');
+    await expect.poll(async () => (await detail()).alternateGreetings[0]).toBe('A calm morning on the jetty.');
+
+    // Delete takes alternate 2 off the card.
+    await page.getByTestId('greeting-card-2').getByRole('button', { name: 'Delete alternate 2' }).click();
+    await expect(count).toHaveText('1 of 5');
+    await expect.poll(async () => (await detail()).alternateGreetings).toEqual(['A calm morning on the jetty.']);
+
+    // Add another writes a new one straight away.
+    await page.getByRole('button', { name: 'Add another greeting' }).click();
+    await expect(count).toHaveText('2 of 5', { timeout: 60_000 });
+    await expect(page.getByTestId('greeting-card-2').getByLabel('Alternate 2 text')).toHaveValue(REPLY);
+    await expect
+      .poll(async () => (await detail()).alternateGreetings)
+      .toEqual(['A calm morning on the jetty.', REPLY]);
+
+    await page.getByRole('button', { name: 'Open in editor' }).click();
+    await expect(page).toHaveURL(new RegExp(`/edit/${id}$`));
+  } finally {
+    const gone = await page.request.post(`/api/characters/${id}/delete`);
+    expect(gone.ok(), `deleting the journey character: ${gone.status()}`).toBe(true);
+  }
+});
+
 test('the chat model sheet lists models you can tap, and offers providers', async ({ page }) => {
   await openPorchChat(page);
   await page.locator('.model-switch-chip').click();
@@ -289,4 +349,172 @@ test('New Story walks four steps, keeps the draft when you leave, and the shelf 
   await expect(page).toHaveURL(/\/stories$/);
   const book = page.locator('[data-testid^="story-book-"]', { hasText: 'Draft Journey' }).first();
   await expect(book).toContainText('Stopped at step 4 · Engine');
+});
+
+// Issue #348: two selected characters leave as one .porchpack, and the same
+// file brought back is skipped by name, because the library still has them.
+// Export opens each character's chats to pack them and then reopens the
+// chat that was open, so the journeys after this one find it unchanged.
+test('export two characters as one .porchpack; importing it back skips both by name', async ({ page }) => {
+  await openRoute(page, '/');
+  await page.getByRole('button', { name: '☑ Select' }).click();
+  for (const name of ['Porch Tester', 'Second Guest']) {
+    await page.locator('.lib-card', { hasText: name }).locator('.lib-open').click();
+  }
+  const bar = page.locator('.selection-bar');
+  await expect(bar).toContainText('2 selected');
+
+  const download = page.waitForEvent('download');
+  await bar.getByRole('button', { name: '⬇ Export' }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe('Front Porch characters (2).porchpack');
+  await expect(bar).toHaveCount(0);
+  const notice = page.getByTestId('porch-notice');
+  await expect(notice).toHaveText('Saved 2 characters to Front Porch characters (2).porchpack.');
+
+  await page.getByTestId('porch-import-input').setInputFiles({
+    name: file.suggestedFilename(),
+    mimeType: 'application/octet-stream',
+    buffer: await readFile((await file.path())!),
+  });
+  // A skip is news, not a failure: the notice, never the red error line.
+  await expect(notice).toHaveText('Skipped 2 you already have: Porch Tester, Second Guest.');
+  await expect(page.locator('p.error')).toHaveCount(0);
+});
+
+// Chat and the rest of the suite run on the stand-in backend. The Local model
+// and preset cards are the local backend's (as on the desktop), so the host is
+// switched to KoboldCpp for this journey only; nothing in it loads a model.
+test.describe('the Local model card', () => {
+  const setBackend = (page: Page, backend: 'kobold' | 'openRouter') =>
+    page.request.post('/api/settings', { data: { backend } });
+
+  // The stand-in backend as the suite set it up. Switching the backend blanks
+  // the remote model name on purpose (BackendSettings.setBackendType: the
+  // picker must not keep the previous host's model), so putting back the
+  // backend alone leaves chat with no model.
+  let standIn: { backend: string; remoteApiUrl: string; remoteModelName: string };
+  test.beforeEach(async ({ request }) => {
+    const s = await (await request.get('/api/settings')).json();
+    standIn = { backend: s.backend, remoteApiUrl: s.remoteApiUrl, remoteModelName: s.remoteModelName };
+  });
+
+  // Whatever happened, the next spec finds the stand-in backend, working, and
+  // no preset.
+  test.afterEach(async ({ request }) => {
+    const back = await request.post('/api/settings', { data: standIn });
+    expect(back.ok(), `putting the stand-in backend back: ${back.status()}`).toBe(true);
+    await request.post('/api/backend/local-model/preset', { data: { path: null } });
+    const after = await (await request.get('/api/settings')).json();
+    expect(after.remoteConfigured, 'the stand-in backend answers chat again').toBe(true);
+  });
+
+  test('is for a local backend only; there, a context and its verdict, then a KoboldCpp preset', async ({ page }) => {
+    // The stand-in is a remote backend: no card, and no poll for one.
+    const asked: string[] = [];
+    page.on('request', (r) => asked.push(new URL(r.url()).pathname));
+    await openRoute(page, '/models');
+    await expect(page.getByRole('heading', { name: 'Models & backends' })).toBeVisible();
+    await expect(page.getByTestId('local-model-card')).toHaveCount(0);
+    await expect(page.getByTestId('kobold-preset-card')).toHaveCount(0);
+    expect(asked).toContain('/api/backend/status');
+    expect(asked).not.toContain('/api/backend/local-model');
+
+    // The host switches to KoboldCpp (seeded by browser_test.dart with a local
+    // model and one preset): the cards are there.
+    const switched = await setBackend(page, 'kobold');
+    expect(switched.ok(), `POST /api/settings backend=kobold: ${switched.status()}`).toBe(true);
+    await openRoute(page, '/models');
+    const card = page.getByTestId('local-model-card');
+    await expect(card).toContainText('Set up for this computer automatically.');
+    const verdict = page.getByTestId('local-model-verdict');
+
+    // The speed test, in auto mode. The host refuses it until the model runs
+    // (_speedTestWhyNot, lib/services/llm_provider.speed_test.dart), and the
+    // model seeded here is only a header (e2e_local_model.dart): the button
+    // is there, greyed, with the host's reason under it.
+    const speedTest = card.getByTestId('speed-test-button');
+    await expect(speedTest).toHaveText('Find the fastest settings for this computer');
+    await expect(speedTest).toBeDisabled();
+    await expect(card.getByTestId('speed-test-unavailable')).toHaveText('Start the model first, then run the test.');
+
+    await card.getByRole('button', { name: '8,192', exact: true }).click();
+    await expect(verdict).toContainText('Not recommended or supported.');
+    await card.getByRole('button', { name: '16,384', exact: true }).click();
+    await expect(verdict).toContainText('Works like now.');
+
+    const presets = page.getByLabel('Chat uses');
+    await presets.selectOption({ label: 'Long chats — 32k chat · fitted to the card · smart cache off' });
+    await expect(card).toContainText('Uses your preset “Long chats”.');
+    await expect(page.getByTestId('kobold-preset-card')).toContainText('lets KoboldCpp fit it to your card');
+    // A preset runs its own settings: no speed test under it.
+    await expect(speedTest).toHaveCount(0);
+
+    // The preset sets the context: Settings locks the slider, in the desktop's
+    // words, and the host refuses another one however it is asked.
+    await openRoute(page, '/settings');
+    const slider = page.locator('.slider-field', { hasText: 'Context size' });
+    await expect(slider.locator('input[type="range"]')).toBeDisabled();
+    await expect(
+      page.getByText('Context size is controlled by the active .kcpps preset and cannot be edited here.'),
+    ).toBeVisible();
+    const refused = await page.request.post('/api/settings', { data: { contextSize: 8192 } });
+    expect(refused.status()).toBe(400);
+
+    // Back to automatic, as it was, and the speed test with it.
+    await openRoute(page, '/models');
+    await presets.selectOption({ label: "The app's own settings (automatic)" });
+    await expect(card).toContainText('Set up for this computer automatically.');
+    await expect(speedTest).toBeDisabled();
+  });
+
+  // The host seeds "Risky" (browser_test.dart) beside "Long chats": a list of
+  // programs to run and a public tunnel. The host will not start KoboldCpp
+  // from a preset like that, so the pick is refused with the reason, which
+  // the phone says beside the picker. Whatever happens, afterEach puts the
+  // host back on no preset.
+  test('a preset that would run a program is refused beside the picker, and is not turned on', async ({
+    page,
+    allowHttp,
+  }) => {
+    // The refused pick is the host's answer (422), not a fault.
+    allowHttp((url, status) => status === 422 && /\/api\/backend\/local-model\/preset$/.test(url));
+    const switched = await setBackend(page, 'kobold');
+    expect(switched.ok(), `POST /api/settings backend=kobold: ${switched.status()}`).toBe(true);
+    await openRoute(page, '/models');
+    const card = page.getByTestId('local-model-card');
+    await expect(card).toContainText('Set up for this computer automatically.');
+
+    const listed = (await (await page.request.get('/api/backend/local-model')).json()) as {
+      presets: { path: string; name: string }[];
+    };
+    const risky = listed.presets.find((p) => p.name === 'Risky');
+    expect(risky, 'the host seeded a Risky preset in the engine folder').toBeTruthy();
+
+    const picker = page.getByLabel('Chat uses');
+    await picker.selectOption(risky!.path);
+    const refused = page.getByTestId('kobold-preset-card').getByTestId('preset-refused');
+    await expect(refused).toBeVisible();
+    await expect(refused).toContainText('mcpfile');
+    await expect(refused).toContainText('remotetunnel');
+    await expect(refused).toContainText('pick another preset');
+
+    // Not turned on: the picker is where it was, the card still says
+    // automatic, and the host has no preset.
+    await expect(picker).toHaveValue('');
+    await expect(card).toContainText('Set up for this computer automatically.');
+    await expect(card).not.toContainText('Uses your preset');
+    const after = (await (await page.request.get('/api/backend/local-model')).json()) as { preset: unknown };
+    expect(after.preset, 'the host did not turn it on').toBeNull();
+
+    // The host says no to whoever asks, not only to this page.
+    const direct = await page.request.post('/api/backend/local-model/preset', { data: { path: risky!.path } });
+    expect(direct.status()).toBe(422);
+    expect(((await direct.json()) as { error: string }).error).toContain('mcpfile');
+
+    // A preset that is fine is picked as before, and the reason goes.
+    await picker.selectOption({ label: 'Long chats — 32k chat · fitted to the card · smart cache off' });
+    await expect(card).toContainText('Uses your preset “Long chats”.');
+    await expect(refused).toHaveCount(0);
+  });
 });

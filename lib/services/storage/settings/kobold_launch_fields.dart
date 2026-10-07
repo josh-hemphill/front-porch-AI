@@ -21,6 +21,9 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+// Leaves, not kobold.dart: the barrel loops back through storage_service.dart.
+import 'package:front_porch_ai/services/kobold/kobold_idle_unload.dart';
+import 'package:front_porch_ai/services/kobold/kobold_keeper_budget.dart';
 import 'package:front_porch_ai/services/kobold/kobold_launch_config.dart';
 import 'package:front_porch_ai/services/kobold/kobold_mmq_timing.dart';
 
@@ -32,18 +35,22 @@ mixin KoboldLaunchFields on SettingsBase {
   bool _gpuLayersManual = false;
   bool _gpuLayersNoteSeen = false;
   KvQuant? _kvQuantNamed;
-  ContextManagementMode _koboldContextMode =
-      ContextManagementMode.fastForwardSmartCache;
   bool _rocmFlashAttentionFailed = false;
   bool _batchAutomatic = true;
+  Set<String> _keeperFailed = const {};
+  int _idleUnloadMinutes = 0;
+  int _keepRecentChats = 0;
   int? _engineContextSize;
 
   /// The local backend type; prompts for other backends are not held to
   /// the app's own KoboldCpp.
   String get backendType;
 
-  /// The context chat's KoboldCpp config gives it, as last staged (a launch
-  /// or a swap back to chat). KoboldCpp runs with exactly that.
+  /// The context chat's KoboldCpp runs with: what chat's config names when
+  /// it is staged, and what the engine says once a launch or a reload is
+  /// confirmed (the only way to know when the config names none, as its
+  /// default differs by version). Staging a config that names none leaves
+  /// what was learned.
   int? get engineContextSize => _engineContextSize;
 
   void setEngineContextSize(int? value) {
@@ -81,6 +88,58 @@ mixin KoboldLaunchFields on SettingsBase {
     notify();
   }
 
+  /// Minutes the app's own KoboldCpp may sit idle before its model is
+  /// unloaded to free the graphics memory; 0 (the default) never does.
+  int get idleUnloadMinutes => _idleUnloadMinutes;
+
+  /// Takes one of [kKoboldIdleUnloadChoices]; anything else is refused.
+  Future<void> setIdleUnloadMinutes(int value) async {
+    if (!kKoboldIdleUnloadChoices.contains(value)) {
+      debugPrint('Idle unload of $value minutes is not a choice; ignored.');
+      return;
+    }
+    _idleUnloadMinutes = value;
+    await prefs?.setInt(k('kobold_idle_unload_minutes'), value);
+    notify();
+  }
+
+  /// How many chats besides the open one the app keeps ready in KoboldCpp's
+  /// memory; 0 (the default) keeps only the open chat, let go when it is
+  /// left. The keeper reads it as it works.
+  int get keepRecentChats => _keepRecentChats;
+
+  /// Takes one of [kKoboldKeepRecentChoices]; anything else is refused.
+  Future<void> setKeepRecentChats(int value) async {
+    if (!kKoboldKeepRecentChoices.contains(value)) {
+      debugPrint('Keeping $value recent chats is not a choice; ignored.');
+      return;
+    }
+    _keepRecentChats = value;
+    await prefs?.setInt(k('kobold_keep_recent_chats'), value);
+    notify();
+  }
+
+  /// Whether keeping chats ready in KoboldCpp's memory failed for [model]
+  /// with this [engineVersion] before. Auto mode then uses KoboldCpp's own
+  /// smart cache for it, as it did before the keeper; a new engine version
+  /// is tried afresh.
+  bool keeperFailedFor(String? engineVersion, String model) =>
+      _keeperFailed.contains(_keeperKey(engineVersion, model));
+
+  Future<void> noteKeeperFailed(String? engineVersion, String model) async {
+    final key = _keeperKey(engineVersion, model);
+    if (_keeperFailed.contains(key)) return;
+    _keeperFailed = {..._keeperFailed, key};
+    await prefs?.setStringList(
+      k('kobold_keeper_failed'),
+      _keeperFailed.toList(),
+    );
+    notify();
+  }
+
+  static String _keeperKey(String? version, String model) =>
+      '${version ?? ''}|${model.trim()}';
+
   /// "I know KoboldCpp: don't ask again" on the pop-up before the preset
   /// editor.
   bool get presetGateSkipped => _presetGateSkipped;
@@ -107,16 +166,19 @@ mixin KoboldLaunchFields on SettingsBase {
 
   /// MMQ for an auto-mode launch on [card]: as learned, or the setting
   /// still to be timed there (on, KoboldCpp's default, then off). Replies
-  /// read their speeds into it until both have three (see
-  /// [noteKoboldOutput]).
+  /// read their speeds into it until each has three that can be timed (see
+  /// [noteKoboldOutput] and [koboldTurnSeconds]).
   bool mmqForLaunch(String card, String? engineVersion) {
     final key = _mmqKey(card, engineVersion);
-    final learned = _mmqTimed[key];
+    final learned = mmqFor(card, engineVersion);
     if (learned != null) {
       _mmqTrial = null;
       return learned;
     }
-    final on = (_mmqSamples[key]?['on']?.length ?? 0) < 3;
+    // "On" is done when enough of its replies could be timed: counting the
+    // replies seen would end it after three short ones, and "off" would then
+    // be tried for good with nothing known about "on".
+    final on = koboldTurnSeconds(_mmqSamples[key]?['on'] ?? const []) == null;
     _mmqTrial = (key: key, on: on);
     return on;
   }
@@ -134,9 +196,8 @@ mixin KoboldLaunchFields on SettingsBase {
     ];
     if (speeds.isEmpty) return;
     final both = _mmqSamples[trial.key] ??= {};
-    final mine = both[trial.on ? 'on' : 'off'] ??= [];
-    mine.addAll(speeds);
-    if (mine.length > 8) mine.removeRange(0, mine.length - 8);
+    final phase = trial.on ? 'on' : 'off';
+    both[phase] = koboldKeepTimed([...?both[phase], ...speeds]);
     final faster = koboldMmqFaster(
       on: both['on'] ?? const [],
       off: both['off'] ?? const [],
@@ -228,10 +289,6 @@ mixin KoboldLaunchFields on SettingsBase {
       _kvQuantNamed ??
       KvQuant.parse(prefs?.getInt(k('kv_quantization_level')) ?? 0);
 
-  /// How a chat longer than the context is handled when no preset is in
-  /// use. Sliding window is only applied to models that have it.
-  ContextManagementMode get koboldContextMode => _koboldContextMode;
-
   void loadKoboldLaunch() {
     _gpuLayersManual = prefs?.getBool(k('gpu_layers_manual')) ?? false;
     final seen = prefs?.getBool(k('gpu_layers_note_seen'));
@@ -248,9 +305,6 @@ mixin KoboldLaunchFields on SettingsBase {
     _kvQuantNamed = named == null ? null : KvQuant.parse(named);
     _rocmFlashAttentionFailed =
         prefs?.getBool(k('rocm_flash_attention_failed')) ?? false;
-    _koboldContextMode = prefs?.getString(k('kobold_context_mode')) == 'swa'
-        ? ContextManagementMode.slidingWindowAttention
-        : ContextManagementMode.fastForwardSmartCache;
     // Auto for everyone who never chose a batch; a batch chosen before Auto
     // existed is kept.
     _batchAutomatic =
@@ -258,6 +312,11 @@ mixin KoboldLaunchFields on SettingsBase {
         !(prefs?.containsKey(k('blas_batch_size')) ?? false);
     _presetGateSkipped =
         prefs?.getBool(k('kobold_preset_gate_skipped')) ?? false;
+    final idle = prefs?.getInt(k('kobold_idle_unload_minutes')) ?? 0;
+    _idleUnloadMinutes = kKoboldIdleUnloadChoices.contains(idle) ? idle : 0;
+    final recent = prefs?.getInt(k('kobold_keep_recent_chats')) ?? 0;
+    _keepRecentChats = kKoboldKeepRecentChoices.contains(recent) ? recent : 0;
+    _keeperFailed = {...?prefs?.getStringList(k('kobold_keeper_failed'))};
     _mmqTimed = _readMmqTimed(prefs?.getString(k('kobold_mmq_timed')));
     _mmqSamples = _readMmqSamples(prefs?.getString(k('kobold_mmq_samples')));
   }
@@ -294,15 +353,6 @@ mixin KoboldLaunchFields on SettingsBase {
   Future<void> setKvQuant(KvQuant value) async {
     _kvQuantNamed = value;
     await prefs?.setString(k('kv_quant'), value.wire);
-    notify();
-  }
-
-  Future<void> setKoboldContextMode(ContextManagementMode value) async {
-    _koboldContextMode = value;
-    await prefs?.setString(
-      k('kobold_context_mode'),
-      value == ContextManagementMode.slidingWindowAttention ? 'swa' : 'ff',
-    );
     notify();
   }
 }

@@ -35,22 +35,65 @@ KoboldSpeed? parseKoboldSpeed(String line) {
   );
 }
 
+/// A reply that read enough to say how fast a prompt is read.
+bool koboldReadCounts(KoboldSpeed r) => r.read >= 512 && r.readSeconds > 0;
+
+/// A reply that wrote enough to say how fast the card writes.
+bool koboldWriteCounts(KoboldSpeed r) => r.written >= 16 && r.writeSeconds > 0;
+
 /// Seconds for a typical turn at these speeds: reading 1,000 tokens of
 /// prompt and writing 200. Only replies that read and wrote enough to time
-/// count; the middle of what is left is taken, so one slow reply (the
-/// first after a load, read from the disk) does not decide. Null with
-/// fewer than three such replies.
+/// count (see [koboldReadCounts] and [koboldWriteCounts]); the middle of
+/// what is left is taken, so one slow reply (the first after a load, read
+/// from the disk) does not decide. Null with fewer than three such replies
+/// of each.
 double? koboldTurnSeconds(List<KoboldSpeed> replies) {
   final read = [
     for (final r in replies)
-      if (r.read >= 512 && r.readSeconds > 0) r.read / r.readSeconds,
+      if (koboldReadCounts(r)) r.read / r.readSeconds,
   ]..sort();
   final write = [
     for (final r in replies)
-      if (r.written >= 16 && r.writeSeconds > 0) r.written / r.writeSeconds,
+      if (koboldWriteCounts(r)) r.written / r.writeSeconds,
   ]..sort();
   if (read.length < 3 || write.length < 3) return null;
-  return 1000 / read[read.length ~/ 2] + 200 / write[write.length ~/ 2];
+  return _turn(read[read.length ~/ 2], write[write.length ~/ 2]);
+}
+
+/// Seconds for a typical turn at one reply's speeds, by the same measure as
+/// [koboldTurnSeconds]; null when it read or wrote too little to time.
+double? koboldTurnSecondsOf(KoboldSpeed r) =>
+    koboldReadCounts(r) && koboldWriteCounts(r)
+    ? _turn(r.read / r.readSeconds, r.written / r.writeSeconds)
+    : null;
+
+/// A typical turn: reading 1,000 tokens of prompt and writing 200.
+double _turn(double readPerSecond, double writePerSecond) =>
+    1000 / readPerSecond + 200 / writePerSecond;
+
+/// Tokens each of the speed test's prompts writes: a typical reply, so how
+/// fast writing is counts as much as reading.
+const int kKoboldTimingWrite = 200;
+
+/// [replies] cut down to what timing can use: the newest [each] that count
+/// for reading and the newest [each] that count for writing, in the order
+/// they came. A reply that counts for neither says nothing and goes. Each
+/// kind is kept apart so that a run of one (a judge's short answer after a
+/// long prompt, a chat of short messages) cannot push out the other.
+List<KoboldSpeed> koboldKeepTimed(List<KoboldSpeed> replies, {int each = 8}) {
+  final keep = List.filled(replies.length, false);
+  for (final counts in [koboldReadCounts, koboldWriteCounts]) {
+    var kept = 0;
+    for (var i = replies.length - 1; i >= 0 && kept < each; i--) {
+      if (!counts(replies[i])) continue;
+      keep[i] = true;
+      kept++;
+    }
+  }
+  return [
+    for (var i = 0; i < replies.length; i++)
+      if (keep[i]) replies[i],
+  ];
 }
 
 /// MMQ on (true) or off when both have been timed; null until then.
@@ -90,8 +133,15 @@ String koboldTimingPrompt(int round) {
   return out.toString();
 }
 
-/// Times one fresh prompt and a short reply on the engine at [baseUrl].
-Future<Duration> timeKoboldPrompt(String baseUrl, int round) async {
+/// Times one fresh prompt and a reply of [write] tokens on the engine at
+/// [baseUrl]. [fullLength] writes all of them, whatever the model would stop
+/// at, so every timing writes the same.
+Future<Duration> timeKoboldPrompt(
+  String baseUrl,
+  int round, {
+  int write = 48,
+  bool fullLength = false,
+}) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
   final watch = Stopwatch()..start();
   try {
@@ -100,9 +150,10 @@ Future<Duration> timeKoboldPrompt(String baseUrl, int round) async {
     request.write(
       jsonEncode({
         'prompt': koboldTimingPrompt(round),
-        'max_length': 48,
+        'max_length': write,
         'temperature': 0.7,
         'quiet': true,
+        if (fullLength) 'ban_eos_token': true,
       }),
     );
     final response = await request.close().timeout(const Duration(minutes: 15));

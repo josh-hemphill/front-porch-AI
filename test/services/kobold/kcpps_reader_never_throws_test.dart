@@ -65,14 +65,21 @@ void main() {
         expect(read, isA<KcppsOk>(), reason: text);
         read as KcppsOk;
         expect(read.raw, jsonDecode(text), reason: text);
-        expect(() => writeKcpps(read.config), returnsNormally, reason: text);
         expect(
-          () => encodeKcpps(
-            kcppsPresetLaunchMap(read.raw, modelPath: '', mmprojPath: ''),
-          ),
+          () => encodeKcpps(kcppsMap(read.config)),
           returnsNormally,
           reason: text,
         );
+        // The launch map says no to a preset with an old setting name alone,
+        // with the typed refusal and nothing else.
+        String launch() => encodeKcpps(
+          kcppsPresetLaunchMap(read.raw, modelPath: '', mmprojPath: ''),
+        );
+        if (kcppsPresetProblem(read.raw) == null) {
+          expect(launch, returnsNormally, reason: text);
+        } else {
+          expect(launch, throwsA(isA<KoboldPresetProblem>()), reason: text);
+        }
       }
     }
   });

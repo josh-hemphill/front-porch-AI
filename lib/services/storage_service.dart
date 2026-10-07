@@ -28,6 +28,7 @@ import 'package:front_porch_ai/app_version.dart';
 
 // Stage 7: directories + domain settings. Do not grow this file.
 import 'desktop_spell_check_service.dart';
+import 'kobold/kobold_preset_link_repair.dart';
 import 'reasoning_effort_store.dart';
 import 'storage/storage.dart';
 
@@ -64,6 +65,7 @@ class StorageService extends ChangeNotifier {
   late final MemorySettings _memorySettings = MemorySettings();
   late final PresetSettings _presetSettings = PresetSettings();
   late final LorebookSettings _lorebookSettings = LorebookSettings();
+  late final ToolVerdictSettings _toolVerdictSettings = ToolVerdictSettings();
 
   // Directories lifted to directories.dart (Stage 7); thin god owns root state for setRootPath.
   // Getter ensures live values after setRootPath / setCustomModelsPath.
@@ -120,6 +122,7 @@ class StorageService extends ChangeNotifier {
   MemorySettings get memorySettings => _memorySettings;
   PresetSettings get presetSettings => _presetSettings;
   LorebookSettings get lorebookSettings => _lorebookSettings;
+  ToolVerdictSettings get toolVerdictSettings => _toolVerdictSettings;
 
   // God-level (not in a *Settings): spell check language.
   //
@@ -197,6 +200,7 @@ class StorageService extends ChangeNotifier {
     _memorySettings.initializeBase(null, notifyListeners);
     _presetSettings.initializeBase(null, notifyListeners);
     _lorebookSettings.initializeBase(null, notifyListeners);
+    _toolVerdictSettings.initializeBase(null, notifyListeners);
     _generationSettings.load();
     _backendSettings.load();
     _uiSettings.load();
@@ -210,6 +214,7 @@ class StorageService extends ChangeNotifier {
     _memorySettings.load();
     _presetSettings.load();
     _lorebookSettings.load();
+    _toolVerdictSettings.load();
     if (!_initCompleter.isCompleted) _initCompleter.complete();
   }
 
@@ -310,6 +315,7 @@ class StorageService extends ChangeNotifier {
     _memorySettings.initializeBase(_prefs, notifyListeners);
     _presetSettings.initializeBase(_prefs, notifyListeners);
     _lorebookSettings.initializeBase(_prefs, notifyListeners);
+    _toolVerdictSettings.initializeBase(_prefs, notifyListeners);
 
     // Nothing between here and the completer may escape. _init is
     // fire-and-forget, so one throw (a corrupt prefs value) would leave
@@ -330,6 +336,8 @@ class StorageService extends ChangeNotifier {
       _memorySettings.load();
       _presetSettings.load();
       _lorebookSettings.load();
+      _toolVerdictSettings.load();
+      await repairKoboldPresetLinks(_presetSettings, engineDir: binDir.path);
       attachReasoningEffortMenuStore(_prefs);
 
       if (!_presetSettings.savedPrompts.any(

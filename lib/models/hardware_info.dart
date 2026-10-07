@@ -50,7 +50,17 @@ class HardwareInfo {
     this.hasMetal = false,
     this.isSharedMemory = false,
     this.linuxDistro = 'unknown',
-  });
+    this.cardCount = 1,
+    int? smallestCardMb,
+  }) : smallestCardMb = smallestCardMb ?? vramMb;
+
+  /// Graphics cards of the detected vendor: KoboldCpp spreads a model over
+  /// all of them when a preset names no card.
+  final int cardCount;
+
+  /// The smallest of those cards' memory: a split is estimated with each
+  /// card past the first counted as this, so mixed cards never look bigger.
+  final int smallestCardMb;
 
   @override
   String toString() =>
@@ -66,6 +76,8 @@ class HardwareInfo {
     'hasMetal': hasMetal,
     'isSharedMemory': isSharedMemory,
     'linuxDistro': linuxDistro,
+    'cardCount': cardCount,
+    'smallestCardMb': smallestCardMb,
   };
 
   /// Rebuilds from [toJson]. Every field is read defensively — a cache written
@@ -84,6 +96,8 @@ class HardwareInfo {
       hasMetal: json['hasMetal'] as bool? ?? false,
       isSharedMemory: json['isSharedMemory'] as bool? ?? false,
       linuxDistro: json['linuxDistro'] as String? ?? 'unknown',
+      cardCount: (json['cardCount'] as num?)?.toInt() ?? 1,
+      smallestCardMb: (json['smallestCardMb'] as num?)?.toInt(),
     );
   }
 }

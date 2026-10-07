@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:front_porch_ai/services/kobold/kobold.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 
+import 'kcpps_batch_timing.dart';
 import 'kcpps_editor_controller.dart';
 import 'kcpps_editor_style.dart';
+import 'kcpps_number_field.dart';
 
 /// Chat length: the context, the chat memory's size, sliding window.
 class KcppsChatLengthSection extends StatelessWidget {
@@ -22,13 +24,14 @@ class KcppsChatLengthSection extends StatelessWidget {
     final d = c.draft;
     final max = c.maxContext;
     final low = d.contextSize < kKoboldContextFloor;
-    final compressible = c.flashAttentionRuns && d.flashAttention;
+    // A compressed size turns flash attention on, where it can run.
+    final compressible = c.flashAttentionRuns;
     final sizes = [
       for (final q in [KvQuant.f16, KvQuant.q8_0, KvQuant.q4_0])
         if (c.cacheMbFor(q) case final mb?)
           '${kvQuantWords(q)} ${(mb / 1024).toStringAsFixed(1)} GB',
     ];
-    final swa = c.info?.hasSlidingWindow ?? false;
+    final swa = c.hasSlidingWindow;
     final faint = AppColors.slateFaintOf(context);
     return KeSection(
       title: 'Chat length',
@@ -49,15 +52,24 @@ class KcppsChatLengthSection extends StatelessWidget {
                     ),
                     child: Slider(
                       key: const ValueKey('kcpps-context'),
-                      min: 2048,
+                      min: kKcppsContextMin.toDouble(),
                       max: max.toDouble(),
-                      divisions: (max - 2048) ~/ 2048,
-                      value: d.contextSize.clamp(2048, max).toDouble(),
+                      divisions: ((max - kKcppsContextMin) ~/ 2048).clamp(
+                        1,
+                        1 << 20,
+                      ),
+                      value: d.contextSize
+                          .clamp(kKcppsContextMin, max)
+                          .toDouble(),
                       semanticFormatterCallback: (v) =>
                           '${koboldTokens(v.round())} tokens',
                       onChanged: (v) => c.edit(
-                        (d) =>
-                            d.copyWith(contextSize: (v / 2048).round() * 2048),
+                        (d) => d.copyWith(
+                          contextSize: ((v / 2048).round() * 2048).clamp(
+                            kKcppsContextMin,
+                            max,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -82,6 +94,20 @@ class KcppsChatLengthSection extends StatelessWidget {
                 weight: low ? FontWeight.w600 : FontWeight.w400,
               ),
             ),
+            if (koboldShortModelWarning(c.info?.contextLength)
+                case final short?) ...[
+              const SizedBox(height: 6),
+              Text(
+                short,
+                key: const ValueKey('kcpps-short-model'),
+                style: keText(
+                  context,
+                  size: 12,
+                  color: AppColors.porchHoneyOf(context),
+                  weight: FontWeight.w600,
+                ),
+              ),
+            ],
           ],
         ),
         Column(
@@ -108,14 +134,33 @@ class KcppsChatLengthSection extends StatelessWidget {
           ],
         ),
         if (swa)
-          KeCheck(
-            value: d.slidingWindow,
-            label:
-                'Sliding window: less chat memory, but every reply reads '
-                'the whole chat again',
-            onChanged: (v) => c.edit((d) => d.copyWith(slidingWindow: v)),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              KeCheck(
+                key: const ValueKey('kcpps-sliding-window'),
+                value: c.swaLeftToKobold ? null : d.slidingWindow,
+                label: c.swaLeftToKobold
+                    ? 'Sliding window: left to KoboldCpp'
+                    : 'Sliding window: less chat memory, but every reply '
+                          'reads the whole chat again',
+                onChanged: (v) => c.edit((d) => d.copyWith(slidingWindow: v)),
+              ),
+              if (c.swaLeftWarns) ...[
+                const SizedBox(height: 6),
+                Text(
+                  kSwaLeftToKoboldNote,
+                  style: keText(
+                    context,
+                    size: 12,
+                    color: AppColors.porchHoneyOf(context),
+                    weight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ],
           )
-        else
+        else if (c.info != null)
           Text(
             'This model has no sliding window, so replies start fast on '
             'long chats (fast forward stays on).',
@@ -127,50 +172,10 @@ class KcppsChatLengthSection extends StatelessWidget {
 }
 
 /// Speed: the batch, flash attention, MMQ, and the spare memory kept.
-class KcppsSpeedSection extends StatefulWidget {
+class KcppsSpeedSection extends StatelessWidget {
   const KcppsSpeedSection({super.key, required this.c});
 
   final KcppsEditorController c;
-
-  @override
-  State<KcppsSpeedSection> createState() => _KcppsSpeedSectionState();
-}
-
-class _KcppsSpeedSectionState extends State<KcppsSpeedSection> {
-  final _batch = TextEditingController();
-  String? _problem;
-
-  KcppsEditorController get c => widget.c;
-
-  @override
-  void initState() {
-    super.initState();
-    _batch.text = '${c.draft.batchSize}';
-  }
-
-  @override
-  void didUpdateWidget(KcppsSpeedSection old) {
-    super.didUpdateWidget(old);
-    if (_problem == null && int.tryParse(_batch.text) != c.draft.batchSize) {
-      _batch.text = '${c.draft.batchSize}';
-    }
-  }
-
-  @override
-  void dispose() {
-    _batch.dispose();
-    super.dispose();
-  }
-
-  void _typed(String text) {
-    final n = int.tryParse(text);
-    setState(
-      () => _problem = n == null || n < 16 || n > 8192
-          ? 'A batch is 16 to 8,192 tokens.'
-          : null,
-    );
-    if (_problem == null) c.edit((d) => d.copyWith(batchSize: n));
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +183,7 @@ class _KcppsSpeedSectionState extends State<KcppsSpeedSection> {
     final hint = c.view?.batchHint;
     final faint = AppColors.slateFaintOf(context);
     final note = c.flashAttentionNote;
+    final compressed = d.kvQuant.needsFlashAttention;
     return KeSection(
       title: 'Speed',
       children: [
@@ -186,44 +192,58 @@ class _KcppsSpeedSectionState extends State<KcppsSpeedSection> {
           children: [
             const KeLabel('Batch: tokens read at a time', size: 13),
             const SizedBox(height: 6),
-            Wrap(
-              spacing: 10,
-              runSpacing: 6,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                KeBox(
-                  controller: _batch,
-                  keyName: 'kcpps-batch',
-                  width: 120,
-                  number: true,
-                  error: _problem != null,
-                  semanticLabel: 'Batch: tokens read at a time',
-                  onChanged: _typed,
-                ),
-                if (_problem != null || hint != null)
-                  Text(
-                    _problem ?? 'Suggested ${hint!.batch}: ${hint.what}',
-                    style: keText(
-                      context,
-                      size: 12,
-                      color: _problem != null
-                          ? AppColors.alertRedOf(context)
-                          : faint,
+            KeNumberField(
+              value: d.batchSize,
+              keyName: 'kcpps-batch',
+              width: 120,
+              semanticLabel: 'Batch: tokens read at a time',
+              check: (text) {
+                final n = int.tryParse(text);
+                return n == null || n < 16 || n > 8192
+                    ? 'A batch is 16 to 8,192 tokens.'
+                    : null;
+              },
+              onValid: (text) =>
+                  c.edit((d) => d.copyWith(batchSize: int.parse(text))),
+              builder: (context, box, problem) => Wrap(
+                spacing: 10,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  box,
+                  if (problem != null || hint != null)
+                    Text(
+                      problem ?? 'Suggested ${hint!.batch}: ${hint.what}',
+                      style: keText(
+                        context,
+                        size: 12,
+                        color: problem != null
+                            ? AppColors.alertRedOf(context)
+                            : faint,
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
+            const SizedBox(height: 8),
+            KcppsBatchTiming(c: c),
           ],
         ),
         KeCheck(
-          value: c.flashAttentionRuns && d.flashAttention,
+          key: const ValueKey('kcpps-flash-attention'),
+          value: c.config.flashAttention,
           label: 'Flash attention (faster, less memory)',
-          onChanged: c.flashAttentionRuns
+          onChanged: c.flashAttentionRuns && !compressed
               ? (v) => c.edit((d) => d.copyWith(flashAttention: v))
               : null,
         ),
         if (note != null)
-          Text(note, style: keText(context, size: 12, color: faint)),
+          Text(note, style: keText(context, size: 12, color: faint))
+        else if (compressed)
+          Text(
+            kKoboldCompressedTurnsFlashOn,
+            style: keText(context, size: 12, color: faint),
+          ),
         if (c.mmqApplies)
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,7 +266,8 @@ class _KcppsSpeedSectionState extends State<KcppsSpeedSection> {
                     height: 36,
                     padding: 12,
                     fontSize: 13,
-                    onPressed: c.mmqTiming || c.draft.modelPath.isEmpty
+                    onPressed:
+                        c.mmqTiming || c.draft.modelPath.isEmpty || !c.canWrite
                         ? null
                         : c.timeMmq,
                   ),
@@ -261,7 +282,9 @@ class _KcppsSpeedSectionState extends State<KcppsSpeedSection> {
           ),
         KeCheck(
           value: d.greedy,
-          label: 'Greedy: keep 32 MB spare instead of 1 GB',
+          label:
+              'Greedy: keep ${koboldMemoryWords(kKoboldGreedyPaddingMb)} spare '
+              'instead of ${koboldMemoryWords(kKoboldFitPaddingMb)}',
           // Only KoboldCpp's own fit keeps memory spare.
           onChanged: d.manual
               ? null

@@ -20,6 +20,7 @@ import 'kcpps_codec.dart';
 import 'kobold_app_config.dart';
 import 'kobold_launch_config.dart';
 import 'kobold_launch_failure.dart';
+import 'kobold_preset_read.dart';
 
 /// The config a launch runs for a user's preset: the file as it was written,
 /// with only what the app has to own laid over it.
@@ -42,6 +43,12 @@ import 'kobold_launch_failure.dart';
 /// the file from the app's typed settings dropped what those cannot hold (a
 /// second graphics card, the CUDA options, a MoE layer count) and wrote the
 /// app's default wherever the file had left a choice to KoboldCpp.
+///
+/// Throws [KoboldPresetProblem], in plain words, for a preset that
+/// [kcppsPresetProblem] refuses (one that asks KoboldCpp to run a program or
+/// open itself to the internet, or that an older KoboldCpp saved with old
+/// setting names): every start, swap and timing trial is built here, so none
+/// of them can load one.
 Map<String, dynamic> kcppsPresetLaunchMap(
   Map<String, dynamic> preset, {
   required String modelPath,
@@ -49,6 +56,8 @@ Map<String, dynamic> kcppsPresetLaunchMap(
   void Function(String note)? onNote,
   bool flashAttentionOff = false,
 }) {
+  final refused = kcppsPresetProblem(preset);
+  if (refused != null) throw KoboldPresetProblem(refused);
   final map = Map<String, dynamic>.of(preset);
   if (modelPath.isNotEmpty) map['model_param'] = modelPath;
   map['jinja'] = true;

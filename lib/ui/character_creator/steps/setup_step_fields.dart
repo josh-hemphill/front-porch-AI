@@ -42,6 +42,21 @@ extension SetupStepFields on SetupStep {
       listen: false,
     );
 
+    // Kept the way Settings keeps it, for the model a launch will load, and
+    // shown from what is kept. A preset that names a model on this computer
+    // owns the choice of model.
+    Future<void> choosePreset(String? path) async {
+      await chooseKoboldPreset(storage, path);
+      // The preset's context, or the user's own back: the box shows it.
+      state.contextSizeController.text = storage.backendSettings.contextSize
+          .toString();
+      if (storage.backendSettings.kcppsHasModel &&
+          storage.backendSettings.kcppsModelFileExists) {
+        state.selectedLocalModelPath = '';
+      }
+      state.notify();
+    }
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Column(
@@ -51,24 +66,9 @@ extension SetupStepFields on SetupStep {
             storage: storage,
             localPresets: state.localPresets,
             hint: 'Optional \u2014 select a .kcpps preset',
-            onChanged: (val) {
-              storage.backendSettings.setActiveKcppsPath(val);
-              if (val != null &&
-                  storage.backendSettings.kcppsHasModel &&
-                  storage.backendSettings.kcppsModelFileExists) {
-                state.selectedLocalModelPath = '';
-                state.notify();
-              }
-            },
-            onExternalClear: () =>
-                storage.backendSettings.setActiveKcppsPath(null),
-            onBrowsePicked: (_) {
-              if (storage.backendSettings.kcppsHasModel &&
-                  storage.backendSettings.kcppsModelFileExists) {
-                state.selectedLocalModelPath = '';
-                state.notify();
-              }
-            },
+            onChanged: choosePreset,
+            onExternalClear: () => choosePreset(null),
+            onBrowsePicked: choosePreset,
             onModelStatusChanged: (_) => state.notify(),
           ),
           const SizedBox(height: 16),
@@ -131,17 +131,20 @@ extension SetupStepFields on SetupStep {
           Row(
             children: [
               Expanded(
-                child: _buildSettingsTextField(
-                  context,
-                  label: 'Context Size',
-                  controller: state.contextSizeController,
-                  isNumber: true,
-                  onChanged: (v) {
-                    final val = int.tryParse(v);
-                    if (val != null) {
-                      storage.backendSettings.setContextSize(val);
-                    }
-                  },
+                child: PresetContextLock(
+                  locked: storage.backendSettings.presetOwnsContext,
+                  child: _buildSettingsTextField(
+                    context,
+                    label: 'Context Size',
+                    controller: state.contextSizeController,
+                    isNumber: true,
+                    onChanged: (v) {
+                      final val = int.tryParse(v);
+                      if (val != null) {
+                        storage.backendSettings.setContextSize(val);
+                      }
+                    },
+                  ),
                 ),
               ),
             ],

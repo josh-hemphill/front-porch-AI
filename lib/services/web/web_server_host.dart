@@ -64,6 +64,8 @@ class WebServerHost extends ChangeNotifier {
   SttService? _sttService;
   StoryRepository? _storyRepository;
   StoryPipelineService? _storyPipelineService;
+  // The running server's story routes, re-pointed when the pipeline is.
+  StoryFacade? _storyFacade;
 
   HttpServer? _server;
   AuthService? _auth;
@@ -116,7 +118,9 @@ class WebServerHost extends ChangeNotifier {
   VoidCallback? _genStatusListener;
   VoidCallback? _llmReadyListener;
   VoidCallback? _packBoardListener;
+  VoidCallback? _speedTestListener;
   bool? _lastLlmReady;
+  String? _lastLlmHint;
   Timer? _genStatusTicker;
   bool _wasBroadcastingGenStatus = false;
   DateTime _lastGenStatusSent = DateTime.fromMillisecondsSinceEpoch(0);
@@ -256,8 +260,13 @@ class WebServerHost extends ChangeNotifier {
   void setTtsService(TtsService service) => _ttsService = service;
   void setSttService(SttService service) => _sttService = service;
   void setStoryRepository(StoryRepository repo) => _storyRepository = repo;
-  void setStoryPipelineService(StoryPipelineService service) =>
-      _storyPipelineService = service;
+
+  /// The app makes a new pipeline when the chat backend switches and disposes
+  /// the old one, so a running server's story routes move to the new one.
+  void setStoryPipelineService(StoryPipelineService service) {
+    _storyPipelineService = service;
+    _storyFacade?.pipeline = service;
+  }
 
   /// The auth service (lazily built once a database is available) — exposed so
   /// the desktop settings UI can surface the account and offer the local
@@ -381,6 +390,7 @@ class WebServerHost extends ChangeNotifier {
         _realismListener != null ||
         _genStatusListener != null ||
         _llmReadyListener != null ||
+        _speedTestListener != null ||
         _imageProgressListener != null ||
         _packBoardListener != null ||
         _libraryListener != null ||
@@ -388,6 +398,7 @@ class WebServerHost extends ChangeNotifier {
         _libraryDebounce != null;
     if (server == null && !wired) return;
     _server = null;
+    _storyFacade = null;
     if (_realismListener != null) {
       _chatService?.removeListener(_realismListener!);
       _realismListener = null;
@@ -407,11 +418,16 @@ class WebServerHost extends ChangeNotifier {
       _llmProvider?.openRouterService.removeListener(_llmReadyListener!);
       _llmReadyListener = null;
     }
+    if (_speedTestListener case final l?) {
+      _llmProvider?.koboldSpeedTest?.removeListener(l);
+      _speedTestListener = null;
+    }
     _lastLlmReady = null;
     if (_packBoardListener != null) {
       expressionPackBoard.removeListener(_packBoardListener!);
       _packBoardListener = null;
     }
+    _lastLlmHint = null;
     if (_imageProgressListener != null) {
       _imageGenService?.removeListener(_imageProgressListener!);
       _imageProgressListener = null;

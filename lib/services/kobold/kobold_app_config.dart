@@ -32,11 +32,7 @@ class KoboldAppSettings {
     required this.flashAttention,
     required this.kvQuant,
     required this.mlock,
-    required this.contextMode,
     this.rocmFlashAttentionFailed = false,
-    this.smartCacheSlots = 0,
-    this.contextShift = true,
-    this.mmq,
   });
 
   final int contextSize;
@@ -53,31 +49,20 @@ class KoboldAppSettings {
   final bool flashAttention;
   final KvQuant kvQuant;
   final bool mlock;
-  final ContextManagementMode contextMode;
 
   /// KoboldCpp on ROCm died on this machine with flash attention on.
   final bool rocmFlashAttentionFailed;
-
-  /// Smart cache slots, chosen for this machine's free memory, and context
-  /// shift to go with them (see [koboldSmartCacheSetting]).
-  final int smartCacheSlots;
-  final bool contextShift;
-
-  /// MMQ as timed on this card; null leaves it to KoboldCpp.
-  final bool? mmq;
 }
 
 /// What is known about the model being launched.
 class KoboldModelFacts {
   const KoboldModelFacts({
     this.isMoe = false,
-    this.hasSlidingWindow = false,
     this.expertsShareGpuMemory = false,
     this.architecture,
   });
 
   final bool isMoe;
-  final bool hasSlidingWindow;
 
   /// The model file's `general.architecture` ("gemma4", "qwen3"...).
   final String? architecture;
@@ -121,15 +106,36 @@ String? koboldFlashAttentionNote({
   return null;
 }
 
-/// A compressed cache needs flash attention; without it the cache is full
-/// size (f16). bf16 is not compression and is kept.
-KvQuant _cacheWhere(bool flashAttentionRuns, KvQuant wanted) =>
-    flashAttentionRuns || !wanted.needsFlashAttention ? wanted : KvQuant.f16;
+/// The flash attention and chat memory pair a config runs, by auto mode's
+/// rule, which every config the app writes follows: a compressed cache needs
+/// flash attention, so it turns flash attention on wherever it can run
+/// ([runs], see [koboldFlashAttentionRuns]). Where it cannot, flash
+/// attention is off and the cache full size (f16). A full-size cache keeps
+/// the [flashAttention] asked for; bf16 is not compression.
+({bool flashAttention, KvQuant kvQuant}) koboldFlashAndCache({
+  required bool runs,
+  required bool flashAttention,
+  required KvQuant kvQuant,
+}) {
+  final cache = runs || !kvQuant.needsFlashAttention ? kvQuant : KvQuant.f16;
+  return (
+    flashAttention: runs && (flashAttention || cache.needsFlashAttention),
+    kvQuant: cache,
+  );
+}
+
+/// Said under a flash attention switch that a compressed cache overrides
+/// ([koboldFlashAndCache]).
+const String kKoboldCompressedTurnsFlashOn =
+    'A compressed chat memory turns this on.';
 
 /// The launch config for the app's own settings ("no preset").
 ///
 /// Memory placement is KoboldCpp's unless the user set a layer count:
-/// automatic layers, mmap on, memory lock off.
+/// automatic layers, mmap on, memory lock off. Always the fast-forward
+/// pairing, sliding window off: the other one is a choice in the preset
+/// editor. What auto mode tunes for the machine (the batch, smart cache
+/// slots, MMQ) is laid over this by the launch.
 KoboldLaunchConfig koboldAppConfig({
   required String modelPath,
   required KoboldAppSettings settings,
@@ -143,7 +149,11 @@ KoboldLaunchConfig koboldAppConfig({
     architecture: model.architecture,
     rocmFailedBefore: settings.rocmFlashAttentionFailed,
   );
-  final kvQuant = _cacheWhere(runs, settings.kvQuant);
+  final pair = koboldFlashAndCache(
+    runs: runs,
+    flashAttention: settings.flashAttention,
+    kvQuant: settings.kvQuant,
+  );
   return KoboldLaunchConfig(
     modelPath: modelPath,
     contextSize: settings.contextSize,
@@ -153,29 +163,37 @@ KoboldLaunchConfig koboldAppConfig({
     // fitting, or a MoE model whose experts stay off the card, that is the
     // "memory doubled, 0.2 tokens a second" case.
     useMlock: settings.mlock && manual && !model.isMoe,
-    kvQuant: kvQuant,
-    // A quantised cache needs flash attention to shrink both halves.
-    flashAttention:
-        runs && (settings.flashAttention || kvQuant.needsFlashAttention),
+    kvQuant: pair.kvQuant,
+    flashAttention: pair.flashAttention,
     backend: settings.backend,
     gpuId: settings.gpuId,
-    // Sliding window only where the model has it; elsewhere the setting
-    // does nothing and would still cost fast forward.
-    contextMode: model.hasSlidingWindow
-        ? settings.contextMode
-        : ContextManagementMode.fastForwardSmartCache,
     mmprojPath: mmprojPath,
     moeExpertsOnCpu: manual && model.isMoe && !model.expertsShareGpuMemory,
-    smartCacheSlots: settings.smartCacheSlots,
-    mmq: settings.mmq,
-    contextShift: settings.contextShift,
   );
 }
 
+/// Graphics memory KoboldCpp's own fit leaves spare unless a preset forces
+/// the fit with a figure of its own: 1 GB, its default `autofitpadding`.
+/// Auto mode's guess of what fits counts on it, and so does the preset
+/// editor's.
+const int kKoboldFitPaddingMb = 1024;
+
+/// What "greedy" asks a forced fit to leave spare instead: next to nothing.
+const int kKoboldGreedyPaddingMb = 32;
+
+/// A padding below this is greedy; this much or more is the usual spare.
+const int kKoboldGreedyBelowMb = 512;
+
+/// Whether a preset's `autofitpadding` ([paddingMb], null when it names
+/// none) is the greedy kind.
+bool koboldPaddingIsGreedy(int? paddingMb) =>
+    (paddingMb ?? kKoboldFitPaddingMb) < kKoboldGreedyBelowMb;
+
 /// Spare graphics memory a generated preset tells KoboldCpp's fit to leave
 /// free: next to none when the user chose "greedy", KoboldCpp's own default
-/// otherwise. The dialog's guess of what fits uses the same figure.
-int koboldAutofitPaddingMb({required bool greedy}) => greedy ? 32 : 1024;
+/// otherwise. The editor's guess of what fits uses the same figure.
+int koboldAutofitPaddingMb({required bool greedy}) =>
+    greedy ? kKoboldGreedyPaddingMb : kKoboldFitPaddingMb;
 
 /// The preset the preset editor writes.
 ///
@@ -213,17 +231,22 @@ KoboldLaunchConfig koboldGeneratedPreset({
   int moeCpuLayers = 0,
   bool? mmq,
   String draftModelPath = '',
+  int? draftAmount,
+  bool useMtp = false,
   bool contextShift = true,
   List<String> cudaOptions = const [],
   Map<String, dynamic> extras = const {},
 }) {
-  final runs = koboldFlashAttentionRuns(
-    backend: backend,
-    rocm: rocm,
-    architecture: architecture,
-    rocmFailedBefore: rocmFlashAttentionFailed,
+  final pair = koboldFlashAndCache(
+    runs: koboldFlashAttentionRuns(
+      backend: backend,
+      rocm: rocm,
+      architecture: architecture,
+      rocmFailedBefore: rocmFlashAttentionFailed,
+    ),
+    flashAttention: flashAttention,
+    kvQuant: kvQuant,
   );
-  final fa = runs && flashAttention;
   final manual = manualLayers != null;
   final moeCpu = manual && moeCpuLayers > 0;
   return KoboldLaunchConfig(
@@ -236,8 +259,8 @@ KoboldLaunchConfig koboldGeneratedPreset({
         ? null
         : koboldAutofitPaddingMb(greedy: greedyAllocation),
     forceFit: !manual,
-    flashAttention: fa,
-    kvQuant: _cacheWhere(fa, kvQuant),
+    flashAttention: pair.flashAttention,
+    kvQuant: pair.kvQuant,
     backend: backend,
     gpuId: gpuId,
     contextMode: contextMode,
@@ -247,6 +270,8 @@ KoboldLaunchConfig koboldGeneratedPreset({
     moeCpuLayers: moeCpu ? moeCpuLayers : null,
     mmq: mmq,
     draftModelPath: draftModelPath,
+    draftAmount: draftAmount,
+    useMtp: useMtp,
     contextShift: contextShift,
     cudaOptions: cudaOptions,
     // A file's own forced-fit word gives way to the placement chosen here.

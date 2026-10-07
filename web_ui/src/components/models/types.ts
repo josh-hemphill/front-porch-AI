@@ -4,11 +4,38 @@
 // Shared types + formatters for the Models page components (status, local
 // models, HuggingFace search/download, hardware).
 
+/** What the desktop's KoboldCpp status shows: one rule for every surface. */
+export type KoboldPhase = 'stopped' | 'starting' | 'loading' | 'unloaded' | 'ready';
+
+/** Where the Local model card's speed test is, as the host names it. */
+export type SpeedTestState = 'idle' | 'running' | 'stopping' | 'done' | 'stopped' | 'failed';
+
+/** The speed test in the host's words: on the card, and in each `speed_test`
+ *  event from the hub. */
+export interface SpeedTestRun {
+  state: SpeedTestState;
+  step: number;
+  /** 0 until the host knows how many steps there are. */
+  steps: number;
+  /** Time left in words ("about 3 minutes"); null when it is not running. */
+  left: string | null;
+  /** What it is doing now, in plain words. */
+  doing: string;
+  /** How a test ended, in one line: on the card, the last test of the card's
+   *  model; in an event, the latest test's. Null when there is none. */
+  line: string | null;
+}
+
+/** The speed test on the card: also why it cannot run now (null when it can). */
+export interface SpeedTestCard extends SpeedTestRun {
+  unavailable: string | null;
+}
+
 export interface BackendStatus {
   isLocal: boolean;
   running: boolean;
   starting: boolean;
-  modelReady: boolean;
+  phase: KoboldPhase;
   statusMessage: string;
   loadedModel: string;
   /** Host CPU lacks AVX2 and has no NVIDIA GPU → local AI runs CPU-only, slowly. */
@@ -20,6 +47,8 @@ export interface BackendStatus {
   engineProgress?: number;
   engineStatusMessage?: string;
   engineError?: string;
+  /** The host is an Intel Mac, which cannot run KoboldCpp (additive). */
+  localUnsupported?: boolean;
   /** Remote live ping (additive). Green Ready is remoteReachable, not a saved key. */
   isReady?: boolean;
   remoteConfigured?: boolean;
@@ -27,7 +56,12 @@ export interface BackendStatus {
   remoteReachability?: 'unknown' | 'checking' | 'reachable' | 'unreachable';
 }
 
-export interface LocalModel {
+/** What switching model, or restarting, answers: the status, and why the
+ *  running KoboldCpp could not load the model or the stopped one was not
+ *  started (additive; null or absent when it did). */
+export type ModelSwitch = BackendStatus & { refused?: string | null };
+
+export interface LocalModelFile {
   name: string;
   path: string;
   sizeBytes: number;

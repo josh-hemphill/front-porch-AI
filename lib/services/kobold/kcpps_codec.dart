@@ -20,7 +20,9 @@ import 'dart:convert';
 
 import 'package:path/path.dart' as p;
 
-import 'kobold_capabilities.dart';
+import 'package:front_porch_ai/utils/utils.dart';
+
+import 'kcpps_old_names.dart';
 import 'kobold_launch_config.dart';
 
 /// Every key this app reads or writes. Anything else in a file is kept as
@@ -31,6 +33,7 @@ const Set<String> _managedKeys = {
   'contextsize',
   'batchsize',
   'blasbatchsize',
+  'ubatchsize',
   'threads',
   'gpulayers',
   'autofitpadding',
@@ -56,6 +59,9 @@ const Set<String> _managedKeys = {
   'autofit',
   'nommq',
   'draftmodel',
+  'draftamount',
+  'usemtp',
+  'measured',
 };
 
 /// Words in a `usecuda` list the codec reads into fields of its own: the
@@ -68,17 +74,12 @@ sealed class KcppsRead {
 }
 
 class KcppsOk extends KcppsRead {
-  const KcppsOk(this.config, {this.notes = const [], this.raw = const {}});
+  const KcppsOk(this.config, {this.raw = const {}});
 
   /// The settings the app can show and edit. It is a summary: a second
-  /// graphics card, the CUDA options or a MoE layer count do not fit in it.
-  /// A launch therefore runs [raw], not this.
+  /// CUDA card, for one, does not fit in it. A launch therefore runs [raw],
+  /// not this, and reports what it changes itself.
   final KoboldLaunchConfig config;
-
-  /// Plain-words remarks about what [config] changed on the way in, for a
-  /// screen that shows or edits it. A launch does not use them: it runs
-  /// [raw] and reports what it changes itself.
-  final List<String> notes;
 
   /// The file exactly as it was written.
   final Map<String, dynamic> raw;
@@ -125,10 +126,9 @@ KcppsRead _readKcpps(String text) {
       'This preset file has a number in it that is too large to use.',
     );
   }
-  final notes = <String>[];
-
   var backend = KoboldGpuBackend.none;
   int? gpuId;
+  var moreGpuIds = const <int>[];
   final cuda = map['usecuda'] ?? map['usecublas'] ?? map['usehipblas'];
   var cudaOptions = const <String>[];
   if (cuda is List) {
@@ -140,31 +140,16 @@ KcppsRead _readKcpps(String text) {
     ];
   } else if (map['usevulkan'] is List) {
     backend = KoboldGpuBackend.vulkan;
-    gpuId = (map['usevulkan'] as List).map(_asInt).whereType<int>().firstOrNull;
+    final ids = (map['usevulkan'] as List).map(_asInt).whereType<int>();
+    gpuId = ids.firstOrNull;
+    moreGpuIds = ids.skip(1).toList();
   }
 
-  final noSwa = map.containsKey('noswa')
-      ? map['noswa'] == true
-      : map.containsKey('useswa')
-      ? map['useswa'] != true
-      : null;
-  final noFastForward = map['nofastforward'] == true;
-  final ContextManagementMode mode;
-  if (noSwa == false && noFastForward) {
-    mode = ContextManagementMode.slidingWindowAttention;
-  } else {
-    mode = ContextManagementMode.fastForwardSmartCache;
-    if (noSwa == false) {
-      notes.add(kSwaWithFastForwardNote);
-    } else if (noSwa == null) {
-      notes.add(
-        'This preset does not say how to handle sliding window. On a model '
-        'that has it, current KoboldCpp switches it on together with fast '
-        'forward, a pairing that degrades output. Add "noswa": true to the '
-        'preset to switch it off.',
-      );
-    }
-  }
+  // Decided by the helper a launch uses, so what the editor shows is what
+  // runs for any value the file holds, not only for true and false.
+  final mode = kcppsHasSwaOn(map) && map['nofastforward'] == true
+      ? ContextManagementMode.slidingWindowAttention
+      : ContextManagementMode.fastForwardSmartCache;
 
   final flashOff = map.containsKey('noflashattention')
       ? map['noflashattention'] == true
@@ -173,21 +158,23 @@ KcppsRead _readKcpps(String text) {
       : false;
   final moe = _asInt(map['moecpu']) ?? 0;
   final layers = _asInt(map['gpulayers']);
-  final forcedFit = kcppsForcedFitNote(map);
-  final bool? mmq = map['nommq'] is bool
-      ? !(map['nommq'] as bool)
-      : cuda is List && cuda.contains('nommq')
+  // KoboldCpp reads the `nommq` word in the CUDA list first and turns MMQ
+  // off whatever the `nommq` setting says.
+  final bool? mmq = cuda is List && cuda.contains('nommq')
       ? false
+      : map['nommq'] is bool
+      ? !(map['nommq'] as bool)
       : cuda is List && cuda.contains('mmq')
       ? true
       : null;
-  if (forcedFit != null) notes.add(forcedFit);
+  final batch = kcppsBatchOf(map);
 
   return KcppsOk(
     KoboldLaunchConfig(
       modelPath: kcppsModelOf(map),
       contextSize: _asInt(map['contextsize']) ?? 16384,
-      batchSize: _asInt(map['batchsize'] ?? map['blasbatchsize']) ?? 512,
+      batchSize: batch.physical,
+      logicalBatchSize: batch.logical,
       threads: _asInt(map['threads']),
       gpuLayers: layers ?? KoboldLaunchConfig.autoLayers,
       autofitPaddingMb: _asInt(map['autofitpadding']),
@@ -197,6 +184,7 @@ KcppsRead _readKcpps(String text) {
       flashAttention: !flashOff,
       backend: backend,
       gpuId: gpuId,
+      moreGpuIds: moreGpuIds,
       contextMode: mode,
       smartCacheSlots: _asInt(map['smartcache']) ?? 0,
       jinja: map['jinja'] == true,
@@ -209,14 +197,16 @@ KcppsRead _readKcpps(String text) {
       draftModelPath: map['draftmodel'] is String
           ? map['draftmodel'] as String
           : '',
+      draftAmount: _asInt(map['draftamount']),
+      useMtp: map['usemtp'] == true,
       contextShift: map['noshift'] != true,
       cudaOptions: cudaOptions,
+      measured: KoboldMeasured.fromJson(map['measured']),
       extras: {
         for (final e in map.entries)
           if (!_managedKeys.contains(e.key)) e.key: e.value,
       },
     ),
-    notes: notes,
     raw: map,
   );
 }
@@ -279,6 +269,12 @@ bool kcppsHasSwaOn(Map<String, dynamic> map) =>
 bool kcppsLeavesSwaToKobold(Map<String, dynamic> map) =>
     !map.containsKey('noswa') && !map.containsKey('useswa');
 
+/// True when a config leaves sliding window to KoboldCpp and does not turn
+/// fast forward off. For a model that has sliding window, KoboldCpp's default
+/// then switches it on together with fast forward ([kSwaLeftToKoboldNote]).
+bool kcppsSwaLeftToKobold(Map<String, dynamic> map) =>
+    kcppsLeavesSwaToKobold(map) && map['nofastforward'] != true;
+
 /// Said when a preset leaves sliding window to KoboldCpp, with fast forward
 /// on, for a model that has it. Nothing is changed; the user is told.
 const String kSwaLeftToKoboldNote =
@@ -286,32 +282,56 @@ const String kSwaLeftToKoboldNote =
     'has it. KoboldCpp switches it on together with fast forward, a pairing '
     'that degrades output. Add "noswa": true to the preset to switch it off.';
 
-/// The `.kcpps` map for [config], in the forms [caps] says the installed
-/// KoboldCpp accepts.
+/// The logical batch the app writes for an engine that splits the batch
+/// (from 1.122, see [kcppsBatchKeys]); the physical one is what it chooses.
+const int kKoboldLogicalBatch = 2048;
+
+/// The physical batch [map] runs, and the logical one when it splits the
+/// two: `ubatchsize` above 0 is the physical batch, never more than
+/// `batchsize` (an engine from 1.122 holds it to that). With no `ubatchsize`,
+/// or -1 ("the same as the batch"), `batchsize` is the physical batch, as
+/// every engine reads it. Measured on 1.122.1: 2,048 with `ubatchsize` 512
+/// runs a logical 2,048 and a physical 512, and the working memory follows
+/// the physical batch alone.
+({int physical, int? logical}) kcppsBatchOf(Map<String, dynamic> map) {
+  final batch = _asInt(map['batchsize'] ?? map['blasbatchsize']) ?? 512;
+  final ubatch = _asInt(map['ubatchsize']);
+  if (ubatch == null || ubatch <= 0) return (physical: batch, logical: null);
+  return (physical: ubatch < batch ? ubatch : batch, logical: batch);
+}
+
+/// The batch settings for a [physical] batch. With a [logical] one (an
+/// engine from 1.122) `batchsize` holds the logical batch, never less than
+/// the physical, and `ubatchsize` the physical. Without, `batchsize` holds
+/// the physical batch: the one field every engine reads that way, and an
+/// engine before 1.122 ignores `ubatchsize`.
+Map<String, int> kcppsBatchKeys(int physical, {int? logical}) {
+  if (logical == null) {
+    return {'batchsize': physical, 'blasbatchsize': physical};
+  }
+  final l = logical < physical ? physical : logical;
+  return {'batchsize': l, 'blasbatchsize': l, 'ubatchsize': physical};
+}
+
+/// The `.kcpps` map for [config].
 ///
 /// A key KoboldCpp renamed is written under BOTH names (`usecuda` and
-/// `usecublas`, `batchsize` and `blasbatchsize`). An old engine knows only
-/// the old name. A current one converts the old name at launch but not on
-/// a live reload, which fills in every missing default first and then
-/// finds nothing to convert: measured, a file with only `blasbatchsize`
-/// ran at its value after a launch and at the default after a reload.
-Map<String, dynamic> kcppsMap(
-  KoboldLaunchConfig config, {
-  KoboldCapabilities caps = KoboldCapabilities.current,
-}) {
+/// `usecublas`, `batchsize` and `blasbatchsize`). A current engine converts
+/// the old name at launch but not on a live reload, which fills in every
+/// missing default first and then finds nothing to convert: measured, a
+/// file with only `blasbatchsize` ran at its value after a launch and at the
+/// default after a reload.
+Map<String, dynamic> kcppsMap(KoboldLaunchConfig config) {
   final map = <String, dynamic>{
     ...config.extras,
     if (config.modelPath.isNotEmpty) 'model_param': config.modelPath,
     'contextsize': config.contextSize,
-    'batchsize': config.batchSize,
-    'blasbatchsize': config.batchSize,
+    ...kcppsBatchKeys(config.batchSize, logical: config.logicalBatchSize),
     'gpulayers': config.gpuLayers,
     'autofitpadding': ?config.autofitPaddingMb,
     'usemmap': config.useMmap,
     'usemlock': config.useMlock,
-    'quantkv': caps.quantKvAsText
-        ? config.kvQuant.wire
-        : (config.kvQuant.legacyIndex ?? KvQuant.q4_0.legacyIndex),
+    'quantkv': config.kvQuant.wire,
     'threads': ?config.threads,
     'noflashattention': !config.flashAttention,
     'jinja': config.jinja,
@@ -320,11 +340,14 @@ Map<String, dynamic> kcppsMap(
     'autofit': ?config.forceFit,
     if (config.mmq != null) 'nommq': !config.mmq!,
     if (config.draftModelPath.isNotEmpty) 'draftmodel': config.draftModelPath,
+    'draftamount': ?config.draftAmount,
+    if (config.useMtp) 'usemtp': true,
+    if (config.measured case final m?) 'measured': m.toJson(),
   };
 
   // Automatic fitting and `moecpu` cannot be combined; a manual layer
   // count is the only case where the app places MoE experts itself.
-  if (config.moeExpertsOnCpu && !config.layersAreAutomatic && caps.moeCpu) {
+  if (config.moeExpertsOnCpu && !config.layersAreAutomatic) {
     map['moecpu'] = config.moeCpuLayers ?? 999;
   }
 
@@ -340,7 +363,7 @@ Map<String, dynamic> kcppsMap(
       map['usecuda'] = cuda;
       map['usecublas'] = cuda;
     case KoboldGpuBackend.vulkan:
-      map['usevulkan'] = [?config.gpuId];
+      map['usevulkan'] = [?config.gpuId, ...config.moreGpuIds];
     case KoboldGpuBackend.none:
       break;
   }
@@ -357,21 +380,83 @@ Map<String, dynamic> kcppsMap(
       map['noswa'] = true;
       map['nofastforward'] = false;
       map['noshift'] = !config.contextShift;
-      if (config.smartCacheSlots > 0 && caps.smartCache) {
-        map['smartcache'] = config.smartCacheSlots.clamp(1, 20);
+      if (config.smartCacheSlots > 0) {
+        map['smartcache'] = config.smartCacheSlots.clamp(
+          1,
+          kKoboldSmartCacheMaxSlots,
+        );
       }
   }
   return map;
 }
 
-String writeKcpps(
-  KoboldLaunchConfig config, {
-  KoboldCapabilities caps = KoboldCapabilities.current,
-}) => encodeKcpps(kcppsMap(config, caps: caps));
-
 /// [map] as the text of a `.kcpps` file.
 String encodeKcpps(Map<String, dynamic> map) =>
     const JsonEncoder.withIndent('  ').convert(map);
+
+/// [raw] with only the settings that changed between [before] and [after]
+/// (two maps the editor's form produced) written over it. Everything else,
+/// including keys and values the form cannot hold, stays as written, except
+/// that an old setting name the file still uses becomes its current name
+/// ([kcppsWithCurrentNames]): saving a preset an older KoboldCpp wrote is
+/// what makes the app willing to launch from it, with or without an edit.
+Map<String, dynamic> kcppsMergeEdits(
+  Map<String, dynamic> raw,
+  Map<String, dynamic> before,
+  Map<String, dynamic> after,
+) {
+  // `nommq` is with the card because the CUDA list can say it too, as a
+  // word, and KoboldCpp reads the word first: the two are written together
+  // or MMQ keeps what the word says.
+  const groups = <Set<String>>[
+    {'usecuda', 'usecublas', 'usehipblas', 'usevulkan', 'nommq'},
+    {'model', 'model_param'},
+    {'flashattention', 'noflashattention'},
+    {'batchsize', 'blasbatchsize', 'ubatchsize'},
+    {'noswa', 'useswa', 'nofastforward', 'noshift', 'swapadding', 'smartcache'},
+    {'gpulayers', 'autofit', 'autofitpadding', 'moecpu'},
+  ];
+  bool same(Object? a, Object? b) => jsonEncode(a) == jsonEncode(b);
+  final changed = {
+    for (final k in {...before.keys, ...after.keys})
+      if (!same(before[k], after[k])) k,
+  };
+  final out = Map<String, dynamic>.of(raw);
+  for (final g in groups) {
+    if (g.any(changed.contains)) {
+      for (final k in g) {
+        out.remove(k);
+      }
+      for (final k in g) {
+        if (after.containsKey(k)) out[k] = after[k];
+      }
+    }
+  }
+  for (final k in changed) {
+    if (groups.any((g) => g.contains(k))) continue;
+    if (after.containsKey(k)) {
+      out[k] = after[k];
+    } else {
+      out.remove(k);
+    }
+  }
+  // A split spreads the model over several cards. When an edit names one
+  // CUDA card where the preset used them all, the split goes too: KoboldCpp
+  // pins the named card only when there is no split.
+  if (_namesCudaCard(before) == false && _namesCudaCard(after) == true) {
+    out.remove('tensor_split');
+  }
+  return kcppsWithCurrentNames(out);
+}
+
+/// Whether [map]'s CUDA list names a card. KoboldCpp looks for the card as
+/// text ("0"); a list without one spreads the model over every card. Null
+/// when there is no CUDA list.
+bool? _namesCudaCard(Map<String, dynamic> map) {
+  final cuda = map['usecuda'] ?? map['usecublas'] ?? map['usehipblas'];
+  if (cuda is! List) return null;
+  return cuda.any((w) => w is String && int.tryParse(w.trim()) != null);
+}
 
 int? _asInt(Object? v) => switch (v) {
   int n => n,

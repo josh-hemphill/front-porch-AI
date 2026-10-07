@@ -5,6 +5,13 @@
 // plain verdict on each context size, for real model headers on the
 // machines they were measured on: a 16 GB AMD card, the original author's
 // 6 GB GTX 1060 (about 5.1 GB and 11 GB free), and Apple Silicon.
+//
+// Changed 2026-10-05: auto mode now offers context up to the length the
+// model was made for, past 131,072 too (the maintainer's ruling; see
+// kobold_context_ceiling_test.dart). Qwen3.6 35B is made for 262,144, so
+// "the author's machine" is offered 262,144 as well, and on that 6 GB card
+// it is too big, like 131,072. Its expected verdicts gain that one entry;
+// the other five and the most that works well (65,536) are unchanged.
 
 import 'dart:convert';
 import 'dart:io';
@@ -64,12 +71,15 @@ const _mac = KoboldMachine(
 
 void main() {
   group('the batch auto mode picks', () {
-    test('the largest when the model fits with room to spare', () {
+    // Changed 2026-10-06 (maintainer's ruling): auto mode no longer takes
+    // the largest batch that fits. Vulkan starts at 512 (NVIDIA at 1,024);
+    // only the speed test can move it. See kobold_start_batch_test.dart.
+    test('512 on Vulkan, even where a larger one would fit', () {
       final t = koboldAutoTuning(
         _fit('Qwen3-14B', KoboldMemoryBackend.vulkan),
         _amd16,
       );
-      expect(t.batchSize, 2048);
+      expect(t.batchSize, 512);
       expect(t.load.allOnCard, isTrue);
     });
 
@@ -181,6 +191,7 @@ void main() {
         32768: KoboldContextOutcome.likeNow,
         65536: KoboldContextOutcome.slower,
         131072: KoboldContextOutcome.tooBig,
+        262144: KoboldContextOutcome.tooBig,
       });
       expect(most, 65536);
     });
@@ -201,6 +212,12 @@ void main() {
       );
       expect(o[131072], KoboldContextOutcome.tooBig);
       expect(most, 65536);
+    });
+
+    test('a small model whose long context still fits in a Mac\'s memory is '
+        'slower there, not too big', () {
+      final o = outcomes(_fit('Llama-3.2-3B', KoboldMemoryBackend.metal), _mac);
+      expect(o[131072], KoboldContextOutcome.slower);
     });
 
     test('the words say what happens, never how', () {

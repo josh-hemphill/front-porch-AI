@@ -34,17 +34,23 @@ class _Llm extends FakeLLMProvider {
   KoboldService get koboldService => kobold;
 
   @override
-  Future<void> reloadChatKobold() async => reloads++;
+  Future<KoboldLaunchResult?> reloadChatKobold() async {
+    reloads++;
+    return null;
+  }
 
   @override
   Future<void> stopAllManagedProcesses() async {}
 
   @override
-  Future<void> ensureManagedBackendIsRunning({
+  Future<KoboldLaunchResult?> ensureManagedBackendIsRunning({
     bool forGpuSwap = false,
     String? modelPath,
     String? kcppsPath,
-  }) async => restarts++;
+  }) async {
+    restarts++;
+    return null;
+  }
 }
 
 void main() {
@@ -76,7 +82,6 @@ void main() {
       final launch = resolveKoboldLaunch(storage);
       expect(launch.modelPath, a);
       expect(launch.kcppsPath, isNull);
-      expect(launch.presetOwnsModel, isFalse);
       expect(launch.note, isNull);
     });
 
@@ -98,7 +103,6 @@ void main() {
       final launch = resolveKoboldLaunch(storage, pickedModel: a);
       expect(launch.modelPath, b);
       expect(launch.kcppsPath, owned);
-      expect(launch.presetOwnsModel, isTrue);
     });
 
     test('a preset from another computer keeps its settings and runs the '
@@ -114,7 +118,6 @@ void main() {
       final launch = resolveKoboldLaunch(storage);
       expect(launch.modelPath, a);
       expect(launch.kcppsPath, foreign);
-      expect(launch.presetOwnsModel, isFalse);
       expect(launch.note, contains('big-model.gguf'));
     });
 

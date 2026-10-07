@@ -18,17 +18,34 @@
 //
 // 2026-10-03: two cases added (a preset is staged as it was written; a
 // preset that leaves sliding window to KoboldCpp). No existing case changed.
+//
+// Changed 2026-10-04: every staged config now names `host: 127.0.0.1`, so
+// the app's KoboldCpp answers this computer only (the command line is
+// frozen; see kobold/kobold_listen_address_test.dart). "A preset is staged
+// as it was written" counted every key outside its overlay, and the listen
+// address is now one more setting the app lays over a preset. The case lists
+// it in the overlay and in the one pairing it spells out; nothing else in it
+// changed.
+//
+// Changed 2026-10-05: every staged config now also says
+// `adminunloadtimeout: 0`, so KoboldCpp's own idle unload never runs (the app
+// keeps its own timer, which can load chat back; see
+// kobold/kobold_admin_unload_off_test.dart). The same kind of change as the
+// listen address: one more setting the app lays over a preset. "A preset is
+// staged as it was written" lists it in the overlay and in the one pairing it
+// spells out; nothing else in it changed.
 
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:front_porch_ai/models/hardware_info.dart';
+import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/kobold/kobold.dart';
 import 'package:front_porch_ai/services/kobold_admin_swap.dart';
 import 'package:front_porch_ai/services/kobold_launch_args.dart';
 import 'package:front_porch_ai/services/storage_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // The path_provider mock + in-memory StorageService factory.
 import 'kobold_service_test.dart'
@@ -225,9 +242,16 @@ void main() {
   test('a preset is staged as it was written: the staged file equals the '
       'original apart from the few settings the app lays over it', () async {
     // What the app may differ in: the model it resolved, the chat template,
-    // the vision file, and sliding window when the file has it on together
-    // with fast forward.
-    const overlay = {'model_param', 'jinja', 'mmproj', 'noswa'};
+    // the vision file, the listen address, KoboldCpp's own idle unload (off),
+    // and sliding window when the file has it on together with fast forward.
+    const overlay = {
+      'model_param',
+      'jinja',
+      'mmproj',
+      'host',
+      'adminunloadtimeout',
+      'noswa',
+    };
     final proj = File('${binDir.path}/proj.gguf')..writeAsStringSync('x');
 
     for (final written in <Map<String, dynamic>>[
@@ -285,7 +309,13 @@ void main() {
         kcppsPath: preset({'noswa': false, 'smartcache': 40}).path,
       ),
     );
-    expect(unsafe, {'noswa': true, 'smartcache': 40, 'jinja': true});
+    expect(unsafe, {
+      'noswa': true,
+      'smartcache': 40,
+      'jinja': true,
+      'host': '127.0.0.1',
+      'adminunloadtimeout': 0,
+    });
   });
 
   test('a preset that leaves sliding window to KoboldCpp is run as written, '
@@ -368,7 +398,9 @@ void main() {
 
   test('the older stored cache level still counts until a level is picked '
       'by name', () async {
-    await storage.backendSettings.setKvQuantizationLevel(2);
+    // What an earlier version stored: 0 / 1 / 2 for f16, q8_0, q4_0.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('kv_quantization_level', 2);
     expect(staged(await build())['quantkv'], 'q4_0');
     await storage.backendSettings.setKvQuant(KvQuant.q5_1);
     expect(staged(await build())['quantkv'], 'q5_1');
@@ -434,19 +466,19 @@ void main() {
     expect(config.containsKey('usevulkan'), isFalse);
   });
 
-  test(
-    'sliding window is not applied to a model that does not have it',
-    () async {
-      await storage.backendSettings.setKoboldContextMode(
-        ContextManagementMode.slidingWindowAttention,
-      );
-      // The model path does not exist, so nothing says it has sliding window.
-      final config = staged(await build());
-      expect(config['noswa'], isTrue);
-      expect(config['nofastforward'], isFalse);
-      expect(config['noshift'], isFalse);
-    },
-  );
+  test('on the app\'s own settings, a model with a sliding window starts '
+      'with it off and fast forward on', () async {
+    // Gemma 3's real header: it has a sliding window. Left unsaid, current
+    // KoboldCpp turns it on with fast forward also on, which degrades the
+    // output; the app always writes one of the two safe pairings, and its
+    // default is this one.
+    final config = staged(
+      await build(modelPath: 'test/fixtures/gguf_headers/gemma-3-12b-it.gguf'),
+    );
+    expect(config['noswa'], isTrue);
+    expect(config['nofastforward'], isFalse);
+    expect(config['noshift'], isFalse);
+  });
 
   group('a first run, before the hardware is known', () {
     test('with no backend ever chosen, the launch waits for detection and '

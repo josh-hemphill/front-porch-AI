@@ -196,6 +196,7 @@ extension WebServerHostWiring on WebServerHost {
             imageGen: _imageGenService,
           )
         : null;
+    _storyFacade = storyFacade;
 
     final storyExportFacade = (_storyRepository != null && _ttsService != null)
         ? StoryExportFacade(
@@ -223,6 +224,9 @@ extension WebServerHostWiring on WebServerHost {
       chatFacade: chatFacade,
       chatPackageFacade: chatService != null
           ? ChatPackageFacade(chatService)
+          : null,
+      porchFacade: (chatService != null && _characterRepository != null)
+          ? PorchFacade(_characterRepository!, chatService, _storage)
           : null,
       chatToolsFacade: chatToolsFacade,
       groupFacade: groupFacade,

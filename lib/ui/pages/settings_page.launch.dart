@@ -219,12 +219,27 @@ extension _SettingsLaunchOptions on _SettingsPageState {
           toggle(
             label: 'Flash Attention',
             tooltip:
-                'Faster attention math. ~20–40% speed boost on RTX/Apple Silicon. Disabled automatically for ROCm.',
+                'Faster attention math, and less memory. ~20–40% speed boost on RTX/Apple Silicon. AMD (ROCm) follows this switch too: if KoboldCpp stops while answering with it on, the app turns it off and starts again. Gemma 4 on Vulkan always runs without it.',
             value: storage.backendSettings.flashAttentionEnabled,
             recommended: true,
             onChanged: (v) =>
                 storage.backendSettings.setFlashAttentionEnabled(v),
           ),
+          // Switched off, it still runs with a compressed cache.
+          if (!storage.backendSettings.flashAttentionEnabled &&
+              storage.backendSettings.kvQuant.needsFlashAttention)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                kKoboldCompressedTurnsFlashOn,
+                key: const ValueKey('flash-attention-compressed-note'),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: accent,
+                ),
+              ),
+            ),
           toggle(
             label: 'Lock Weights in RAM (mlock)',
             tooltip: Platform.isLinux
@@ -321,7 +336,7 @@ extension _SettingsLaunchOptions on _SettingsPageState {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Tokens processed in parallel during prompt evaluation. Higher = faster context loading, more VRAM. Auto picks the largest that keeps the model on the card.',
+                      'Tokens processed in parallel during prompt evaluation. Higher = faster context loading, more VRAM. Auto uses 1,024 on NVIDIA cards and 512 elsewhere, or what the speed test found fastest, never more than keeps the model on the card.',
                       style: TextStyle(
                         fontSize: 11,
                         color: AppColors.textTertiary(context),
@@ -382,6 +397,16 @@ extension _SettingsLaunchOptions on _SettingsPageState {
                 }).toList(),
               ),
             ],
+          ),
+          const SizedBox(height: 16),
+          KoboldIdleUnloadRow(
+            settings: storage.backendSettings,
+            accent: accent,
+          ),
+          const SizedBox(height: 16),
+          KoboldKeepRecentRow(
+            settings: storage.backendSettings,
+            accent: accent,
           ),
           const SizedBox(height: 14),
           // Restart button — applies all Advanced Launch changes immediately.

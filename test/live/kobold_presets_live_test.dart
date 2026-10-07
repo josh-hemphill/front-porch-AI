@@ -13,7 +13,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:front_porch_ai/services/services.dart';
-import 'package:front_porch_ai/ui/dialogs/kcpps_editor/kcpps_editor_controller.dart';
+import 'package:front_porch_ai/ui/dialogs/kcpps_editor/kcpps_editor.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -111,14 +111,19 @@ void main() {
   ).let((r) => (r as KcppsOk).raw);
 
   test(
-    'auto mode: the batch and slots it picks for this Mac run, and chat\'s '
-    'prompts are held to the context the engine really has',
+    'auto mode: the batch it picks for this Mac runs, no smart cache is '
+    'asked for (the app keeps its chats), and chat\'s prompts are held to '
+    'the context the engine really has',
     () async {
       await start();
       final staged = stagedChat();
-      // A small model on this Mac fits with plenty of room.
-      expect(staged['batchsize'], 2048);
-      expect(staged['smartcache'], 3);
+      // Changed 2026-10-06 (maintainer's ruling): auto mode starts Apple
+      // Silicon at a physical batch of 512 instead of the largest that fits.
+      // An engine from 1.122 is given it apart from a logical 2,048.
+      final batch = kcppsBatchOf(staged);
+      expect(batch.physical, 512);
+      expect(batch.logical, anyOf(isNull, kKoboldLogicalBatch));
+      expect(staged.containsKey('smartcache'), isFalse);
       expect(await liveContextSize(port), 4096);
       expect(storage.backendSettings.engineContextSize, 4096);
       expect(storage.backendSettings.promptContext(32768), 4096);
@@ -203,7 +208,11 @@ void main() {
         ),
       );
       await c.timeMmq();
-      expect(c.mmqStatus, startsWith('On: '));
+      // The shared timing loop says both times and which won: "MMQ on: 7.0 s,
+      // MMQ off: 6.6 s a turn. MMQ off is faster here, so it is set."
+      expect(c.mmqStatus, startsWith('MMQ on: '));
+      expect(c.mmqStatus, contains(' a turn. '));
+      expect(c.mmqStatus, endsWith(' here, so it is set.'));
       expect(c.draft.mmq, isNotNull);
       expect(
         storage.backendSettings.mmqFor(

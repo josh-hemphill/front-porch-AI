@@ -17,6 +17,7 @@
 // along with Front Porch AI. If not, see <https://www.gnu.org/licenses/>.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -32,6 +33,7 @@ import 'package:front_porch_ai/services/kobold/kobold.dart';
 import 'package:front_porch_ai/services/kobold_admin_swap.dart';
 import 'package:front_porch_ai/services/kobold_launch_args.dart';
 import 'package:front_porch_ai/services/kobold_service.dart';
+import 'package:front_porch_ai/services/kobold_speed_test.dart';
 import 'package:front_porch_ai/services/omlx_status_poller.dart';
 import 'package:front_porch_ai/services/open_router_service.dart';
 import 'package:front_porch_ai/services/remote_reachability.dart';
@@ -42,10 +44,13 @@ import 'package:front_porch_ai/services/story_lane_labels.dart';
 import 'package:front_porch_ai/services/worker_backend.dart';
 import 'package:front_porch_ai/services/worker_gpu_swap.dart';
 import 'package:front_porch_ai/services/xai/xai.dart';
+import 'package:front_porch_ai/utils/utils.dart' show LocalModelKeys;
 
 part 'llm_provider.worker.dart';
 part 'llm_provider.kobold_hosts.dart';
 part 'llm_provider.lanes.dart';
+part 'llm_provider.connection.dart';
+part 'llm_provider.speed_test.dart';
 
 /// The available backend types. The former `pseudoRemote` (a local KoboldCpp
 /// launched from a .kcpps preset) was folded into [kobold]: the local backend
@@ -267,8 +272,9 @@ class LLMProvider extends ChangeNotifier {
   /// Start Kobold on chat entry, or inside a GPU swap (`forGpuSwap`).
   /// [modelPath] / [kcppsPath] are the GGUF + `.kcpps` pair to load on swap;
   /// omitted = Models-tab mouth pair. Mouth restore keeps the Models-tab
-  /// `--mmproj`; a worker/evals pair never gets a projector.
-  Future<void> ensureManagedBackendIsRunning({
+  /// `--mmproj`; a worker/evals pair never gets a projector. Says why when
+  /// the start was refused; null when nothing needed starting.
+  Future<KoboldLaunchResult?> ensureManagedBackendIsRunning({
     bool forGpuSwap = false,
     String? modelPath,
     String? kcppsPath,
@@ -278,8 +284,9 @@ class LLMProvider extends ChangeNotifier {
     kcppsPath: kcppsPath,
   );
 
-  /// Chat's new preset or model into the running KoboldCpp, live.
-  Future<void> reloadChatKobold() => _reloadChatKobold();
+  /// Chat's new preset or model into the running KoboldCpp, live. Says why
+  /// when it was not loaded; null when there is nothing to report.
+  Future<KoboldLaunchResult?> reloadChatKobold() => _reloadChatKobold();
 
   /// Convenience getters for the underlying services (for UI that needs specifics).
   KoboldService get koboldService => _koboldService;
@@ -300,6 +307,7 @@ class LLMProvider extends ChangeNotifier {
     _syncFromStorage();
     _storageService.addListener(_syncFromStorage);
     _koboldService.addListener(_onServiceChanged);
+    _makeSpeedTest();
   }
 
   @override
@@ -434,60 +442,10 @@ class LLMProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Read the local chat template (oMLX jinja / LMS GGUF / Kobold GGUF) so
-  /// heretic `{% set enable_thinking = true %}` is known *before* the first
-  /// eval, not only after Settings opens the thinking chips.
-  void _kickLocalThinkingResolve(BackendType type) {
-    switch (type) {
-      case BackendType.omlx:
-        final model = _storageService.backendSettings.remoteModelName;
-        if (model.isEmpty) return;
-        if (ReasoningSupportResolver.instance.isResolved(model)) return;
-        unawaited(
-          ReasoningSupportResolver.instance.resolveOmlx(
-            apiUrl: 'http://localhost:8000/v1',
-            modelName: model,
-            apiKey: _storageService.backendSettings.remoteApiKey,
-          ),
-        );
-        return;
-      case BackendType.openRouter:
-        final url = _openRouterService.apiUrl;
-        final model = _storageService.backendSettings.remoteModelName;
-        if (model.isEmpty || !isLocalRemoteUrl(url)) return;
-        if (ReasoningSupportResolver.instance.isResolved(model)) return;
-        unawaited(
-          ReasoningSupportResolver.instance.resolveLmStudio(
-            apiUrl: url,
-            modelName: model,
-            apiKey: _storageService.backendSettings.remoteApiKey,
-          ),
-        );
-        return;
-      case BackendType.kobold:
-        final path = _storageService.backendSettings.lastUsedModelPath;
-        if (path == null || path.isEmpty) return;
-        if (ReasoningSupportResolver.instance.isResolved(path)) return;
-        unawaited(ReasoningSupportResolver.instance.resolveLocalGguf(path));
-    }
-  }
-
-  bool _isRemoteBackend(BackendType type) =>
-      type == BackendType.openRouter || type == BackendType.omlx;
-
-  /// Live `GET /models` when the remote backend is (or becomes) active.
-  /// Skipped under `flutter test` so constructing a provider never hits
-  /// the network; tests that care call [OpenRouterService.refreshReachability].
-  void _maybePingRemote(BackendType type, {required bool configChanged}) {
-    if (kSkipRemoteAutoPing) return;
-    if (!_isRemoteBackend(type)) return;
-    if (!configChanged && type == _activeBackend) return;
-    unawaited(_openRouterService.refreshReachability());
-  }
-
-  /// Stop the managed KoboldCpp process if it is running.
+  /// Stop the managed KoboldCpp process if it is running, or call off a start
+  /// that is still being prepared (nothing is spawned then).
   Future<void> stopAllManagedProcesses() async {
-    if (_koboldService.isRunning) {
+    if (_koboldService.isRunning || _koboldService.isStarting) {
       await _koboldService.stopKobold();
     }
   }
