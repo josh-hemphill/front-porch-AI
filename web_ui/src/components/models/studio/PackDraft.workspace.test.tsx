@@ -43,8 +43,8 @@ it('keeps its own description and source through hide/show, and freezes both wit
   const click = (text: string) => act(() => {
     [...host.querySelectorAll('button')].find((button) => button.textContent === text)!.click();
   });
-  const description = host.querySelector<HTMLTextAreaElement>('[aria-label="Pack description"]')!;
-  click('Reload current card portrait');
+  const description = host.querySelector<HTMLTextAreaElement>('[aria-label="Image prompt"]')!;
+    click('Reload character portrait');
   expect(reload).toHaveBeenCalledOnce();
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(description, 'independent draft');
@@ -58,11 +58,11 @@ it('keeps its own description and source through hide/show, and freezes both wit
   click('Switch workspace');
   expect(description.closest('[hidden]')).not.toBeNull();
   click('Switch workspace');
-  expect(host.querySelector('[aria-label="Pack description"]')).toBe(description);
+  expect(host.querySelector('[aria-label="Image prompt"]')).toBe(description);
   expect(description.value).toBe('independent draft');
   click('Capture pack');
   expect(host.querySelector('fieldset')!.disabled).toBe(true);
-  click('Use current card portrait');
+  click('Use character portrait');
   expect(host.querySelector('img')!.getAttribute('src')).toBe('studio.png');
   expect(problem).not.toHaveBeenCalled();
 });

@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'expression_workspace_test.dart' as fixture;
 
 void main() {
-  testWidgets('Create pack needs a description before making images', (
+  testWidgets('Create pack crafts an empty prompt before making images', (
     tester,
   ) async {
     final rig = await fixture.workspaceRig(tester);
@@ -18,10 +18,11 @@ void main() {
     await tester.ensureVisible(find.text('Start (8)'));
     await tester.tap(find.text('Start (8)'));
     await tester.pumpAndSettle();
+    expect(rig.image.calls, isNotEmpty);
+    expect(rig.image.calls.first.prompt, contains('First card'));
     expect(
       find.text('Add a pack description before generating.'),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(rig.image.calls, isEmpty);
   });
 }

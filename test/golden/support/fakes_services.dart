@@ -143,6 +143,9 @@ class FakeVoiceManager extends ChangeNotifier implements VoiceManager {
 /// without network access.
 class FakeImageGenService extends ChangeNotifier implements ImageGenService {
   @override
+  bool get isGenerating => false;
+
+  @override
   Future<List<ImageModelInfo>> fetchImageModels() async => const [];
 
   @override

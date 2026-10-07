@@ -21,7 +21,9 @@ import 'package:front_porch_ai/ui/image_studio/studio_widgets.dart';
 
 /// UI-only image producer. No network transport or network response is mocked.
 class WorkspaceImages extends ChangeNotifier implements ImageGenService {
-  WorkspaceImages(this.picture);
+  WorkspaceImages(this.picture, StorageService storage)
+    : _prompter = ImageGenService(storage);
+  final ImageGenService _prompter;
   final Uint8List picture;
   Completer<Uint8List?>? pending;
   bool paused = false;
@@ -78,7 +80,22 @@ class WorkspaceImages extends ChangeNotifier implements ImageGenService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) {
+    if (invocation.memberName == #generateSmartPrompt) {
+      return Function.apply(
+        _prompter.generateSmartPrompt,
+        invocation.positionalArguments,
+        invocation.namedArguments,
+      );
+    }
+    return super.noSuchMethod(invocation);
+  }
+
+  @override
+  void dispose() {
+    _prompter.dispose();
+    super.dispose();
+  }
 }
 
 Uint8List workspacePicture(int red) {
@@ -127,7 +144,7 @@ Future<WorkspaceRig> workspaceRig(WidgetTester tester) async {
     rig = (
       storage: storage,
       repository: repository,
-      image: WorkspaceImages(workspacePicture(150)),
+      image: WorkspaceImages(workspacePicture(150), storage),
       first: first,
       second: second,
     );
@@ -149,6 +166,7 @@ Future<void> pumpWorkspace(
   WorkspaceRig rig, {
   Size size = const Size(1050, 1400),
   ValueChanged<String>? onImported,
+  ImageStudio? studio,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -167,12 +185,14 @@ Future<void> pumpWorkspace(
             builder: (context) => TextButton(
               onPressed: () => showDialog<void>(
                 context: context,
-                builder: (_) => ImageStudio(
-                  mode: ImageGenMode.characterPortrait,
-                  characterName: rig.first.name,
-                  characterDbId: rig.first.dbId,
-                  onExpressionsImported: onImported,
-                ),
+                builder: (_) =>
+                    studio ??
+                    ImageStudio(
+                      mode: ImageGenMode.characterPortrait,
+                      characterName: rig.first.name,
+                      characterDbId: rig.first.dbId,
+                      onExpressionsImported: onImported,
+                    ),
               ),
               child: const Text('Open Studio'),
             ),
@@ -223,7 +243,7 @@ void main() {
       await pumpWorkspace(tester, rig);
       await tester.tap(find.text('Expressions'));
       await tester.pump();
-      expect(find.text('Source: Current card portrait'), findsOneWidget);
+      expect(find.text('Source: Character portrait'), findsOneWidget);
 
       final setup = tester.widget<ExpressionPackSetup>(
         find.byType(ExpressionPackSetup),
@@ -297,6 +317,16 @@ void main() {
       }
       rig.image.paused = true;
       await tapVisible(tester, find.textContaining('Start ('));
+      for (
+        var attempt = 0;
+        attempt < 20 && expressionPackBoard.run == null;
+        attempt++
+      ) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 25)),
+        );
+        await tester.pump();
+      }
       expect(expressionPackBoard.run?.characterId, rig.second.dbId);
       expect(rig.image.calls.single.intent, StudioIntent.create);
       expect(
@@ -351,12 +381,18 @@ void main() {
       }
       expect(imports, [rig.second.dbId]);
       expect(find.text('Image Studio'), findsOneWidget);
-      await tapVisible(tester, find.text('New pack'));
+      expect(
+        await tester
+            .state<StudioExpressionTabState>(find.byType(StudioExpressionTab))
+            .confirmClose(),
+        isTrue,
+        reason: 'Imported results must not trigger a discard warning on close.',
+      );
+      expect(find.text('Discard expression pack?'), findsNothing);
+      await tapVisible(tester, find.text('Reset pack'));
       await tester.pump();
-      expect(find.text('Discard expression pack?'), findsOneWidget);
-      await tester.tap(find.text('Keep pack'));
-      await tester.pump();
-      expect(expressionPackBoard.run!.session.doneCount, 1);
+      expect(find.text('Discard expression pack?'), findsNothing);
+      expect(expressionPackBoard.run, isNull);
       await tester.pumpWidget(const SizedBox());
       expect(expressionPackBoard.run, isNull);
     },
@@ -437,7 +473,7 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
-  testWidgets('New pack reloads the current card portrait after it changes', (
+  testWidgets('portrait reload uses the current card image after it changes', (
     tester,
   ) async {
     final rig = await workspaceRig(tester);
@@ -447,7 +483,7 @@ void main() {
     await tester.runAsync(
       () => File(rig.first.imagePath!).writeAsBytes(workspacePicture(201)),
     );
-    await tapVisible(tester, find.text('New pack'));
+    await tapVisible(tester, find.text('Use character portrait'));
     for (var attempt = 0; attempt < 20; attempt++) {
       await tester.runAsync(() async {
         await Future<void>.delayed(const Duration(milliseconds: 25));

@@ -11,8 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:front_porch_ai/database/database.dart';
 import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/services.dart';
-import 'package:front_porch_ai/ui/image_studio/expression_pack_dialog.dart';
-import 'package:front_porch_ai/ui/image_studio/expression_pack_setup.dart';
+import 'package:front_porch_ai/ui/image_studio/studio_widgets.dart';
 
 Uint8List picture(int red) {
   final image = img.Image(width: 64, height: 80);
@@ -66,28 +65,16 @@ void main() {
         providers: [
           ChangeNotifierProvider<StorageService>.value(value: storage),
           ChangeNotifierProvider<ImageGenService>.value(value: image),
+          ChangeNotifierProvider<CharacterRepository>.value(value: repository),
         ],
         child: MaterialApp(
           home: Scaffold(
-            body: Builder(
-              builder: (context) => TextButton(
-                onPressed: () => ExpressionPackDialog.launch(
-                  context,
-                  characterDbId: card.dbId!,
-                  characterName: card.name,
-                  repository: repository,
-                  candidateBase: null,
-                  basePrompt: 'portrait',
-                  negativePrompt: '',
-                ),
-                child: const Text('Open pack'),
-              ),
-            ),
+            body: StudioExpressionTab(initialCharacterId: card.dbId),
           ),
         ),
       ),
     );
-    await tester.tap(find.text('Open pack'));
+
     for (
       var i = 0;
       i < 30 && find.byType(ExpressionPackSetup).evaluate().isEmpty;

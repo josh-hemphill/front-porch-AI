@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import {
   button, click, container, createElement, field, gets, mount, posts, refuse, reset, serve, settle,
-  text, unmount,
+  text, type, unmount,
 } from './deskTestKit';
 
 vi.mock('../../../api/client', async () => (await import('./deskTestKit')).clientMock);
@@ -57,10 +57,29 @@ const boot = async (
   serve({
     'GET /api/image/expression-pack': refuse(404, 'No expression pack'),
     'GET /api/characters': characters,
+    'GET /api/image/expression-pack/source': { image: 'data:image/png;base64,AAAA' },
     ...routes,
   });
-  mount(createElement(PackPanel, { prompt: 'a woman on a porch', picture: null, ...props }));
+  const picture = props.initialPicture as { kind: string; name: string; url?: string } | undefined;
+  mount(createElement(PackPanel, { initialPrompt: 'a woman on a porch', initialPicture: null,
+    lastSaved: picture?.kind === 'saved' ? { name: picture.name, url: picture.url! } : null, ...props }));
   await settle();
+  const select = container.querySelector<HTMLSelectElement>('select[aria-label="Character"]');
+  if (select && !select.disabled && !select.value && [...select.options].some((option) => option.value === 'c1')) {
+    act(() => { select.value = 'c1'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    await settle();
+    type('textarea[aria-label="Image prompt"]', 'a woman on a porch');
+    if (picture?.kind === 'saved') {
+      click('Use last Studio picture for pack');
+    } else if (picture?.kind === 'file') {
+      const input = field<HTMLInputElement>('input[aria-label="Pack picture file"]');
+      act(() => {
+        Object.defineProperty(input, 'files', { configurable: true, value: [new File(['picture'], picture.name, { type: 'image/png' })] });
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await settle(4);
+    }
+  }
 };
 
 describe('starting a pack', () => {
@@ -78,6 +97,9 @@ describe('starting a pack', () => {
         replaceExisting: true,
         denoise: 0.7,
         prompt: 'a woman on a porch',
+        workspace: true,
+        baseSource: 'currentPortrait',
+        referenceImage: 'data:image/png;base64,AAAA',
       },
     ]);
     expect(text()).toContain('Mara: 0 of 2 made — working…');
@@ -92,7 +114,9 @@ describe('starting a pack', () => {
       select.value = 'c2';
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
+    await settle();
     click('Full (28)');
+    type('textarea[aria-label="Image prompt"]', 'a woman on a porch');
     const [keep, replace] = [...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
     act(() => keep.click());
     act(() => replace.click());
@@ -117,13 +141,13 @@ describe('starting a pack', () => {
   it('builds from a picture that was chosen, sent as it was chosen', async () => {
     await boot(
       { 'POST /api/image/expression-pack': view() },
-      { picture: { kind: 'file', name: 'me.png', dataUrl: 'data:image/png;base64,AAAA' } },
+      { initialPicture: { kind: 'file', name: 'me.png', dataUrl: 'data:image/png;base64,AAAA' } },
     );
-    expect(text()).toContain('Built from me.png.');
+    expect(text()).toContain('Source: me.png');
     click('Start pack');
     await settle();
     expect(posts('/api/image/expression-pack')[0].body).toMatchObject({
-      referenceImage: 'data:image/png;base64,AAAA',
+      referenceImage: expect.stringMatching(/^data:image\/png;base64,/),
     });
     expect(posts('/api/image/expression-pack')[0].body).not.toHaveProperty('referenceFilename');
   });
@@ -131,7 +155,7 @@ describe('starting a pack', () => {
   it('builds from a picture the computer saved, by its name', async () => {
     await boot(
       { 'POST /api/image/expression-pack': view() },
-      { picture: { kind: 'saved', name: 'saved_1.png', url: '/api/image/saved/saved_1.png' } },
+      { initialPicture: { kind: 'saved', name: 'saved_1.png', url: '/api/image/saved/saved_1.png' } },
     );
     click('Start pack');
     await settle();
@@ -235,7 +259,7 @@ describe('watching a pack', () => {
         'GET /api/image/expression-pack': refuse(404, 'No expression pack'),
         'GET /api/characters': characters,
       });
-      mount(createElement(PackPanel, { prompt: '', picture: null }));
+      mount(createElement(PackPanel, {}));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10000);
       });
@@ -254,7 +278,7 @@ describe('watching a pack', () => {
           n++ === 0 ? view({ running: true, canImport: false }) : view(),
         'GET /api/characters': characters,
       });
-      mount(createElement(PackPanel, { prompt: '', picture: null }));
+      mount(createElement(PackPanel, {}));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
@@ -291,7 +315,7 @@ describe('watching a pack', () => {
           n++ === 0 ? view({ running: true, done: 0, canImport: false }) : view({ done: 2 }),
         'GET /api/characters': characters,
       });
-      mount(createElement(PackPanel, { prompt: '', picture: null, }));
+      mount(createElement(PackPanel, {}));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
@@ -317,7 +341,7 @@ describe('watching a pack', () => {
           n++ === 0 ? view({ running: true, canImport: false }) : refuse(404, 'No expression pack'),
         'GET /api/characters': characters,
       });
-      mount(createElement(PackPanel, { prompt: '', picture: null, }));
+      mount(createElement(PackPanel, {}));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });

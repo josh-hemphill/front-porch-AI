@@ -119,9 +119,13 @@ describe('while a picture is made', () => {
   it('asks how far it is, shows it, and stops asking when it is done', async () => {
     let finish: (v: unknown) => void = () => {};
     let percent = 0.25;
+    let generating = false;
     await open({
-      'POST /api/image/generate': () => new Promise((resolve) => (finish = resolve)),
-      'GET /api/image/config': () => ({ ...baseConfig, isGenerating: true, genProgress: percent }),
+      'POST /api/image/generate': () => {
+        generating = true;
+        return new Promise((resolve) => (finish = resolve));
+      },
+      'GET /api/image/config': () => ({ ...baseConfig, isGenerating: generating, genProgress: percent }),
     });
     type('textarea[aria-label="Prompt"]', 'a quiet porch');
 
@@ -131,6 +135,7 @@ describe('while a picture is made', () => {
     await until(() => text().includes('Painting… 50%'));
     expect(button('Generate')!.disabled).toBe(true);
 
+    generating = false;
     finish({ image: 'data:image/png;base64,AAAA', filename: 'made_1.png' });
     await settle();
     const asked = gets('/api/image/config').length;
