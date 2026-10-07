@@ -18,6 +18,27 @@ extension _ExpressionPackDialogView on ExpressionPackDialogState {
                     busy:
                         widget.preparingPrompt ||
                         context.watch<ImageGenService>().isGenerating,
+                    promptRules: _promptRules,
+                    onRulesChanged: (rules) => _promptRules = rules,
+                    originalPrompts: {
+                      for (final emotion in kFullExpressionSet)
+                        emotion: originalExpressionPrompt(
+                          emotion: emotion,
+                          basePrompt:
+                              '${widget.basePrompt}, $kExpressionFraming',
+                          editMode:
+                              ImageGenBackend.fromKey(
+                                    widget
+                                        .storage
+                                        .imageGenSettings
+                                        .imageGenBackend,
+                                  ) ==
+                                  ImageGenBackend.comfyUi ||
+                              ImageReferenceResolver.packEditMode(
+                                widget.storage.imageGenSettings,
+                              ),
+                        ),
+                    },
                     baseImage: widget.baseImage,
                     characterName: widget.characterName,
                     existingEmotions: widget.existingEmotions,

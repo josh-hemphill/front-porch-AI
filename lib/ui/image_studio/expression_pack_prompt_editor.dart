@@ -36,13 +36,12 @@ Future<void> showPackRerollEditor(
 ) async {
   final imageGen = context.read<ImageGenService?>();
   if (imageGen?.isGenerating ?? false) return;
-  final controller = TextEditingController(
-    text: session.effectivePromptFor(index),
-  );
+  final initialPrompt = session.effectivePromptFor(index);
+  final controller = TextEditingController(text: initialPrompt);
   var denoise = session.effectiveDenoiseFor(index);
   var newSeed = false;
   final emotion = session.slots[index].emotion;
-  final confirmed = await showDialog<bool>(
+  final route = DialogRoute<bool>(
     context: context,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => AlertDialog(
@@ -159,13 +158,18 @@ Future<void> showPackRerollEditor(
       ),
     ),
   );
+  final confirmed = await Navigator.of(
+    context,
+    rootNavigator: true,
+  ).push(route);
   final prompt = controller.text;
+  await route.completed;
   controller.dispose();
   if (confirmed == true && !(imageGen?.isGenerating ?? false)) {
     unawaited(
       session.reroll(
         index,
-        promptOverride: prompt,
+        promptOverride: prompt.trim() == initialPrompt.trim() ? null : prompt,
         denoiseOverride: denoise,
         newSeed: newSeed,
       ),

@@ -17,6 +17,7 @@ export interface PackSlot {
 /** GET /api/image/expression-pack: the pack on the computer, if any. */
 export interface PackView {
   running: boolean;
+  promptRules?: PromptRules;
   mode: "edit" | "img2img";
   origin: "phone" | "desktop";
   characterId: string | null;
@@ -39,6 +40,7 @@ export interface PackStart {
   replaceExisting: boolean;
   denoise: number;
   prompt: string;
+  promptRules?: PromptRules;
   referenceImage?: string;
   referenceFilename?: string;
   workspace?: boolean;
@@ -78,6 +80,40 @@ export const importPack = (keep: string[]) =>
     .then(announce);
 export const packPicture = (emotion: string) =>
   `/api/image/expression-pack/picture?emotion=${encodeURIComponent(emotion)}`;
+
+export interface PromptReplacement {
+  find: string;
+  replace: string;
+  caseSensitive: boolean;
+}
+export interface PromptRules {
+  prefix: string;
+  suffix: string;
+  replacements: PromptReplacement[];
+}
+export interface PromptPreview {
+  emotion: string;
+  original: string;
+  effective: string;
+}
+export const fetchPromptDefaults = () =>
+  api.get<PromptRules>("/api/image/expression-pack/settings");
+export const savePromptDefaults = (promptRules: PromptRules) =>
+  api.post<PromptRules>("/api/image/expression-pack/settings", { promptRules });
+export const previewPrompts = (body: {
+  promptRules: PromptRules;
+  prompt: string;
+  set: string;
+  activePack: boolean;
+}) =>
+  api.post<{ previews: PromptPreview[] }>(
+    "/api/image/expression-pack/preview",
+    body,
+  );
+export const updatePackRules = (promptRules: PromptRules) =>
+  api
+    .post<PackView>("/api/image/expression-pack/rules", { promptRules })
+    .then(announce);
 
 export const resumePack = () =>
   api.post<PackView>("/api/image/expression-pack/resume", {}).then(announce);

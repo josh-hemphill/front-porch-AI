@@ -16,6 +16,22 @@ class ExpressionPackRoutes {
     router.get('/api/image/expression-pack/source', _source);
     router.post('/api/image/expression-pack/write-prompt', _writePrompt);
     router.post('/api/image/expression-pack/discard', _discard);
+    router.get(
+      '/api/image/expression-pack/settings',
+      (_) => JsonResponse.ok(image.packPromptDefaults()),
+    );
+    router.post(
+      '/api/image/expression-pack/settings',
+      (shelf.Request r) => _rules(r, save: true),
+    );
+    router.post(
+      '/api/image/expression-pack/preview',
+      (shelf.Request r) => _rules(r, preview: true),
+    );
+    router.post(
+      '/api/image/expression-pack/rules',
+      (shelf.Request r) => _rules(r),
+    );
     router.post('/api/image/expression-pack', _start);
     router.post('/api/image/expression-pack/cancel', _cancel);
     router.post(
@@ -100,6 +116,26 @@ class ExpressionPackRoutes {
           const DeskRefused('bad_request', 'That request was not JSON.'),
         ),
       );
+    }
+  }
+
+  Future<shelf.Response> _rules(
+    shelf.Request request, {
+    bool save = false,
+    bool preview = false,
+  }) async {
+    final (body, failed) = await _body(request);
+    if (body == null) return failed!;
+    try {
+      return JsonResponse.ok(
+        save
+            ? await image.savePackPromptDefaults(body)
+            : preview
+            ? image.previewPackPrompts(body)
+            : image.updatePackPromptRules(body),
+      );
+    } on DeskRefused catch (e) {
+      return _refused(e);
     }
   }
 

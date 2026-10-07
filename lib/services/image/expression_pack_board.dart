@@ -4,7 +4,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
-import 'package:front_porch_ai/services/expression_pack_service.dart';
+import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/capability/capability.dart';
 
 /// Which screen started a pack. The screen that started it owns its results:
@@ -110,6 +110,7 @@ class ExpressionPackBoard extends ChangeNotifier {
     return {
       'running': run.session.isRunning,
       'importing': run.importing,
+      'promptRules': run.session.promptRules.toJson(),
       'mode': run.mode.name,
       'origin': run.origin.name,
       'characterId': run.characterId,

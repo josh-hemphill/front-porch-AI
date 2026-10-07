@@ -91,6 +91,11 @@ class ExpressionPackDialog extends StatefulWidget {
 
 class ExpressionPackDialogState extends State<ExpressionPackDialog> {
   ExpressionPackSession? _session;
+  late ExpressionPromptRules _promptRules = widget
+      .storage
+      .expressionSettings
+      .expressionPromptRules
+      .copy();
   bool _checkingWorkflow = false;
   bool _replaceExisting = true;
   bool _cancelRequested = false;
@@ -175,6 +180,7 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
       final flight = await beginExpressionPack(
         imageGen: widget.imageGen,
         plan: plan,
+        promptRules: _promptRules,
         emotions: emotions,
         basePrompt: '$basePrompt, $kExpressionFraming',
         negativePrompt: widget.negativePrompt,

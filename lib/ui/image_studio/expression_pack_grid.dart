@@ -150,6 +150,38 @@ class ExpressionPackGrid extends StatelessWidget {
         ),
       );
     } else {
+      final settings = storage?.expressionSettings;
+      if (settings != null) {
+        buttons.add(
+          TextButton(
+            onPressed: importing || imported
+                ? null
+                : () async {
+                    final rules = await showExpressionPromptRulesEditor(
+                      context,
+                      rules: session.promptRules,
+                      previewPrompt: (emotion, rules) =>
+                          session.previewPromptFor(
+                            session.slots.indexWhere(
+                              (s) => s.emotion == emotion,
+                            ),
+                            rules,
+                          ),
+                      globalDefaults: () => settings.expressionPromptRules,
+                      saveDefaults: settings.setExpressionPromptRules,
+                      originals: {
+                        for (var i = 0; i < session.slots.length; i++)
+                          session.slots[i].emotion: session.originalPromptFor(
+                            i,
+                          ),
+                      },
+                    );
+                    if (rules != null) session.updatePromptRules(rules);
+                  },
+            child: const Text('Prompt rules…'),
+          ),
+        );
+      }
       // Vision QC (advisory): only offered once there are images to check and
       // no import is writing them out.
       if (session.doneCount > 0 && !importing) {

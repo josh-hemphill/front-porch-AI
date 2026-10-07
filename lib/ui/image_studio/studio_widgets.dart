@@ -32,3 +32,8 @@ export 'studio_stove.dart';
 export 'remote_image_host_chips.dart';
 export 'expression_pack_grid.dart';
 export 'expression_pack_setup.dart';
+export 'studio_gen_progress.dart';
+export 'studio_size_fields.dart';
+export 'studio_size_pill.dart';
+export 'studio_stove_knobs.dart';
+export 'studio_stove_modes.dart';

@@ -26,6 +26,7 @@ extension ImageStudioPacks on ImageFacade {
     if (f['workspace'] == true && _image.isGenerating) {
       throw const DeskRefused('busy', kAlreadyGeneratingMessage, 409);
     }
+    final rules = _readPromptRules(f);
     final repo = _characters;
     if (repo == null) {
       throw const DeskRefused(
@@ -101,6 +102,18 @@ extension ImageStudioPacks on ImageFacade {
       );
     }
 
+    try {
+      for (final emotion in emotions) {
+        composeExpressionPrompt(
+          emotion: emotion,
+          basePrompt: '$prompt, $kExpressionFraming',
+          editMode: plan.edit,
+          rules: rules,
+        );
+      }
+    } on FormatException catch (e) {
+      throw DeskRefused('bad_prompt_rules', e.message);
+    }
     final denoise = ((f['denoise'] as num?)?.toDouble() ?? 0.7).clamp(
       0.30,
       0.85,
@@ -116,6 +129,7 @@ extension ImageStudioPacks on ImageFacade {
     final flight = await withoutCity96Ask(
       () => beginExpressionPack(
         imageGen: _image,
+        promptRules: rules,
         plan: plan,
         emotions: emotions,
         basePrompt: '$prompt, $kExpressionFraming',

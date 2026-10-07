@@ -125,6 +125,11 @@ extension ChatServiceSendHandoff on ChatService {
       preTurnVector = Map<String, int>.from(_needsSimulation.vector);
       _pendingRealismMetadata ??= {};
       _pendingRealismMetadata!['needs_pre_turn_vector'] = preTurnVector;
+      // The carried fraction rewinds with the bars, so a regen charges the
+      // beat exactly once more, not from a reset carry.
+      _pendingRealismMetadata![kNeedsPreTurnCarry] = Map<String, double>.from(
+        _needsSimulation.wearCarry,
+      );
     }
     if (_realismActiveThisMode && addressedGuest == null) {
       // 1:1 only. Group per-speaker stamp lives in the realism dance —
@@ -142,15 +147,13 @@ extension ChatServiceSendHandoff on ChatService {
       }
       // Wear waits until the clock commits, after this reply. A send is
       // not a unit of time.
-      // Refractory tick for the 1:1 host only. In group mode the speaker
-      // hasn't been picked yet — decrementing here mutated whichever member's
-      // scalars were still loaded from LAST turn, and the tick was then
-      // discarded by _loadGroupRealismIntoScalars, so group cooldowns never
-      // actually counted down. The group tick now lives per-speaker in
-      // _evaluateRealismForUpcomingSpeaker, right after that speaker's
-      // scalars are loaded (mirroring the per-speaker needs decay).
+      // Clock off: the reply's refractory quarter hour, 1:1 host only. In a
+      // group the speaker isn't picked yet (ticking here hit whichever
+      // member was still loaded); theirs runs in
+      // _evaluateRealismForUpcomingSpeaker once their scalars load. Clock on,
+      // the beat's own minutes tick after the clock instead.
       if (_activeGroup == null) {
-        _nsfwService.decrementCooldownIfActive();
+        _tickRefractoryPerReply();
       }
 
       // Single-path bridge: realism evaluation now runs inside _generateResponse

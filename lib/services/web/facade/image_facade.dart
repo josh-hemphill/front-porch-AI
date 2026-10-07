@@ -35,6 +35,7 @@ part 'image_facade_catalog.dart';
 part 'image_facade_desk.dart';
 part 'image_facade_pack.dart';
 part 'image_facade_pack_workspace.dart';
+part 'image_facade_pack_rules.dart';
 part 'image_facade_ready.dart';
 
 /// Web adapter for image generation: read/flip the backend config (Local A1111 /

@@ -7,10 +7,14 @@ import type { Picture } from "./DeskRail";
 import { PackDraft } from './PackDraft';
 import { PackDiscardConfirmation } from './PackDiscardConfirmation';
 import type { Mode } from './types';
+import { PromptRulesEditor } from "./PromptRulesEditor";
 import {
   cancelPack,
   resumePack,
   rerollPack,
+  fetchPromptDefaults,
+  updatePackRules,
+  type PromptRules,
   fetchPack,
   importPack,
   packPicture,
@@ -60,6 +64,10 @@ export function PackPanel(props: {
   sharedBusy?: boolean; configMode?: Mode; onBusy?: (busy: boolean) => void;
 }) {
   const [pack, setPack] = useState<PackView | null>(null);
+  const [rules, setRules] = useState<PromptRules | null>(null);
+  const [editingRules, setEditingRules] = useState<"setup" | "pack" | null>(
+    null,
+  );
   const [characters, setCharacters] = useState<CharacterRow[]>([]);
   const [character, setCharacter] = useState("");
   const [full, setFull] = useState(false);
@@ -117,6 +125,25 @@ export function PackPanel(props: {
     }).finally(() => { if (live) setPortraitLoading(false); });
     return () => { live = false; };
   }, [character, pack, busy, portraitTick]);
+  const editRules = (scope: "setup" | "pack") => {
+    if (scope === "pack" && pack?.promptRules) {
+      setEditingRules(scope);
+      return;
+    }
+    if (rules) {
+      setEditingRules(scope);
+      return;
+    }
+    fetchPromptDefaults()
+      .then((value) => {
+        setRules(value);
+        setEditingRules(scope);
+      })
+      .catch((e: unknown) =>
+        setStartProblem(message(e, "Could not load prompt rules.")),
+      );
+  };
+
   // Looked at once, and then only while a pack is running: with no pack, or
   // one that has stopped, nothing is asked. What this panel starts or stops it
   // already has in the answer.
@@ -186,12 +213,19 @@ export function PackPanel(props: {
     body.baseSource = 'currentPortrait';
     if (!picture && portrait) body.referenceImage = portrait;
     refreshEpoch.current++;
+    if (rules) body.promptRules = rules;
     setBusy(true);
     setLeft(new Set());
     setStartProblem("");
     setStopped(false);
     startPack(body)
-      .then((value) => { refreshEpoch.current++; setPack(value); setCaptured(true); })
+      .then((value) => {
+        refreshEpoch.current++;
+        setPack(value);
+        setCaptured(true);
+        setRules(null);
+        setEditingRules(null);
+      })
       .catch((e: unknown) =>
         setStartProblem(message(e, "Could not start the pack.")),
       )
@@ -359,6 +393,29 @@ export function PackPanel(props: {
       </fieldset>
       <button
         type="button"
+        disabled={frozen || props.sharedBusy === true}
+        onClick={() => editRules("setup")}
+      >
+        Prompt rules...
+      </button>
+      {editingRules && (editingRules === "pack" ? pack?.promptRules : rules) ? (
+        <PromptRulesEditor
+          rules={(editingRules === "pack" ? pack?.promptRules : rules)!}
+          prompt={description}
+          full={full}
+          activePack={editingRules === "pack"}
+          onClose={() => setEditingRules(null)}
+          onUse={async (value) => {
+            if (editingRules === "pack") {
+              setPack(await updatePackRules(value));
+            } else {
+              setRules(value);
+            }
+          }}
+        />
+      ) : null}
+      <button
+        type="button"
         disabled={busy || running || !character || frozen || props.sharedBusy === true ||
           pictureLoading || portraitLoading || (!picture && !portrait) || crafting}
         onClick={start}
@@ -384,6 +441,15 @@ export function PackPanel(props: {
           </p>
           {pack.note ? <p>{pack.note}</p> : null}
           {pack.origin === "desktop" ? <p>Started on the computer.</p> : null}
+          {!running && pack.origin === "phone" && pack.imported == null ? (
+            <button
+              type="button"
+              disabled={busy || props.sharedBusy}
+              onClick={() => editRules("pack")}
+            >
+              Edit pack prompt rules...
+            </button>
+          ) : null}
           <ul>
             {pack.slots.map((slot) => (
               <li key={slot.emotion}>
