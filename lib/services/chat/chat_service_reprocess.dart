@@ -323,11 +323,13 @@ extension ChatServiceReprocess on ChatService {
           _pendingRealismMetadata ??= {};
           _pendingRealismMetadata!['needs_pre_turn_vector'] =
               Map<String, int>.from(_needsSimulation.vector);
+          _pendingRealismMetadata![kNeedsPreTurnCarry] =
+              Map<String, double>.from(_needsSimulation.wearCarry);
         }
 
         // Wear waits until the clock commits on the replayed reply.
         _applyMoodDecay();
-        _nsfwService.decrementCooldownIfActive();
+        _tickRefractoryPerReply();
 
         await _runPreGenRealismJudges(
           onChunk: handleChunk,
