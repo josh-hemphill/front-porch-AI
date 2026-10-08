@@ -139,7 +139,8 @@ part 'chat/chat_service_wiring_memory.dart';
 part 'chat/chat_service_wiring_injection.dart';
 part 'chat/chat_service_wiring_injection_leaves.dart';
 part 'chat/chat_service_send.dart';
-part 'chat/chat_service_body_wear.dart';
+part 'chat/chat_service_needs_pass.dart';
+part 'chat/chat_service_needs_rewinds.dart';
 part 'chat/chat_service_send_handoff.dart';
 part 'chat/chat_service_turn_flow.dart';
 part 'chat/chat_service_away_pulse.dart';
@@ -446,8 +447,7 @@ class ChatService extends ChangeNotifier
   bool get isEvaluatingRealism => _isEvaluatingRealism;
   bool get isProcessingGreeting => _isProcessingGreeting;
 
-  // Verifier phase (for overlay header "🕵️ Verifying Realism output" + pass progress, and bubble chip data source).
-  // God coordination only; leaf drives via cb thins (no new god void _).
+  // Verifier phase: the overlay header, pass progress, and the bubble chip.
   bool get isVerifyingRealism => _isVerifyingRealism;
   int get verificationPass => _verificationPass;
   int get verificationMaxPasses => _verificationMaxPasses;
@@ -459,11 +459,11 @@ class ChatService extends ChangeNotifier
   /// chat_service_accessors.dart.
   String get realismEvalStreamTextClean => _realismEvalStreamTextCleanImpl;
   String get characterEmotion => _characterEmotion;
-
   String get emotionIntensity => _emotionIntensity;
 
-  /// Per-session Needs (Sims-style) simulation active. Seeded from the card.
+  /// The chat's Needs switch; [needsActive] is the gate Needs run behind.
   bool get needsSimEnabled => _needsSimEnabled;
+  bool get needsActive => _needsActive;
 
   /// Writes Porch Life Passage of Time — the live clock gate. Class-pinned
   /// so goldens/fakes can override.
