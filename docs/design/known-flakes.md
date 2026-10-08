@@ -43,8 +43,12 @@ dependencies" never ran a test.
   prompt carried the stored emotion across two turns" — macOS shard only,
   seen once after the refractory change; the wait around the reload is the
   suspect if it recurs.
-- **macOS E2E `message_actions_test`**: "the bubble … was not reachable by
-  scrolling the chat list"; seen once.
+- **E2E `message_actions_test`** (macOS, then Linux): "the bubble … was not
+  reachable by scrolling the chat list". Fixed at the cause in #403: the
+  harness's pointer drags moved the transcript by nothing, so an older
+  bubble the virtualized list had not built stayed unbuilt; the reveal now
+  moves the list through its own ScrollPosition. The failure message
+  names what was on screen, so a recurrence is evidence.
 - **`test/services/auth_service_test.dart` TOTP enrolment**: a 30 s limit
   under a loaded runner; passes alone.
 - **`test/services/chat/start_fresh_chat_test.dart` "an empty persona id
