@@ -26,6 +26,7 @@ import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/chat/eval_traffic.dart';
 import 'package:front_porch_ai/services/chat/llm_eval_engine.dart'
     show recentExchange;
+import 'package:front_porch_ai/services/chat/objective_check_skip.dart';
 import 'package:front_porch_ai/services/chat/objective_eval_tools.dart';
 import 'package:front_porch_ai/services/chat/objective_stale_detector.dart';
 import 'package:front_porch_ai/services/chat/pass_support.dart';
@@ -64,7 +65,8 @@ class ObjectiveProposal {
   final Future<void> Function(String objectiveId, String tasksJson)
   saveObjectiveTasks;
   final Future<void> Function(String objectiveId) deactivateObjective;
-  final Future<void> Function(Objective, String) markTaskCompleted; // thin; god owns find+mutate 'completed':true + save+load (task auto side-effect only for currentTask YES path)
+  final Future<void> Function(Objective, String)
+  markTaskCompleted; // thin; god owns find+mutate 'completed':true + save+load (task auto side-effect only for currentTask YES path)
   /// Durable `stale: true` on the current open task. Never sets completed.
   final Future<void> Function(Objective, String)? markTaskStale;
 
@@ -223,9 +225,16 @@ class ObjectiveProposal {
   /// force-completed path is gone — stale is never treated as achievement.
   final ObjectiveStaleTracker _staleTracker = ObjectiveStaleTracker();
 
+  final ObjectiveCheckSkip _skip = ObjectiveCheckSkip();
+
+  /// The overlay's Skip: the running check's request is called off and none
+  /// of its verdicts apply, unless it is already applying them.
+  ObjectiveSkip skipCheck() => _skip.skip();
+
   Future<void> checkTaskCompletionInBackground() async {
     if (getIsCheckingCompletion() || getActiveObjectives().isEmpty) return;
     setIsCheckingCompletion(true);
+    final cancel = _skip.begin();
 
     var anyCompleted = false;
     try {
@@ -245,6 +254,7 @@ class ObjectiveProposal {
       // main quest; also self-heals quests stuck from before that fix.)
       final pending = <(dynamic obj, List<dynamic> tasks, String? task)>[];
       for (final obj in getActiveObjectives()) {
+        if (cancel.isCancelled) return;
         final tasks = tasksForObjective(obj);
         final currentTask = currentOpenTaskDescription(tasks);
         if (currentTask == null && tasks.isNotEmpty) {
@@ -268,7 +278,7 @@ class ObjectiveProposal {
         }
         pending.add((obj, tasks, currentTask));
       }
-      if (pending.isEmpty) return;
+      if (pending.isEmpty || cancel.isCancelled) return;
 
       // ONE batched call for every objective (was one FULL LLM round-trip
       // per objective, each re-paying prefill on the same 8-message context —
@@ -287,7 +297,8 @@ class ObjectiveProposal {
       }
       // Tools first (same fireStructuredEval fork as TimeService), text
       // scrape as the floor. Unparsed / confused still counts as NO.
-      final responseText = await _fireObjectiveEval(
+      final verdicts = _fireObjectiveEval(
+        cancel: cancel,
         debugLabel: kObjectiveVerdictsTool,
         tools: kObjectiveVerdictsEvalTools,
         toolName: kObjectiveVerdictsTool,
@@ -300,6 +311,22 @@ class ObjectiveProposal {
           toolsMode: toolsMode,
         ),
       );
+      // Skip answers at once, whatever the request is doing. The abandoned
+      // request then ends in the abort's error: logged, never left unhandled.
+      unawaited(
+        verdicts.then<void>(
+          (_) {},
+          onError: (Object e) => debugPrint('[Objective] Check ended: $e'),
+        ),
+      );
+      final responseText = await Future.any<String?>([
+        verdicts,
+        cancel.whenCancelled.then((_) => null),
+      ]);
+      if (responseText == null || cancel.isCancelled) {
+        debugPrint('[Objective] Check skipped — objectives left as they were');
+        return;
+      }
       final rawPreview = responseText.replaceAll('\n', ' / ');
       debugPrint(
         '[Objective] Batched verdicts raw: '
@@ -316,6 +343,8 @@ class ObjectiveProposal {
         return;
       }
 
+      // The last moment a skip stops everything; after it, all apply.
+      if (!_skip.startApplying(cancel)) return;
       final threshold = normalizeObjectiveStaleThreshold(
         getObjectiveStaleThresholdN?.call(),
       );
@@ -348,6 +377,7 @@ class ObjectiveProposal {
     } catch (e) {
       debugPrint('[Objective] Completion check failed: $e');
     } finally {
+      _skip.end(cancel);
       setIsCheckingCompletion(false);
       // A completed step is a story beat worth journaling — flag it once
       // (post-generation consumer; see onObjectiveCompleted doc).
@@ -414,6 +444,7 @@ class ObjectiveProposal {
     required double temperature,
     required String Function({required bool toolsMode}) buildPrompt,
     bool reasoningOff = false,
+    LlmRequestCancel? cancel,
   }) async {
     Future<String?> fireText(
       String prompt, {
@@ -429,6 +460,7 @@ class ObjectiveProposal {
         reasoningMaxTokens: reasoningOff ? 0 : null,
         mandatoryReasoningHeadroom: true,
         stopSequences: const [],
+        cancel: cancel,
       );
       final trafficWatch = Stopwatch()..start();
       var responseText = '';
@@ -458,6 +490,8 @@ class ObjectiveProposal {
             toolChoice: toolName,
             maxLength: 2000,
             getPreferTextEvals: getPreferTextEvals,
+            cancel: cancel,
+            isCancelled: () => cancel?.isCancelled ?? false,
           )
         : await fireText(buildPrompt(toolsMode: false));
     return stripThinkBlocks(raw ?? '');

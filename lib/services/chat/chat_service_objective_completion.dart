@@ -43,6 +43,23 @@ extension ChatServiceObjectiveCompletion on ChatService {
     notifyListeners(); // trigger UI to show spinner
   }
 
+  /// The overlay's "Skip goal check": the check's own request is called off
+  /// and its verdicts are dropped. The reply still comes (the turn path
+  /// awaits the check, which now returns). Turn ops it recorded before the
+  /// call (a quest whose steps were all done) stay, so regen still undoes them.
+  void _skipObjectiveCheckImpl() {
+    switch (_objectiveProposal.skipCheck()) {
+      case ObjectiveSkip.notRunning:
+        return;
+      case ObjectiveSkip.skipped:
+        _setGuestStatus('Goal check skipped. Your goals stay as they were.');
+      case ObjectiveSkip.tooLate:
+        _setGuestStatus(
+          'Too late to skip: the goal check already had its answer.',
+        );
+    }
+  }
+
   /// Synchronous version — awaits the check. Used pre-generation.
   Future<void> _maybeCheckTaskCompletionSync() async {
     // The recurring cost this feature's switch exists to stop: one model call
