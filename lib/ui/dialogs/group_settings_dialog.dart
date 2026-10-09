@@ -157,37 +157,43 @@ class _GroupSettingsDialogState extends State<GroupSettingsDialog>
 
             Divider(height: 1, color: AppColors.borderOf(context)),
 
-            // Tab Content
+            // Tab Content. The tabs get their own (transparent) Material: the
+            // dialog's coloured box above sits between every ListTile and the
+            // Dialog's Material, which hides their ink and background
+            // (Flutter asserts on each tile).
             Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  GroupPromptEngineeringTab(
-                    chatService: widget.chatService,
-                    groupRepo: widget.groupRepo,
-                  ),
-                  GroupMemoryRAGTab(
-                    chatService: widget.chatService,
-                    groupRepo: widget.groupRepo,
-                  ),
-                  GroupRealismNeedsTab(
-                    chatService: widget.chatService,
-                    groupRepo: widget.groupRepo,
-                  ),
-                  GroupNeedsTab(
-                    chatService: widget.chatService,
-                    groupRepo: widget.groupRepo,
-                  ),
-                  GroupGeneralTab(
-                    key: _generalTabKey,
-                    chatService: widget.chatService,
-                    groupRepo: widget.groupRepo,
-                  ),
-                  GroupLorebookWorldsTab(
-                    chatService: widget.chatService,
-                    groupRepo: widget.groupRepo,
-                  ),
-                ],
+              child: Material(
+                type: MaterialType.transparency,
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    GroupPromptEngineeringTab(
+                      chatService: widget.chatService,
+                      groupRepo: widget.groupRepo,
+                    ),
+                    GroupMemoryRAGTab(
+                      chatService: widget.chatService,
+                      groupRepo: widget.groupRepo,
+                    ),
+                    GroupRealismNeedsTab(
+                      chatService: widget.chatService,
+                      groupRepo: widget.groupRepo,
+                    ),
+                    GroupNeedsTab(
+                      chatService: widget.chatService,
+                      groupRepo: widget.groupRepo,
+                    ),
+                    GroupGeneralTab(
+                      key: _generalTabKey,
+                      chatService: widget.chatService,
+                      groupRepo: widget.groupRepo,
+                    ),
+                    GroupLorebookWorldsTab(
+                      chatService: widget.chatService,
+                      groupRepo: widget.groupRepo,
+                    ),
+                  ],
+                ),
               ),
             ),
 

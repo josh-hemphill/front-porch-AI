@@ -280,6 +280,12 @@ extension _DataMigrationImports on DataMigrationService {
             firstMessage: Value(json['first_message'] ?? ''),
             scenario: Value(json['scenario'] ?? ''),
             systemPrompt: Value(json['system_prompt'] ?? ''),
+            // These are existing groups: one saved before the field existed
+            // always inherited, so a missing key keeps it on (only NEW
+            // groups default off).
+            inheritCharacterLorebooks: Value(
+              json['inherit_character_lorebooks'] as bool? ?? true,
+            ),
           ),
         );
         debugPrint('DB_MIGRATION: Imported group: ${json['name']}');

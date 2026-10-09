@@ -106,7 +106,7 @@ class _EditGroupPageState extends State<EditGroupPage>
 
   final List<LorebookEntry> _groupLoreEntries = [];
   final List<String> _worldIds = [];
-  bool _inheritCharacterLorebooks = true;
+  bool _inheritCharacterLorebooks = false;
 
   // Preserved on edit (baseline is immutable per spec; default seeds passed through)
   String _baselineRealismState = '{}';
@@ -118,6 +118,10 @@ class _EditGroupPageState extends State<EditGroupPage>
   // Guards + data-loss protection (smallest possible additions)
   bool _membersLoaded = false;
   String _originalRawLorebook = '';
+
+  /// The stored group lorebook could not be read. It is kept as stored
+  /// unless the user, asked on Save, chooses to replace it.
+  bool _bookUnreadable = false;
 
   @override
   void initState() {
@@ -202,17 +206,12 @@ class _EditGroupPageState extends State<EditGroupPage>
     }
 
     // Parse existing group lorebook (preserve raw on failure for data safety)
-    if (g.groupLorebook.isNotEmpty &&
-        g.groupLorebook != '{}' &&
-        g.groupLorebook != '[]') {
-      try {
-        final decoded = jsonDecode(g.groupLorebook);
-        if (decoded is Map<String, dynamic>) {
-          _groupLoreEntries.addAll(Lorebook.fromJson(decoded).entries);
-        }
-      } catch (_) {
-        // Keep _originalRawLorebook; do not clear on bad parse
-      }
+    try {
+      final book = parseGroupLorebookJson(g.groupLorebook);
+      if (book != null) _groupLoreEntries.addAll(book.entries);
+    } catch (e) {
+      debugPrint('[EditGroup] group lorebook could not be read: $e');
+      _bookUnreadable = true;
     }
   }
 
@@ -239,14 +238,12 @@ class _EditGroupPageState extends State<EditGroupPage>
       if (t.isNotEmpty) charPrompts[entry.key] = t;
     }
 
-    // Lore JSON: protect against silent loss from parse failure in init (use original raw if user made no edits to lore)
-    String groupLoreJson;
-    if (_groupLoreEntries.isEmpty && _originalRawLorebook.isNotEmpty) {
-      groupLoreJson = _originalRawLorebook;
-    } else {
-      final lb = Lorebook(entries: List.from(_groupLoreEntries));
-      groupLoreJson = jsonEncode(lb.toJson());
-    }
+    // An unreadable stored book is never replaced without the user saying so.
+    final keepRaw = await _keepUnreadableLorebook();
+    if (keepRaw == null) return;
+    final String groupLoreJson = keepRaw
+        ? _originalRawLorebook
+        : jsonEncode(Lorebook(entries: List.from(_groupLoreEntries)).toJson());
 
     final updated = GroupChat(
       id: widget.group.id,
