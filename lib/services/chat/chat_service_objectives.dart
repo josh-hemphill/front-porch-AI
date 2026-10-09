@@ -265,6 +265,9 @@ extension ChatServiceObjectives on ChatService {
         servedAmbition: const drift.Value(null),
       ),
     );
+    if (_inObjectiveTurn) {
+      _recordObjectiveTurnOp({'op': 'created', 'id': newId});
+    }
     await _persistTodayObjectiveId(newId);
     await _loadActiveObjectives();
     return newId;
