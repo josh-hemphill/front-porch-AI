@@ -144,8 +144,9 @@ class _GroupRealismNeedsTabState extends State<GroupRealismNeedsTab> {
       _editLongTermBond[id] = bond.longTerm;
       _editTrustLevel[id] = bond.trust;
       _editEmotion[id] = (seed['emotion'] as String?) ?? 'neutral';
-      _editEmotionIntensity[id] =
-          (seed['emotionIntensity'] as String?) ?? 'moderate';
+      _editEmotionIntensity[id] = emotionIntensityFromSeed(
+        seed['emotionIntensity'],
+      );
     }
   }
 

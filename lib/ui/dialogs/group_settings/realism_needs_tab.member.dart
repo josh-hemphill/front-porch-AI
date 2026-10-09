@@ -203,7 +203,7 @@ extension _GroupRealismNeedsMemberCard on _GroupRealismNeedsTabState {
                             ),
                           ),
                           style: const TextStyle(fontSize: 11),
-                          items: ['calm', 'moderate', 'intense']
+                          items: emotionIntensities
                               .map(
                                 (e) => DropdownMenuItem(
                                   value: e,
