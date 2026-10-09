@@ -42,11 +42,19 @@ extension BackendManagerDownload on BackendManager {
     _isDownloading = true;
     _error = null;
     _downloadProgress = 0.0;
-    _statusMessage = 'Initializing download...';
+    // Said plainly when it is the ROCm build a choice of ROCm asked for.
+    final what = _useRocm ? 'Downloading the ROCm engine' : 'Downloading';
+    _statusMessage = _useRocm
+        ? 'Downloading the ROCm engine…'
+        : 'Initializing download...';
     notify();
 
-    // Ensure we have remote version info for accurate version file
-    if (_remoteVersion == null) await checkForUpdates();
+    // The record must name this build's release: a lookup taken for another
+    // build (Vulkan before ROCm was picked) would label ROCm with its version.
+    if (_remoteFor != _getExecutableName()) {
+      await awaitVersionCheck();
+      if (_remoteFor != _getExecutableName()) await checkForUpdates();
+    }
 
     try {
       print('AG_DEBUG: Starting download process...');
@@ -100,7 +108,7 @@ extension BackendManagerDownload on BackendManager {
       final sink = file.openWrite();
       bool streamFailed = false;
 
-      _statusMessage = 'Downloading...';
+      _statusMessage = '$what...';
       notify();
 
       DateTime startTime = DateTime.now();
@@ -132,10 +140,10 @@ extension BackendManagerDownload on BackendManager {
             if (contentLength > 0) {
               _downloadProgress = received / contentLength;
               _statusMessage =
-                  'Downloading: ${(_downloadProgress * 100).toStringAsFixed(1)}% ($speedStr)$etaStr';
+                  '$what: ${(_downloadProgress * 100).toStringAsFixed(1)}% ($speedStr)$etaStr';
             } else {
               _statusMessage =
-                  'Downloading: ${(received / 1024 / 1024).toStringAsFixed(1)} MB ($speedStr)';
+                  '$what: ${(received / 1024 / 1024).toStringAsFixed(1)} MB ($speedStr)';
             }
 
             notify();
@@ -194,7 +202,7 @@ extension BackendManagerDownload on BackendManager {
       // Only now does the complete binary become the live executable.
       await BackendManager.swapStagedBinary(file, savePath);
 
-      if (_remoteVersion != null) {
+      if (_remoteVersion != null && _remoteFor == executableName) {
         await KoboldBinaryVersion.write(
           _storageService.binDir.path,
           version: _remoteVersion!,
@@ -267,7 +275,7 @@ extension BackendManagerDownload on BackendManager {
       // No AVX2 → the oldpc build is the only one that will run.
       return _hasAvx2 ? 'koboldcpp.exe' : 'koboldcpp-oldpc.exe';
     }
-    if (Platform.isLinux) {
+    if (_onLinux) {
       // AVX2 absence is fatal for every AVX2 build (cuda/rocm/nocuda alike), so
       // it takes priority over the GPU-acceleration choice. oldpc = Cuda11+AVX1
       // (CUDA offload kept for older NVIDIA; no ROCm — AMD falls back to CPU).
@@ -289,7 +297,7 @@ extension BackendManagerDownload on BackendManager {
       // No AVX2 → the oldpc build is the only one that will run.
       return _hasAvx2 ? '$base/koboldcpp.exe' : '$base/koboldcpp-oldpc.exe';
     }
-    if (Platform.isLinux) {
+    if (_onLinux) {
       // AVX2 absence is fatal for every AVX2 build, so it wins over GPU choice.
       if (!_hasAvx2) return '$base/koboldcpp-linux-x64-oldpc';
       if (_useRocm) return 'https://koboldai.org/cpplinuxrocm';
