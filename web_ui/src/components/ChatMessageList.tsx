@@ -116,6 +116,8 @@ type TranscriptProps = {
   multiCast: boolean;
   lastIndex: number;
   busy: boolean;
+  /** The turn is still settling (post-gen, a Feelings re-score): no reprocess. */
+  settling?: boolean;
   canSpeak: boolean;
   onBeginEdit: (m: Message) => void;
   onSwipe: (index: number, direction: number, critique?: string) => void;
@@ -149,6 +151,7 @@ const TranscriptRows = memo(function TranscriptRows({
   multiCast,
   lastIndex,
   busy,
+  settling,
   canSpeak,
   onBeginEdit,
   onSwipe,
@@ -222,7 +225,7 @@ const TranscriptRows = memo(function TranscriptRows({
               <ChipsRow
                 chips={m.chips}
                 isLast={m.index === lastIndex}
-                busy={busy}
+                busy={busy || !!settling}
                 onReprocess={() => onReprocess(m.index)}
                 onRevert={() => onRevert(m.index)}
               />

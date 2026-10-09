@@ -44,7 +44,7 @@ export function ChatPage() {
     sendError, setSendError, actionError, setActionError, reportActionFailure,
     editTarget, setEditTarget, reprocessIndex, setReprocessIndex, sendMessage, retrySend, regenerate, continueGen, fork,
     swipe, del, beginEdit, saveEdit, saveAuthorNote, saveTheme,
-    submitReprocess, revertNeeds,
+    submitReprocess, submitReprocessFeelings, revertNeeds,
   } = send;
 
   // Living Time §2: sessions whose welcome-back banner was dismissed (ephemeral).
@@ -317,6 +317,7 @@ export function ChatPage() {
           multiCast={multiCast}
           lastIndex={lastIndex}
           busy={state.isGenerating}
+          settling={!!state.isSettlingTurn}
           streaming={streaming}
           followStreamingReplies={followStreamingReplies}
           genStatus={state.isGenerating ? genStatus : null}
@@ -480,6 +481,7 @@ export function ChatPage() {
         reprocessIndex={reprocessIndex}
         messages={state.messages}
         onSubmitReprocess={submitReprocess}
+        onSubmitReprocessFeelings={submitReprocessFeelings}
         onCloseReprocess={() => setReprocessIndex(null)}
         chance={chance}
         onReveal={revealFate}
