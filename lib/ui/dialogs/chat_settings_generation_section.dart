@@ -219,6 +219,13 @@ class ChatSettingsGenerationSection extends StatelessWidget {
             },
           ),
         ),
+        ContextSizeWarnings(
+          contextSize: gen.resolveContextSize(storage),
+          // Only where Max Output Tokens is there to change.
+          maxOutput: hideOutputTokenLimits
+              ? null
+              : gen.resolveMaxLength(storage),
+        ),
         const SizedBox(height: 16),
         Row(
           children: [
