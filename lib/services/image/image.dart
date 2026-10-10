@@ -66,3 +66,4 @@ export 'image_batch_job.dart';
 export 'image_batch_pixels.dart';
 export 'image_batch_service.dart';
 export 'studio_model_roots.dart';
+export 'image_batch_prompts.dart';

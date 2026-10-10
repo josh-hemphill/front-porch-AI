@@ -2,14 +2,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/image/image.dart';
+import 'package:front_porch_ai/services/capability/capability.dart';
 import 'package:front_porch_ai/ui/widgets/widgets.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/ui/pages/image_batches/image_batches.dart';
-import 'package:front_porch_ai/ui/image_studio/image_studio.dart';
+import 'package:front_porch_ai/ui/image_studio/studio_widgets.dart';
+import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
+
+part 'image_batches/image_batch_prepare.dart';
 
 class ImageBatchesPage extends StatefulWidget {
   const ImageBatchesPage({super.key, this.queue});
@@ -25,12 +30,18 @@ class _ImageBatchesPageState extends State<ImageBatchesPage> {
   String _search = '';
   bool _edit = false;
   bool _missing = true;
+  bool _fullSet = false;
+  ExpressionPromptRules? _rules;
   int _tab = 0;
   String? _error;
   @override
   void dispose() {
     _prompt.dispose();
     super.dispose();
+  }
+
+  void _update(VoidCallback change) {
+    if (mounted) setState(change);
   }
 
   Future<void> _action(Future<void> Function() action) async {
@@ -58,7 +69,7 @@ class _ImageBatchesPageState extends State<ImageBatchesPage> {
           return const Center(child: CircularProgressIndicator());
         }
         return ListenableBuilder(
-          listenable: queue,
+          listenable: Listenable.merge([queue, queue.storage]),
           builder: (context, _) {
             final busy = queue.running || queue.working;
             final waiting = queue.jobs
@@ -132,150 +143,7 @@ class _ImageBatchesPageState extends State<ImageBatchesPage> {
                   ),
                   Expanded(
                     child: _tab == 0
-                        ? ListView(
-                            padding: const EdgeInsets.all(20),
-                            children: [
-                              const Text(
-                                'Add work across characters',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              DropdownButtonFormField<String>(
-                                initialValue: _kind,
-                                decoration: const InputDecoration(
-                                  labelText: 'Save destination',
-                                ),
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: 'additional',
-                                    child: Text(
-                                      'Additional portraits · character gallery',
-                                    ),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 'expressions',
-                                    child: Text('Expression set · starter (8)'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 'portrait',
-                                    child: Text('Primary portrait'),
-                                  ),
-                                ],
-                                onChanged: busy
-                                    ? null
-                                    : (v) => setState(() => _kind = v!),
-                              ),
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 12),
-                                child: Text(
-                                  'Additional portraits are saved to the character’s gallery. They do not replace the primary portrait or become expressions.',
-                                ),
-                              ),
-                              TextField(
-                                controller: _prompt,
-                                enabled: !busy,
-                                minLines: 2,
-                                maxLines: 5,
-                                decoration: const InputDecoration(
-                                  labelText: 'Prompt / instruction',
-                                  hintText:
-                                      'Use {character} for each character’s name.',
-                                ),
-                              ),
-                              if (_kind != 'expressions')
-                                CheckboxListTile(
-                                  value: _edit,
-                                  onChanged: busy
-                                      ? null
-                                      : (v) => setState(() => _edit = v!),
-                                  title: const Text(
-                                    'Edit the current character portrait',
-                                  ),
-                                ),
-                              if (_kind == 'expressions')
-                                CheckboxListTile(
-                                  value: _missing,
-                                  onChanged: busy
-                                      ? null
-                                      : (v) => setState(() => _missing = v!),
-                                  title: const Text('Only missing expressions'),
-                                ),
-                              Text(
-                                'Uses current Image Studio settings: ${queue.snapshot()['backend']} · ${_edit || _kind == 'expressions' ? queue.snapshot()['editModel'] : queue.snapshot()['model']}',
-                              ),
-                              const Text(
-                                'Source images and prompts are captured when prepared. Changing generation settings pauses older waiting work until those settings are restored.',
-                              ),
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: TextButton.icon(
-                                  onPressed: busy
-                                      ? null
-                                      : () => showWarmDialogOf<void>(
-                                          context,
-                                          builder: (_) => const ImageStudio(
-                                            mode: ImageGenMode.customPrompt,
-                                          ),
-                                        ),
-                                  icon: const Icon(Icons.tune),
-                                  label: const Text(
-                                    'Configure in Image Studio',
-                                  ),
-                                ),
-                              ),
-                              TextField(
-                                decoration: const InputDecoration(
-                                  labelText: 'Find characters',
-                                ),
-                                onChanged: (v) =>
-                                    setState(() => _search = v.toLowerCase()),
-                              ),
-                              for (final card in repo.characters.where(
-                                (c) =>
-                                    c.dbId != null &&
-                                    c.name.toLowerCase().contains(_search),
-                              ))
-                                CheckboxListTile(
-                                  value: _selected.contains(card.dbId),
-                                  title: Text(card.name),
-                                  onChanged: busy
-                                      ? null
-                                      : (v) => setState(() {
-                                          if (v!) {
-                                            _selected.add(card.dbId!);
-                                          } else {
-                                            _selected.remove(card.dbId);
-                                          }
-                                        }),
-                                ),
-                              FilledButton(
-                                onPressed: busy || _selected.isEmpty
-                                    ? null
-                                    : () => _action(() async {
-                                        await queue.prepare(
-                                          repository: repo,
-                                          characterIds: _selected.toList(),
-                                          kind: _kind,
-                                          prompt: _prompt.text,
-                                          edit: _edit,
-                                          missingOnly: _missing,
-                                        );
-                                        if (mounted) {
-                                          setState(() {
-                                            _tab = 1;
-                                            _error = null;
-                                          });
-                                        }
-                                      }),
-                                child: Text(
-                                  'Prepare for ${_selected.length} characters',
-                                ),
-                              ),
-                            ],
-                          )
+                        ? _prepare(queue, repo, busy)
                         : ImageBatchResults(
                             queue: queue,
                             review: _tab == 2,

@@ -18,6 +18,14 @@ class ImageBatchRoutes {
       }),
     );
     router.post(
+      '/api/image/batches/preview',
+      (shelf.Request r) => _handle(() async {
+        return JsonResponse.ok(
+          await image.previewBatchPrompts(await RequestBody.readJsonMap(r)),
+        );
+      }),
+    );
+    router.post(
       '/api/image/batches/prepare',
       (shelf.Request r) => _handle(() async {
         await image.prepareBatch(await RequestBody.readJsonMap(r));

@@ -12,6 +12,8 @@ extension ImageBatchPrepare on ImageBatchService {
     bool edit = false,
     bool missingOnly = true,
     double? denoise,
+    bool fullSet = false,
+    ExpressionPromptRules? promptRules,
   }) async {
     await ready;
     if (working || running) throw StateError('The queue is busy.');
@@ -29,6 +31,9 @@ extension ImageBatchPrepare on ImageBatchService {
     if (!strength.isFinite || strength < 0 || strength > 1) {
       throw ArgumentError('Strength must be between 0 and 1.');
     }
+    final rules =
+        (promptRules ?? storage.expressionSettings.expressionPromptRules)
+            .copy();
     working = true;
     _changed();
     final prepared = <ImageBatchJob>[];
@@ -79,23 +84,24 @@ extension ImageBatchPrepare on ImageBatchService {
             : <String?>{};
         for (final label
             in kind == 'expressions'
-                ? kCuratedExpressionSet
+                ? (fullSet ? kFullExpressionSet : kCuratedExpressionSet)
                 : [
                     kind == 'additional'
                         ? 'Additional portrait'
                         : 'Primary portrait',
                   ]) {
           if (existing.contains(label)) continue;
-          final basePrompt = prompt.trim().isEmpty
-              ? '${card.name}, ${card.description}'
-              : prompt.replaceAll('{character}', card.name);
+          final basePrompt = imageBatchBasePrompt(
+            prompt,
+            card.name,
+            card.description,
+          );
           final effective = kind == 'expressions'
               ? composeExpressionPrompt(
                   emotion: label,
                   basePrompt: basePrompt,
                   editMode: useEdit,
-                  rules: storage.expressionSettings.expressionPromptRules
-                      .copy(),
+                  rules: rules,
                 )
               : basePrompt;
           final negative = storage.imageGenSettings.imageGenNegativePrompt;

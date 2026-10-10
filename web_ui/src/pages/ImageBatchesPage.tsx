@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { BatchConfiguration } from './BatchConfiguration';
+import { PromptRulesEditor } from '../components/models/studio/PromptRulesEditor';
+import { fetchPromptDefaults, type PromptRules, type PromptPreview } from '../components/models/studio/packApi';
 import { api, ApiError } from '../api/client';
 import './imageBatches.css';
 
@@ -12,7 +14,18 @@ interface Job {
   edit: boolean; size: string; candidate?: string; error?: string;
 }
 interface Queue { running: boolean; working: boolean; pauseRequested: boolean; error?: string; jobs: Job[] }
-interface Character { id: string; name: string }
+interface Character { id: string; name: string; folderId?: string; hasAvatar?: boolean; avatarVersion?: number }
+interface Folder { id: string; name: string; parentId?: string }
+export function batchCharacterPath(id: string | undefined, folders: Folder[]): string {
+  const parts: string[] = [], visited = new Set<string>();
+  while (id && !visited.has(id)) {
+    visited.add(id);
+    const folder = folders.find((f) => f.id === id);
+    if (!folder) break;
+    parts.unshift(folder.name); id = folder.parentId;
+  }
+  return parts.join(' / ') || 'Library root';
+}
 
 export function ImageBatchesPage() {
   const [queue, setQueue] = useState<Queue>();
@@ -23,6 +36,10 @@ export function ImageBatchesPage() {
   const [prompt, setPrompt] = useState('');
   const [edit, setEdit] = useState(false);
   const [missingOnly, setMissingOnly] = useState(true);
+  const [fullSet, setFullSet] = useState(false);
+  const [rules, setRules] = useState<PromptRules>();
+  const [editingRules, setEditingRules] = useState<PromptRules>();
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [tab, setTab] = useState('prepare');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -38,7 +55,8 @@ export function ImageBatchesPage() {
   }, []);
   useEffect(() => {
     void refresh();
-    api.get<Character[]>('/api/characters').then(setCharacters).catch(() => setError('Could not load characters.'));
+    api.get<Character[]>('/api/characters?scope=allCharacters').then(setCharacters).catch(() => setError('Could not load characters.'));
+    api.get<{folders: Folder[]}>('/api/folders').then((result) => setFolders(result.folders)).catch(() => setError('Could not load character folders.'));
     const focus = () => void refresh();
     window.addEventListener('focus', focus);
     return () => window.removeEventListener('focus', focus);
@@ -83,22 +101,35 @@ export function ImageBatchesPage() {
     {tab === 'prepare' ? <section className="card">
       <h3>Add work across characters</h3>
       <fieldset disabled={!!locked}>
-        <label>Save destination<select value={kind} onChange={(e) => setKind(e.target.value)}>
+        <label>Save destination<select aria-label="Save destination" value={kind} onChange={(e) => setKind(e.target.value)}>
           <option value="additional">Additional portraits · character gallery</option>
-          <option value="expressions">Expression set · starter (8)</option>
+          <option value="expressions">Expression set</option>
           <option value="portrait">Primary portrait</option>
         </select></label>
-        <p>Additional portraits are saved to the character’s gallery. They do not replace the primary portrait or become expressions.</p>
+        <p>{kind === 'additional' ? 'Additional portraits are saved to the character’s gallery. They do not replace the primary portrait or become expressions.'
+          : kind === 'expressions' ? 'Expression wording comes from the shared expression prompts and your rules. Character descriptions are used only for img2img.'
+          : 'Primary portraits replace the character’s current portrait only after review and confirmation.'}</p>
         <label>Prompt / instruction<textarea rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Use {character} for each character’s name." /></label>
         {kind !== 'expressions' ? <label><input type="checkbox" checked={edit} onChange={(e) => setEdit(e.target.checked)} /> Edit the current character portrait</label> :
           <label><input type="checkbox" checked={missingOnly} onChange={(e) => setMissingOnly(e.target.checked)} /> Only missing expressions</label>}
         <p>Uses current Image Studio settings. Source images and prompts are captured when prepared. Changing generation settings pauses older waiting work until those settings are restored.</p>
-        <Link to="/models">Configure in Image Studio</Link>
+        {kind === 'expressions' ? <>
+          <label>Expression set<select aria-label="Expression set" value={fullSet ? 'full' : 'starter'} onChange={(e) => setFullSet(e.target.value === 'full')}>
+            <option value="starter">Starter (8)</option><option value="full">Full (28)</option>
+          </select></label>
+          <button type="button" onClick={() => {
+            if (rules) setEditingRules(rules);
+            else void fetchPromptDefaults().then(setEditingRules).catch(() => setError('Could not load prompt rules.'));
+          }}>Prompt rules · {rules ? 'local override' : 'global defaults'}</button>
+          {rules ? <button type="button" onClick={() => setRules(undefined)}>Follow global prompt rules</button> : null}
+        </> : null}
+        <BatchConfiguration expressions={kind === 'expressions'} edit={edit} busy={!!locked} />
         <label>Find characters<input value={search} onChange={(e) => setSearch(e.target.value)} /></label>
-        <div className="batch-characters">{characters.filter((c) => c.name.toLowerCase().includes(search.toLowerCase())).map((c) => <label key={c.id}>
-          <input type="checkbox" checked={selected.includes(c.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, c.id] : selected.filter((id) => id !== c.id))} />{c.name}
+        <div className="batch-characters">{characters.filter((c) => `${c.name} ${batchCharacterPath(c.folderId, folders)}`.toLowerCase().includes(search.toLowerCase())).map((c) => <label key={c.id}>
+          <input type="checkbox" checked={selected.includes(c.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, c.id] : selected.filter((id) => id !== c.id))} />{c.hasAvatar ? <img loading="lazy" src={api.avatarUrl(`/api/characters/${c.id}/avatar`, 80, c.avatarVersion)} alt="" /> : <span className="batch-portrait-placeholder" aria-hidden="true">?</span>}
+          <span>{c.name}<small>{batchCharacterPath(c.folderId, folders)}</small></span>
         </label>)}</div>
-        <button className="primary" disabled={!selected.length || !queue} onClick={() => void action('prepare', { characterIds: selected, kind, prompt, edit, missingOnly }).then((ok) => { if (ok) setTab('queue'); })}>Prepare for {selected.length} characters</button>
+        <button className="primary" disabled={!selected.length || !queue} onClick={() => void action('prepare', { characterIds: selected, kind, prompt, edit, missingOnly, set: fullSet ? 'full' : 'starter', ...(rules ? {promptRules: rules} : {}) }).then((ok) => { if (ok) setTab('queue'); })}>Prepare for {selected.length} characters</button>
       </fieldset>
     </section> : <div className="batch-results">{!rows.length ? <p>{tab === 'review' ? 'Finished images will appear here for review.' : 'Prepare a batch to add images to the queue.'}</p> : rows.map((job) => <article className="card" key={job.id}>
       <h3>{job.characterName} · {job.label}</h3><p>{job.state}</p>
@@ -111,6 +142,9 @@ export function ImageBatchesPage() {
         {['waiting', 'review', 'failed', 'interrupted'].includes(job.state) ? <button disabled={!!reviewLocked} onClick={() => void action(`${job.id}/review`, {action: 'discard'})}>Discard</button> : null}
       </div>
     </article>)}</div>}
+    {editingRules ? <PromptRulesEditor rules={editingRules} prompt={prompt} full={fullSet} activePack={false}
+      loadPreview={(body) => api.post<{previews: PromptPreview[]}>('/api/image/batches/preview', {...body, characterId: selected[0]})}
+      onUse={async (next) => { setRules(next); }} onClose={() => setEditingRules(undefined)} /> : null}
     {redo ? <section className="card" aria-label="Prepare another pass">
       <h3>Another pass · {redo.characterName}</h3>
       <label>Prompt<textarea rows={4} value={redoPrompt} onChange={(e) => setRedoPrompt(e.target.value)} /></label>
