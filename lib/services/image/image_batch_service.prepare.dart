@@ -16,6 +16,7 @@ extension ImageBatchPrepare on ImageBatchService {
     ExpressionPromptRules? promptRules,
   }) async {
     await ready;
+    _requireRootStable();
     if (working || running) throw StateError('The queue is busy.');
     if (!['portrait', 'expressions', 'additional'].contains(kind)) {
       throw ArgumentError('Unknown save destination');
@@ -34,6 +35,7 @@ extension ImageBatchPrepare on ImageBatchService {
     final rules =
         (promptRules ?? storage.expressionSettings.expressionPromptRules)
             .copy();
+    final config = snapshot();
     working = true;
     _changed();
     final prepared = <ImageBatchJob>[];
@@ -57,12 +59,16 @@ extension ImageBatchPrepare on ImageBatchService {
           ),
         );
       }
-      final config = snapshot();
+      if (jsonEncode(config) != jsonEncode(snapshot())) {
+        throw StateError(
+          'Settings changed during readiness checks. Prepare again.',
+        );
+      }
       for (final id in characterIds.toSet()) {
         final sharedSeed = storage.imageGenSettings.imageGenSeed < 0
             ? Random.secure().nextInt(0x7fffffff)
             : storage.imageGenSettings.imageGenSeed;
-        final card = await repository.getCharacterCardById(id);
+        final card = await repository.getActiveCharacterCardById(id);
         if (card == null) {
           throw StateError('A selected character no longer exists.');
         }

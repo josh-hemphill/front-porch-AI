@@ -48,7 +48,9 @@ export function ImageBatchesPage() {
   const [newSeed, setNewSeed] = useState(true);
   const [confirmSave, setConfirmSave] = useState(false);
   const epoch = useRef(0);
+  const mutating = useRef(false);
   const refresh = useCallback(async () => {
+    if (mutating.current) return;
     const request = ++epoch.current;
     try { const next = await api.get<Queue>('/api/image/batches'); if (request === epoch.current) setQueue(next); }
     catch (e) { setError(e instanceof ApiError ? e.message : 'Could not load batches.'); }
@@ -62,16 +64,18 @@ export function ImageBatchesPage() {
     return () => window.removeEventListener('focus', focus);
   }, [refresh]);
   useEffect(() => {
-    if (!queue?.running || busy) return;
+    if (!(queue?.running || queue?.working) || busy) return;
     const timer = window.setInterval(() => void refresh(), 2000);
     return () => window.clearInterval(timer);
-  }, [queue?.running, busy, refresh]);
+  }, [queue?.running, queue?.working, busy, refresh]);
   const action = async (path: string, body: unknown = {}) => {
+    mutating.current = true;
     const request = ++epoch.current;
+    let completed = false;
     setBusy(true); setError('');
-    try { const next = await api.post<Queue>(`/api/image/batches/${path}`, body); if (request === epoch.current) setQueue(next); return true; }
+    try { const next = await api.post<Queue>(`/api/image/batches/${path}`, body); if (request === epoch.current) setQueue(next); completed = true; return true; }
     catch (e) { setError(e instanceof ApiError ? e.message : 'Image operation failed.'); return false; }
-    finally { setBusy(false); }
+    finally { mutating.current = false; setBusy(false); if (!completed) void refresh(); }
   };
   const locked = busy || queue?.running || queue?.working;
   const reviewLocked = busy || queue?.working;

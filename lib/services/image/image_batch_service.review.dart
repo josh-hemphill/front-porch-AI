@@ -7,6 +7,7 @@ extension ImageBatchReview on ImageBatchService {
   ImageBatchJob job(String id) => _jobs.firstWhere((j) => j.id == id);
   Future<Uint8List> picture(String id) async {
     await ready;
+    _requireRootStable();
     return _file(job(id).data['candidate'] as String).readAsBytes();
   }
 
@@ -17,43 +18,58 @@ extension ImageBatchReview on ImageBatchService {
     bool newSeed = true,
   }) async {
     await ready;
+    _requireRootStable();
     if (working) {
       throw StateError('Another review operation is busy.');
     }
-    final target = job(id);
-    if (action == 'keep' && target.state == 'review') {
-      target.data['kept'] = !target.kept;
-    } else if (action == 'discard' &&
-        ['waiting', 'review', 'failed', 'interrupted'].contains(target.state)) {
-      target.data.addAll({'state': 'discarded', 'kept': false});
-    } else if (action == 'redo' &&
-        ['review', 'failed', 'interrupted', 'saved'].contains(target.state)) {
-      if (prompt != null && (prompt.trim().isEmpty || prompt.length > 16000)) {
-        throw ArgumentError('Enter a prompt up to 16000 characters.');
+    working = true;
+    _changed();
+    try {
+      final target = job(id);
+      if (action == 'keep' && target.state == 'review') {
+        target.data['kept'] = !target.kept;
+      } else if (action == 'discard' &&
+          [
+            'waiting',
+            'review',
+            'failed',
+            'interrupted',
+          ].contains(target.state)) {
+        target.data.addAll({'state': 'discarded', 'kept': false});
+      } else if (action == 'redo' &&
+          ['review', 'failed', 'interrupted', 'saved'].contains(target.state)) {
+        if (prompt != null &&
+            (prompt.trim().isEmpty || prompt.length > 16000)) {
+          throw ArgumentError('Enter a prompt up to 16000 characters.');
+        }
+        _jobs.add(
+          ImageBatchJob({
+            ...target.data,
+            'id': const Uuid().v4(),
+            'state': 'waiting',
+            'kept': false,
+            'candidate': null,
+            'error': null,
+            'config': snapshot(),
+            'prompt': prompt ?? target.prompt,
+            'seed': newSeed
+                ? Random.secure().nextInt(0x7fffffff)
+                : target.data['seed'],
+          }),
+        );
+      } else {
+        throw StateError('That action is not available for this result.');
       }
-      _jobs.add(
-        ImageBatchJob({
-          ...target.data,
-          'id': const Uuid().v4(),
-          'state': 'waiting',
-          'kept': false,
-          'candidate': null,
-          'error': null,
-          'config': snapshot(),
-          'prompt': prompt ?? target.prompt,
-          'seed': newSeed
-              ? Random.secure().nextInt(0x7fffffff)
-              : target.data['seed'],
-        }),
-      );
-    } else {
-      throw StateError('That action is not available for this result.');
+      await _persist();
+    } finally {
+      working = false;
+      _changed();
     }
-    await _persist();
   }
 
   Future<void> saveKept(CharacterRepository repository) async {
     await ready;
+    _requireRootStable();
     if (working) throw StateError('Another review operation is busy.');
     final selected = _jobs.where((j) => j.kept && j.state == 'review').toList();
     if (selected
@@ -70,7 +86,9 @@ extension ImageBatchReview on ImageBatchService {
     _changed();
     try {
       for (final target in selected) {
-        final card = await repository.getCharacterCardById(target.characterId);
+        final card = await repository.getActiveCharacterCardById(
+          target.characterId,
+        );
         if (card == null) {
           throw StateError('${target.characterName} no longer exists.');
         }
@@ -92,14 +110,19 @@ extension ImageBatchReview on ImageBatchService {
             mediaId: target.id,
           );
         } else if (target.kind == 'portrait') {
-          final output = p.join(storage.charactersDir.path, '${target.id}.png');
+          final oldPath = card.imagePath;
+          final output = oldPath == null || oldPath.isEmpty
+              ? portraitWriteTarget(card: card, storage: storage).path
+              : storage.resolveCharacterImage(oldPath).path;
           await V2CardService().replacePortraitPixels(
             fallbackCard: card,
             outputPath: output,
             pixels: bytes,
             metadataSourcePath: card.imagePath,
           );
-          await repository.setCharacterImagePath(card, output);
+          await FileImage(File(output)).evict();
+          card.imagePath = output;
+          await repository.updateCharacterImagePathOnly(card);
         } else {
           throw StateError('Unknown image save destination.');
         }

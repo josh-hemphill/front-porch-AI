@@ -46,7 +46,16 @@ candidate. Save kept imports only selected results.
 The queue and candidate files persist in the active data directory's
 `ImageBatches` folder. A request interrupted by app exit is marked interrupted
 rather than submitted again automatically. Gallery imports use the job's
-identity to avoid duplicate entries when saving is retried.
+identity to avoid duplicate entries when saving is retried. Primary replacements
+keep the canonical portrait filename and raw card metadata. Results cannot be
+saved to deleted characters. Moving the data directory carries the queue,
+source images, and candidates; busy batch work refuses the move before the
+database closes. A manifest write failure leaves the request recoverable.
+
+Preparation checks its settings across readiness and source capture. If another
+Studio changes them, preparation refuses the pass. Remote model normalization
+may also change the settings; prepare again after reviewing the selected model.
+The web queue refreshes while preparation, saving, or generation is active.
 
 ## Prototype boundaries
 
@@ -84,3 +93,17 @@ Build the web bundle, set `FPAI_REVIEW_IMAGES` to an output folder, and run
 for Full-set, prompt-rule, inline-settings, and folder-picker captures.
 The local capture driver is ignored by Git, following the repository's local
 poke convention.
+
+## Review verification
+
+Independent code reviews covered queue lifecycle, prompt rules, and character
+save destinations. New regression files cover metadata and filename retention,
+deleted-character refusal, filesystem write failure, generation lock ownership,
+settings changes during preparation, relocation/restart, lazy queue loading
+during relocation, and web refresh races. Existing tests were not edited.
+
+Before publication, register `/images` in the existing browser sweep and add
+its journey to the existing journey suite. Those test edits require the
+maintainer's `approved-test-change` label. An actual configured backend smoke
+run is still needed to validate external generation alongside the synthetic
+workspace checks.

@@ -6,10 +6,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show FileImage;
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 import 'package:crypto/crypto.dart';
 import 'package:front_porch_ai/services/services.dart';
+import 'package:front_porch_ai/services/portrait_promotion.dart';
 import 'package:front_porch_ai/services/capability/capability.dart';
 import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
@@ -20,12 +22,18 @@ part 'image_batch_service.store.dart';
 
 class ImageBatchService extends ChangeNotifier {
   ImageBatchService(this.storage, this.image) {
+    storage.rootRelocation.blockers.add(_rootBlocker);
+    storage.addListener(_rootListener);
     ready = _load();
   }
+  late final VoidCallback _rootListener = _rootChanged;
+  late final String? Function() _rootBlocker = _rootMoveBlocker;
   final StorageService storage;
   final ImageGenService image;
   late final Future<void> ready;
-  late final Directory _batchFolder;
+  String? _storedRoot;
+  bool _loaded = false;
+  int _pendingWrites = 0;
   final List<ImageBatchJob> _jobs = [];
   List<ImageBatchJob> get jobs => List.unmodifiable(_jobs);
   bool running = false;
@@ -33,6 +41,13 @@ class ImageBatchService extends ChangeNotifier {
   bool pauseRequested = false;
   String? error;
   Future<void> _writes = Future.value();
+  @override
+  void dispose() {
+    storage.removeListener(_rootListener);
+    storage.rootRelocation.blockers.remove(_rootBlocker);
+    super.dispose();
+  }
+
   void _changed() => notifyListeners();
   void reportError(Object problem) {
     error = '$problem';
@@ -89,6 +104,7 @@ class ImageBatchService extends ChangeNotifier {
 
   Future<void> run() async {
     await ready;
+    _requireRootStable();
     if (running || working || image.isGenerating) {
       throw StateError('Another image operation is busy.');
     }
@@ -110,8 +126,8 @@ class ImageBatchService extends ChangeNotifier {
             break;
           }
           job.data['state'] = 'running';
-          await _persist();
           try {
+            await _persist();
             final source = job.data['source'] as String?;
             final bytes = await image.expressionFrame(
               prompt: job.prompt,
