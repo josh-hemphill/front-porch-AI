@@ -91,6 +91,7 @@ class ExpressionPackDialog extends StatefulWidget {
 
 class ExpressionPackDialogState extends State<ExpressionPackDialog> {
   ExpressionPackSession? _session;
+  ExpressionIntensity _intensity = ExpressionIntensity.current;
   late ExpressionPromptRules _promptRules = widget
       .storage
       .expressionSettings
@@ -181,6 +182,7 @@ class ExpressionPackDialogState extends State<ExpressionPackDialog> {
         imageGen: widget.imageGen,
         plan: plan,
         promptRules: _promptRules,
+        intensity: _intensity,
         emotions: emotions,
         basePrompt: '$basePrompt, $kExpressionFraming',
         negativePrompt: widget.negativePrompt,

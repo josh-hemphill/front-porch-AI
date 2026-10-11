@@ -24,6 +24,8 @@ import 'package:image/image.dart' as img;
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
 
+part 'expression_pack_intensity.dart';
+
 /// Decode a candidate pack base and re-emit it at a diffusion-friendly size
 /// that PRESERVES the source aspect ratio — a portrait avatar yields a
 /// portrait pack instead of being forced square. The long side lands on 768
@@ -137,6 +139,7 @@ class ExpressionSlot {
   /// Per-slot variation-strength override from the re-roll editor; null =
   /// the pack's strength.
   double? customDenoise;
+  ExpressionIntensity? intensityOverride;
 
   /// Per-slot seed, set only when the user explicitly rolls new noise in the
   /// re-roll editor — and sticky afterwards, so a good noise direction can
@@ -170,6 +173,7 @@ class ExpressionPackSession extends ChangeNotifier {
     required PackSlotGenerator generate,
     int? seed, // fixed shared seed; default = random positive int
     bool editMode = false,
+    ExpressionIntensity intensity = ExpressionIntensity.current,
     ExpressionPromptRules? promptRules,
     void Function()? onCancel,
   }) : _basePrompt = basePrompt,
@@ -178,6 +182,7 @@ class ExpressionPackSession extends ChangeNotifier {
        _denoise = denoise,
        _generate = generate,
        _editMode = editMode,
+       _intensity = intensity,
        _promptRules = (promptRules ?? ExpressionPromptRules()).copy(),
        // Must be a fixed POSITIVE value: ComfyUI randomizes -1 client-side and
        // A1111 server-side, so sharing a seed across slots requires pinning it.
@@ -198,13 +203,17 @@ class ExpressionPackSession extends ChangeNotifier {
   /// positive prompt is an EDIT INSTRUCTION off the base portrait (identity kept
   /// by the reference), not the img2img geometry-tags + base-composition prompt.
   final bool _editMode;
+  ExpressionIntensity _intensity;
+  void _notifyIntensityChange() => notifyListeners();
   ExpressionPromptRules _promptRules;
   ExpressionPromptRules get promptRules => _promptRules;
-  String originalPromptFor(int index) => originalExpressionPrompt(
-    emotion: _slots[index].emotion,
-    basePrompt: _basePrompt,
-    editMode: _editMode,
-  );
+  String originalPromptFor(int index, {ExpressionIntensity? intensity}) =>
+      originalExpressionPrompt(
+        emotion: _slots[index].emotion,
+        basePrompt: _basePrompt,
+        editMode: _editMode,
+        intensity: intensity ?? effectiveIntensityFor(index),
+      );
   String previewPromptFor(int index, ExpressionPromptRules rules) {
     final custom = _slots[index].customPrompt;
     if (custom != null && custom.isNotEmpty) return custom;
@@ -276,6 +285,7 @@ class ExpressionPackSession extends ChangeNotifier {
       basePrompt: _basePrompt,
       editMode: _editMode,
       rules: _promptRules,
+      intensity: slot.intensityOverride ?? _intensity,
     );
   }
 
@@ -297,12 +307,18 @@ class ExpressionPackSession extends ChangeNotifier {
     String? promptOverride,
     double? denoiseOverride,
     bool newSeed = false,
+    ExpressionIntensity? intensityOverride,
+    bool useIntensityPrompt = false,
   }) async {
     if (_running) return;
     if (index < 0 || index >= _slots.length) return;
     final slot = _slots[index];
     if (slot.state == ExpressionSlotState.generating) return;
-    if (promptOverride != null && promptOverride.trim().isNotEmpty) {
+    if (intensityOverride != null) slot.intensityOverride = intensityOverride;
+    if (useIntensityPrompt) slot.customPrompt = null;
+    if (!useIntensityPrompt &&
+        promptOverride != null &&
+        promptOverride.trim().isNotEmpty) {
       slot.customPrompt = promptOverride.trim();
     }
     if (denoiseOverride != null) slot.customDenoise = denoiseOverride;

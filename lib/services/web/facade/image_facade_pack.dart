@@ -27,6 +27,7 @@ extension ImageStudioPacks on ImageFacade {
       throw const DeskRefused('busy', kAlreadyGeneratingMessage, 409);
     }
     final rules = _readPromptRules(f);
+    final intensity = _readIntensity(f);
     final repo = _characters;
     if (repo == null) {
       throw const DeskRefused(
@@ -109,6 +110,7 @@ extension ImageStudioPacks on ImageFacade {
           basePrompt: '$prompt, $kExpressionFraming',
           editMode: plan.edit,
           rules: rules,
+          intensity: intensity,
         );
       }
     } on FormatException catch (e) {
@@ -130,6 +132,7 @@ extension ImageStudioPacks on ImageFacade {
       () => beginExpressionPack(
         imageGen: _image,
         promptRules: rules,
+        intensity: intensity,
         plan: plan,
         emotions: emotions,
         basePrompt: '$prompt, $kExpressionFraming',
@@ -277,6 +280,22 @@ extension ImageStudioPacks on ImageFacade {
         409,
       );
     }
+    final intensity = f.containsKey('intensity') ? _readIntensity(f) : null;
+    if (f.containsKey('newSeed') && f['newSeed'] is! bool ||
+        f.containsKey('useIntensityPrompt') &&
+            f['useIntensityPrompt'] is! bool) {
+      throw const DeskRefused(
+        'bad_iteration',
+        'Seed and prompt options must be boolean.',
+      );
+    }
+    final prompt = f['promptOverride'];
+    if (prompt != null && (prompt is! String || prompt.length > 16384)) {
+      throw const DeskRefused(
+        'bad_prompt',
+        'Prompt must be text of at most 16384 characters.',
+      );
+    }
     final ready = Completer<bool>();
     final work = _image.startExpressionPack(
       reroll
@@ -287,7 +306,13 @@ extension ImageStudioPacks on ImageFacade {
             ],
       (_) async {
         final generating = reroll
-            ? run.session.reroll(index, newSeed: true)
+            ? run.session.reroll(
+                index,
+                newSeed: f['newSeed'] as bool? ?? true,
+                intensityOverride: intensity,
+                useIntensityPrompt: f['useIntensityPrompt'] == true,
+                promptOverride: prompt as String?,
+              )
             : run.session.run();
         ready.complete(true);
         await generating;

@@ -111,6 +111,7 @@ class ExpressionPackBoard extends ChangeNotifier {
       'running': run.session.isRunning,
       'importing': run.importing,
       'promptRules': run.session.promptRules.toJson(),
+      'intensity': run.session.intensity.name,
       'mode': run.mode.name,
       'origin': run.origin.name,
       'characterId': run.characterId,
@@ -134,6 +135,11 @@ class ExpressionPackBoard extends ChangeNotifier {
             'state': slot.state.name,
             'keep': slot.keep,
             'error': slot.error,
+            'intensity': run.session
+                .effectiveIntensityFor(slots.indexOf(slot))
+                .name,
+            'customPrompt': slot.customPrompt != null,
+            'prompt': run.session.effectivePromptFor(slots.indexOf(slot)),
             if (slot.qc != null)
               'verdict': {
                 'samePerson': slot.qc!.samePerson,

@@ -137,19 +137,22 @@ String originalExpressionPrompt({
   required String emotion,
   required String basePrompt,
   required bool editMode,
+  ExpressionIntensity intensity = ExpressionIntensity.current,
 }) => editMode
-    ? expressionEditInstruction(emotion)
-    : '${kExpressionModifiers[emotion] ?? emotion}, $basePrompt';
+    ? expressionEditInstruction(emotion, intensity: intensity)
+    : '${expressionIntensityDescription(emotion, intensity) ?? kExpressionModifiers[emotion] ?? emotion}, $basePrompt';
 
 String composeExpressionPrompt({
   required String emotion,
   required String basePrompt,
   required bool editMode,
+  ExpressionIntensity intensity = ExpressionIntensity.current,
   required ExpressionPromptRules rules,
 }) => rules.apply(
   originalExpressionPrompt(
     emotion: emotion,
     basePrompt: basePrompt,
     editMode: editMode,
+    intensity: intensity,
   ),
 );

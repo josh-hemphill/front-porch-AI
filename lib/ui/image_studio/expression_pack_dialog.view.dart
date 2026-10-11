@@ -19,11 +19,15 @@ extension _ExpressionPackDialogView on ExpressionPackDialogState {
                         widget.preparingPrompt ||
                         context.watch<ImageGenService>().isGenerating,
                     promptRules: _promptRules,
+                    intensity: _intensity,
+                    onIntensityChanged: (value) =>
+                        _setDialogState(() => _intensity = value),
                     onRulesChanged: (rules) => _promptRules = rules,
                     originalPrompts: {
                       for (final emotion in kFullExpressionSet)
                         emotion: originalExpressionPrompt(
                           emotion: emotion,
+                          intensity: _intensity,
                           basePrompt:
                               '${widget.basePrompt}, $kExpressionFraming',
                           editMode:
@@ -48,22 +52,37 @@ extension _ExpressionPackDialogView on ExpressionPackDialogState {
                     onStart: _start,
                   ),
                 )
-              : ExpressionPackGrid(
-                  storage: widget.storage,
-                  session: session,
-                  imageGen: widget.imageGen,
-                  cancelRequested: _cancelRequested,
-                  importing: _importing,
-                  imported: _imported,
-                  qc: _qc,
-                  resolvingVision: _resolvingVision,
-                  onVisionCheck: _runVisionCheck,
-                  onCancel: () {
-                    _setDialogState(() => _cancelRequested = true);
-                    session.cancel();
-                  },
-                  onResume: () => unawaited(_resume(session)),
-                  onImport: _import,
+              : Column(
+                  children: [
+                    ListenableBuilder(
+                      listenable: session,
+                      builder: (_, _) => ExpressionIntensityPicker(
+                        value: session.intensity,
+                        onChanged: session.isRunning || _importing || _imported
+                            ? null
+                            : session.updateIntensity,
+                      ),
+                    ),
+                    Expanded(
+                      child: ExpressionPackGrid(
+                        storage: widget.storage,
+                        session: session,
+                        imageGen: widget.imageGen,
+                        cancelRequested: _cancelRequested,
+                        importing: _importing,
+                        imported: _imported,
+                        qc: _qc,
+                        resolvingVision: _resolvingVision,
+                        onVisionCheck: _runVisionCheck,
+                        onCancel: () {
+                          _setDialogState(() => _cancelRequested = true);
+                          session.cancel();
+                        },
+                        onResume: () => unawaited(_resume(session)),
+                        onImport: _import,
+                      ),
+                    ),
+                  ],
                 ),
         ),
       ],

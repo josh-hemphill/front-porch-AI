@@ -46,6 +46,7 @@ Future<ExpressionPackFlight> beginExpressionPack({
   required String characterName,
   String? characterId,
   ExpressionPromptRules? promptRules,
+  ExpressionIntensity intensity = ExpressionIntensity.current,
   PackOrigin origin = PackOrigin.desktop,
   bool replaceExisting = true,
   String? note,
@@ -67,6 +68,7 @@ Future<ExpressionPackFlight> beginExpressionPack({
         denoise: denoise,
         editMode: edit,
         promptRules: rules,
+        intensity: intensity,
         onCancel: () {
           unawaited(imageGen.cancelJob());
           onCancelled?.call();
