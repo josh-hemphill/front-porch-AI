@@ -64,6 +64,12 @@ class GeneralTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final storageService = Provider.of<StorageService>(context);
     final theme = Theme.of(context);
+    final shownPrompt = storageService.presetSettings.savedPrompts
+        .where(
+          (p) => p['content'] == storageService.generationSettings.systemPrompt,
+        )
+        .map((p) => p['name'])
+        .firstOrNull;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
@@ -153,16 +159,25 @@ class GeneralTab extends StatelessWidget {
                         : () async {
                             final hasUpdate = await updateService
                                 .checkForUpdate();
-                            if (hasUpdate && context.mounted) {
+                            if (!context.mounted) return;
+                            if (hasUpdate) {
                               await UpdateDialog.show(context);
-                            } else if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('You are up to date.'),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
+                              return;
                             }
+                            final error = updateService.checkError;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  error == null
+                                      ? 'You are up to date.'
+                                      : 'Update check failed ($error). '
+                                            'Try again later.',
+                                ),
+                                duration: Duration(
+                                  seconds: error == null ? 2 : 4,
+                                ),
+                              ),
+                            );
                           },
                     icon: isBusy
                         ? const SizedBox(
@@ -172,7 +187,11 @@ class GeneralTab extends StatelessWidget {
                           )
                         : const Icon(Icons.refresh, size: 18),
                     label: Text(
-                      isBusy ? 'Checking...' : 'Check for Updates Now',
+                      isBusy
+                          ? 'Checking...'
+                          : updateService.checkError != null
+                          ? 'Check failed, try again'
+                          : 'Check for Updates Now',
                     ),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.textSecondary(context),
@@ -284,6 +303,9 @@ class GeneralTab extends StatelessWidget {
                       ? storageService.uiSettings.globalChatFontFamily
                       : '',
                   isExpanded: true,
+                  // The button keeps focus after a pick; the theme's grey
+                  // focus wash then sat over the chosen font for good.
+                  focusColor: Colors.transparent,
                   dropdownColor: AppColors.cardOf(context),
                   style: TextStyle(
                     color: AppColors.textPrimary(context),
@@ -347,7 +369,11 @@ class GeneralTab extends StatelessWidget {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  initialValue: null,
+                  // Shows the saved prompt whose text is in the box, else
+                  // the hint: a preset chip or a hand edit must not leave
+                  // the last pick's name on show. The key re-seeds it.
+                  key: ValueKey(shownPrompt),
+                  initialValue: shownPrompt,
                   isExpanded: true,
                   hint: const Text(
                     'Load saved prompt...',
@@ -440,8 +466,9 @@ class GeneralTab extends StatelessWidget {
             onChanged: (val) =>
                 storageService.generationSettings.setSystemPrompt(val),
           ),
-
+          const SizedBox(height: 24),
           const SectionHeader('About & License'),
+          const SizedBox(height: 8),
           _buildAboutSection(context),
         ],
       ),

@@ -28,9 +28,6 @@ class AppColors {
   /// Default color for the AI's message bubbles.
   static const Color aiBubble = Color(0xFF374151);
 
-  /// Default color for the AI's message text.
-  static const Color aiText = Colors.white;
-
   /// Default color for quoted/dialogue text ("...").
   static const Color dialogue = Colors.amberAccent;
 
@@ -314,6 +311,13 @@ class AppColors {
 
   /// Text/icon color on the chaos gold button (both modes).
   static const Color onChaosAccent = Color(0xFF1A1200);
+
+  /// Readable ink on a solid [fill]: dark on a bright one (dark mode's
+  /// amber), white on a deep one (light mode's amber, red).
+  static Color inkOn(Color fill) =>
+      ThemeData.estimateBrightnessForColor(fill) == Brightness.light
+      ? onChaosAccent
+      : Colors.white;
 
   /// Chaos pressure-lerp start (calm) and end (hot).
   static const Color chaosCalm = Color(0xFF2EC4B6);

@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'package:front_porch_ai/ui/theme/theme.dart';
+import 'package:front_porch_ai/ui/widgets/widgets.dart';
 import 'package:front_porch_ai/utils/utils.dart';
 
 /// An avatar montage that adapts to the cast size so no blank slots are left:
@@ -34,25 +35,41 @@ class GroupAvatarMontage extends StatelessWidget {
     required this.side,
   });
 
-  Widget _cell(BuildContext context, File? img, double w, double h) =>
-      Container(
-        width: w,
-        height: h,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceContainerOf(context),
-          borderRadius: BorderRadius.circular(6),
-          image: img != null
-              // Montage cells are tiny (quarter of a tile); decode small.
-              ? DecorationImage(
-                  image: ResizeImage(
-                    FileImage(img),
-                    width: kPortraitMontageDecodeWidth,
-                  ),
-                  fit: BoxFit.cover,
-                )
-              : null,
-        ),
-      );
+  Widget _cell(BuildContext context, File? img, double w, double h) {
+    Widget box({File? picture, bool icon = false}) => Container(
+      width: w,
+      height: h,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerOf(context),
+        borderRadius: BorderRadius.circular(6),
+        image: picture != null
+            // Montage cells are tiny (quarter of a tile); decode small.
+            ? DecorationImage(
+                image: ResizeImage(
+                  FileImage(picture),
+                  width: kPortraitMontageDecodeWidth,
+                ),
+                fit: BoxFit.cover,
+              )
+            : null,
+      ),
+      child: icon
+          ? Icon(
+              Icons.person,
+              size: (w < h ? w : h) * 0.5,
+              color: AppColors.iconSecondary(context),
+            )
+          : null,
+    );
+    if (img == null) return box();
+    // A character made without a portrait shows the person icon, as on its
+    // own Home card, not its flat coloured card picture.
+    return RealPortrait(
+      file: img,
+      portrait: (_, file) => box(picture: file),
+      noPortrait: (_) => box(icon: true),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {

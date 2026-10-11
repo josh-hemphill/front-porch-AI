@@ -47,6 +47,7 @@ export 'storage_service.dart';
 // objects themselves are reached through StorageService instances.
 export 'storage/settings/realism_settings.dart' show OneShotMode;
 export 'character_repository.dart';
+export 'imported_needs_cleanup.dart';
 export 'group_chat_repository.dart';
 export 'group_card_service.dart';
 export 'group_card_exporter.dart';
@@ -73,6 +74,7 @@ export 'backend_manager.dart';
 export 'opencode/opencode.dart';
 export 'open_router_service.dart';
 export 'openrouter_structured_eval.dart';
+export 'placeholder_portrait_probe.dart';
 export 'remote_reachability.dart';
 export 'reasoning_effort.dart';
 export 'reasoning_effort_probe.dart';

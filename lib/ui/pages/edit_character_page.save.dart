@@ -107,7 +107,11 @@ extension _EditCharacterSave on _EditCharacterPageState {
         nsfwCooldownEnabled: _realismNsfwCooldown,
         passageOfTimeEnabled: _realismPassageOfTime,
         chaosModeEnabled: _realismChaosMode,
-        needsSimEnabled: _realismNeedsSim,
+        // Null keeps a silent card silent (copyWith keeps the base's null)
+        // unless the switch moved off the Porch Life value it showed.
+        needsSimEnabled: _realismNeedsSim == _needsSimShownForSilent
+            ? null
+            : _realismNeedsSim,
         pocketsEnabled: _realismPocketsEnabled,
         enjoysLowHygiene: _realismEnjoysLowHygiene,
         ambitions: [
@@ -301,24 +305,7 @@ extension _EditCharacterSave on _EditCharacterPageState {
           Navigator.pop(context, widget.character);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  Icon(
-                    Icons.check_circle,
-                    color: AppColors.textPrimary(context),
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  const Text('Character updated successfully!'),
-                ],
-              ),
-              backgroundColor: AppColors.cardOf(context),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
+            porchSnackBar(context, 'Character updated successfully!'),
           );
           Navigator.pop(context);
         }

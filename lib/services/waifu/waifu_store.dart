@@ -19,6 +19,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/waifu/waifu_jail.dart';
 import 'package:front_porch_ai/services/waifu/waifu_session.dart';
@@ -76,6 +78,11 @@ CharacterCard _coworkerFrom(Map map) => CharacterCard(
   mesExample: map['mesExample']?.toString() ?? '',
   imagePath: map['imagePath']?.toString(),
 );
+
+String? _nonEmpty(Object? raw) {
+  final s = raw?.toString().trim() ?? '';
+  return s.isEmpty ? null : s;
+}
 
 /// JSON under a data dir — not the chat `messages` / `sessions` tables.
 class WaifuStore {
@@ -149,15 +156,29 @@ class WaifuStore {
     }
   }
 
+  /// Removes every copy of [folderRoot]'s session, including the last-open
+  /// file that [loadSession], [loadLast] and [loadPorchConsent] fall back to.
   Future<void> forgetProject(String folderRoot) async {
     final file = _sessionFile(folderRoot);
     if (await file.exists()) await file.delete();
+    if (await _lastFolderRoot() == folderRoot) await _lastFile.delete();
     final projects = await listProjects();
     final next = [
       for (final p in projects)
         if (p.folderRoot != folderRoot) p,
     ];
     await _writeIndex(next);
+  }
+
+  Future<String?> _lastFolderRoot() async {
+    if (!await _lastFile.exists()) return null;
+    try {
+      final map = jsonDecode(await _lastFile.readAsString());
+      return map is Map ? map['folderRoot']?.toString() : null;
+    } catch (e) {
+      debugPrint('[waifu] unreadable $kWaifuLastFile: $e');
+      return null;
+    }
   }
 
   Map<String, dynamic> _sessionMap(WaifuSession session) => {
@@ -168,12 +189,15 @@ class WaifuStore {
     'honestyAccepted': true,
     'mcpOptIn': session.mcpOptIn,
     'preserveThinking': session.preserveThinking,
+    'openCodeSessionId': ?session.openCodeSessionId,
     'toolsSupported': session.toolsSupported,
     'tokensUsed': session.tokensUsed,
     'contextBudget': session.contextBudget,
     'tokensFromApi': session.tokensFromApi,
     'compactPasses': session.compactPasses,
     'themeOverrides': session.themeOverrides.toJson(),
+    if (session.genSettings.hasOverrides)
+      'genSettings': session.genSettings.toJson(),
     'coworker': _coworkerMap(session.coworker),
     'transcript': [
       for (final m in session.transcript)
@@ -354,10 +378,17 @@ class WaifuStore {
             )
             ..tokensUsed = used < 0 ? 0 : used
             ..tokensFromApi = map['tokensFromApi'] == true
+            ..openCodeSessionId = _nonEmpty(map['openCodeSessionId'])
             ..compactPasses = (map['compactPasses'] as num?)?.toInt() ?? 0
             ..contextBudget = (budgetRaw != null && budgetRaw > 0)
                 ? budgetRaw
                 : 8192;
+      final gen = map['genSettings'];
+      if (gen is Map) {
+        session.genSettings = ChatGenerationSettings.fromJson(
+          Map<String, dynamic>.from(gen),
+        );
+      }
       final traces = map['toolTraces'];
       if (traces is List) {
         for (final t in traces) {

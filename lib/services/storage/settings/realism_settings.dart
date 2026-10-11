@@ -24,6 +24,7 @@ import 'package:front_porch_ai/services/chat/objective_stale_detector.dart'
 import 'settings_base.dart';
 
 part 'realism_settings.load.dart';
+part 'realism_settings.import_stamp.dart';
 
 /// How the pre-generation realism judges are fused (eval review Tier-1 §3.4,
 /// maintainer-approved 2026-08-10). [auto] — the default — uses the fused
@@ -44,9 +45,11 @@ class RealismSettings with SettingsBase {
   bool _nsfwCooldownDefault = false;
   bool _passageOfTimeDefault = true;
 
-  /// Global Needs switch. Defaults TRUE and AND-gates the card's own setting
-  /// (not the NSFW OR-override): with it on nothing changes, with it off
-  /// Needs stops for new chats regardless of what a card asks for. Passage
+  /// Global Needs switch. Defaults TRUE. It decides for a card that says
+  /// nothing about Needs (an imported card with no `needs_sim_enabled`),
+  /// and AND-gates a card that does: with it off Needs stops regardless of
+  /// what a card asks for, and a card's explicit false still wins when it
+  /// is on (maintainer ruling, 2026-10-10). Passage
   /// of Time is a different shape — [_passageOfTimeDefault] is the live
   /// clock gate, not a card AND. Added 2026-08-07 — Needs had no global switch at
   /// all, so the Porch Life tab had nothing to show.

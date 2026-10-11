@@ -29,23 +29,27 @@ extension _GroupRealismNeedsMemberCard on _GroupRealismNeedsTabState {
       ),
       child: Row(
         children: [
-          // Avatar (matches Prompt tab style)
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: groupCharAccentColor(index),
-            backgroundImage: char.imagePath != null
-                ? FileImage(File(char.imagePath!))
-                : null,
-            child: char.imagePath == null
-                ? Text(
-                    char.name.isNotEmpty ? char.name[0].toUpperCase() : '?',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  )
-                : null,
+          // Avatar (matches Prompt tab style). No portrait (or only the flat
+          // placeholder): the initial.
+          RealPortrait(
+            file: char.imagePath != null ? File(char.imagePath!) : null,
+            portrait: (_, file) => CircleAvatar(
+              radius: 16,
+              backgroundColor: groupCharAccentColor(index),
+              backgroundImage: FileImage(file),
+            ),
+            noPortrait: (_) => CircleAvatar(
+              radius: 16,
+              backgroundColor: groupCharAccentColor(index),
+              child: Text(
+                char.name.isNotEmpty ? char.name[0].toUpperCase() : '?',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -54,8 +58,8 @@ extension _GroupRealismNeedsMemberCard on _GroupRealismNeedsTabState {
               children: [
                 Text(
                   char.name,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: AppColors.textPrimary(context),
                     fontWeight: FontWeight.w600,
                     fontSize: 13,
                   ),
@@ -108,7 +112,6 @@ extension _GroupRealismNeedsMemberCard on _GroupRealismNeedsTabState {
                         -300,
                         300,
                         char.name,
-                        groupCharAccentColor(index),
                         (v) => _updateEditShortTermBond(char, v.round()),
                       ),
                       _sliderRow(
@@ -117,7 +120,6 @@ extension _GroupRealismNeedsMemberCard on _GroupRealismNeedsTabState {
                         -300,
                         300,
                         char.name,
-                        groupCharAccentColor(index),
                         (v) => _updateEditLongTermBond(char, v.round()),
                       ),
                       _sliderRow(
@@ -126,7 +128,6 @@ extension _GroupRealismNeedsMemberCard on _GroupRealismNeedsTabState {
                         -100,
                         100,
                         char.name,
-                        groupCharAccentColor(index),
                         (v) => _updateEditTrustLevel(char, v.round()),
                       ),
                     ],
@@ -202,16 +203,14 @@ extension _GroupRealismNeedsMemberCard on _GroupRealismNeedsTabState {
                               borderSide: BorderSide.none,
                             ),
                           ),
-                          style: const TextStyle(fontSize: 11),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textPrimary(context),
+                          ),
                           items: emotionIntensities
                               .map(
-                                (e) => DropdownMenuItem(
-                                  value: e,
-                                  child: Text(
-                                    e,
-                                    style: const TextStyle(fontSize: 11),
-                                  ),
-                                ),
+                                (e) =>
+                                    DropdownMenuItem(value: e, child: Text(e)),
                               )
                               .toList(),
                           onChanged: (v) {
@@ -378,9 +377,12 @@ extension _GroupRealismNeedsMemberCard on _GroupRealismNeedsTabState {
               minimumSize: const Size(0, 32),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            child: const Text(
+            child: Text(
               'Reset',
-              style: TextStyle(fontSize: 12, color: Colors.tealAccent),
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.porchAmberOf(context),
+              ),
             ),
           ),
         ],

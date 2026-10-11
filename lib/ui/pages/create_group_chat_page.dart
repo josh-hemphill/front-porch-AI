@@ -87,6 +87,11 @@ class _CreateGroupChatPageState extends State<CreateGroupChatPage> {
   // Identity
   final _nameController = TextEditingController();
 
+  /// The member-list name last put in [_nameController]. While the box still
+  /// holds it (or is empty) the name follows the roster; once the user types
+  /// something else, it is theirs.
+  String _autoGroupName = '';
+
   // Behavior
   TurnOrder _turnOrder = TurnOrder.roundRobin;
   bool _autoAdvance = false;
@@ -233,13 +238,9 @@ class _CreateGroupChatPageState extends State<CreateGroupChatPage> {
         ),
         title: Row(
           children: [
-            Icon(
+            const Icon(
               Icons.group_add,
-              color: AppColors.resolve(
-                context,
-                AppColors.logLoading,
-                AppColors.userBubble,
-              ),
+              color: AppColors.formMasterAccent,
               size: 22,
             ),
             const SizedBox(width: 10),

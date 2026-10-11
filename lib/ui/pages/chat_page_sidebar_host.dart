@@ -30,7 +30,6 @@ extension _ChatPageSidebarHost on _ChatPageState {
     BuildContext context,
     ChatService chatService,
   ) {
-    final portraitVersion = context.watch<CharacterRepository>().coverEpoch;
     final cast = chatService.cast;
     final group = chatService.activeGroup;
     final isMulti = cast.length > 1;
@@ -39,11 +38,17 @@ extension _ChatPageSidebarHost on _ChatPageState {
     if (!isMulti) {
       final card = cast.isNotEmpty ? cast.first.card : null;
       final cover = card == null ? null : _coverFor(chatService, card);
-      avatars = CircleAvatar(
-        key: ValueKey((cover?.path, portraitVersion)),
-        backgroundImage: cover != null ? FileImage(cover) : null,
-        onBackgroundImageError: cover != null ? (_, _) {} : null,
-        child: cover == null ? const Icon(Icons.person) : null,
+      // No portrait, or only the flat placeholder: the person icon.
+      avatars = RealPortrait(
+        file: cover,
+        portrait: (_, file) => CircleAvatar(
+          backgroundImage: FileImage(file),
+          onBackgroundImageError: (_, _) {},
+        ),
+        noPortrait: (_) => CircleAvatar(
+          backgroundColor: AppColors.surfaceContainerOf(context),
+          child: Icon(Icons.person, color: AppColors.iconSecondary(context)),
+        ),
       );
     } else {
       final shown = cast.length.clamp(0, 4);
@@ -83,24 +88,29 @@ extension _ChatPageSidebarHost on _ChatPageState {
                         ),
                         child: Builder(
                           builder: (_) {
-                            final cover = _coverFor(chatService, card);
-                            return CircleAvatar(
-                              key: ValueKey((cover?.path, portraitVersion)),
-                              radius: 16,
-                              backgroundColor:
-                                  _ChatPageState._groupCharacterColor(i),
-                              backgroundImage: cover != null
-                                  ? FileImage(cover)
-                                  : null,
-                              child: cover == null
-                                  ? Text(
-                                      card.name.isNotEmpty ? card.name[0] : '?',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    )
-                                  : null,
+                            final color = _ChatPageState._groupCharacterColor(
+                              i,
+                            );
+                            // No portrait, or only the flat placeholder: the
+                            // member's initial.
+                            return RealPortrait(
+                              file: _coverFor(chatService, card),
+                              portrait: (_, file) => CircleAvatar(
+                                radius: 16,
+                                backgroundColor: color,
+                                backgroundImage: FileImage(file),
+                              ),
+                              noPortrait: (_) => CircleAvatar(
+                                radius: 16,
+                                backgroundColor: color,
+                                child: Text(
+                                  card.name.isNotEmpty ? card.name[0] : '?',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
                             );
                           },
                         ),
