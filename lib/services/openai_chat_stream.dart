@@ -20,15 +20,14 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:front_porch_ai/services/services.dart';
+import 'package:front_porch_ai/services/system_role_probe.dart';
 import 'package:front_porch_ai/services/chat/chat.dart'
     show kMaxLocalServerStops;
-import 'package:front_porch_ai/services/llm_service.dart';
 import 'package:front_porch_ai/services/llm_tool_parsing.dart';
 import 'package:front_porch_ai/services/openai_tool_payload.dart';
 import 'package:front_porch_ai/services/openai_tool_stream.dart';
-import 'package:front_porch_ai/services/reasoning_effort.dart';
 import 'package:front_porch_ai/services/reasoning_stream_wrapper.dart';
-import 'package:front_porch_ai/services/system_role_probe.dart';
 import 'package:front_porch_ai/services/tool_choice_style_probe.dart';
 
 /// Streams an OpenAI-compatible `/v1/chat/completions` response token by token.
@@ -217,6 +216,7 @@ Future<LlmToolResponse?> postOpenAiChatWithTools(
   void Function()? onDone,
   String? toolChoice,
   ToolChoiceStyleProbe? styleProbe,
+  bool nativeToolsUseJinja = false,
 }) async {
   final client = http.Client();
   registerClient?.call(client);
@@ -224,12 +224,80 @@ Future<LlmToolResponse?> postOpenAiChatWithTools(
     final identity = params.backendIdentity.isEmpty
         ? (thinkingModelKey ?? modelName)
         : params.backendIdentity;
+    final thinkOn = params.reasoningEnabled && params.reasoningMaxTokens != 0;
+    final choice = toolChoice ?? params.toolChoice;
+    final templateSafe =
+        !thinkOn &&
+        tools.isNotEmpty &&
+        nativeToolsUseJinja &&
+        await koboldTemplateDisablesThinking(
+          client: client,
+          baseUrl: baseUrl,
+          tools: tools,
+          payload: _chatPayload(
+            params,
+            modelName: modelName,
+            stream: false,
+            foldSystemIntoUser: foldSystemIntoUser,
+            thinkingModelKey: thinkingModelKey,
+          ),
+        );
+    if (!thinkOn && tools.isNotEmpty && !templateSafe) {
+      debugPrint(
+        '[OpenAiChat] Reasoning-off tools use unconstrained JSON '
+        'to avoid KoboldCpp reasoning/grammar crashes',
+      );
+      final payload = koboldReasoningToolTextPayload(
+        _chatPayload(
+          params,
+          modelName: modelName,
+          stream: params.onChunk != null,
+          foldSystemIntoUser: foldSystemIntoUser,
+          thinkingModelKey: thinkingModelKey,
+        ),
+        tools,
+        toolChoice: choice,
+      );
+      LlmToolResponse? response;
+      if (params.onChunk != null) {
+        response = await streamOpenAiChatToolsWithStyleRetry(
+          identity: identity,
+          tools: const [],
+          basePayload: payload,
+          uri: Uri.parse('$baseUrl/v1/chat/completions'),
+          headers: {'Content-Type': 'application/json'},
+          client: client,
+          wrapReasoning: false,
+          salvage: params.salvageReasoning,
+          onChunk: params.onChunk,
+        );
+      } else {
+        final reply = await client.post(
+          Uri.parse('$baseUrl/v1/chat/completions'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(payload),
+        );
+        if (reply.statusCode == 429 || reply.statusCode >= 500) {
+          throw LlmToolTransportException(
+            'tool call HTTP ${reply.statusCode} '
+            '(server busy/unavailable)',
+          );
+        }
+        if (reply.statusCode != 200) return null;
+        response = parseOpenAiToolResponse(reply.body);
+      }
+      return parseKoboldReasoningToolText(
+        response,
+        tools,
+        toolChoice: choice,
+        salvageReasoning: params.salvageReasoning,
+      );
+    }
     // Live think tokens (Waifu Coder): stream when the caller asked for
     // chunks. Evals leave onChunk null and stay on the buffered POST so
     // their JSON parse is byte-identical. tool_choice required starts at
     // required — never hardcode auto while tools are advertised.
     if (params.onChunk != null) {
-      final thinkOn = params.reasoningEnabled && params.reasoningMaxTokens != 0;
       return await streamOpenAiChatToolsWithStyleRetry(
         identity: identity,
         tools: tools,

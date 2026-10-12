@@ -67,6 +67,8 @@ export 'worker_gpu_hosts.dart';
 export 'kobold/kobold.dart';
 export 'kobold_admin_swap.dart';
 export 'kobold_launch_args.dart';
+export 'kobold_reasoning_tools.dart';
+export 'kobold_reasoning_template.dart';
 export 'llm_service.dart';
 export 'kobold_service.dart';
 export 'kobold_speed_test.dart';

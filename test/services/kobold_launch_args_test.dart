@@ -40,11 +40,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:front_porch_ai/models/models.dart';
-import 'package:front_porch_ai/services/kobold/kobold.dart';
-import 'package:front_porch_ai/services/kobold_admin_swap.dart';
-import 'package:front_porch_ai/services/kobold_launch_args.dart';
-import 'package:front_porch_ai/services/storage_service.dart';
+import 'package:front_porch_ai/services/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // The path_provider mock + in-memory StorageService factory.
@@ -242,11 +238,12 @@ void main() {
   test('a preset is staged as it was written: the staged file equals the '
       'original apart from the few settings the app lays over it', () async {
     // What the app may differ in: the model it resolved, the chat template,
-    // the vision file, the listen address, KoboldCpp's own idle unload (off),
+    // tool templating, the vision file, the listen address, KoboldCpp's own idle unload (off),
     // and sliding window when the file has it on together with fast forward.
     const overlay = {
       'model_param',
       'jinja',
+      'jinja_tools',
       'mmproj',
       'host',
       'adminunloadtimeout',
@@ -313,6 +310,7 @@ void main() {
       'noswa': true,
       'smartcache': 40,
       'jinja': true,
+      'jinja_tools': true,
       'host': '127.0.0.1',
       'adminunloadtimeout': 0,
     });

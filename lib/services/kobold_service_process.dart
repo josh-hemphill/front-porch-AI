@@ -267,6 +267,7 @@ extension KoboldServiceProcess on KoboldService {
         includeParentEnvironment: true,
       );
       _isRunning = true;
+      _requests.nativeJinjaToolsPort = port;
       _modelLoadingStatus = 'Initializing model...';
       _modelReady = false;
       _speed.loads.started();
