@@ -27,6 +27,7 @@ import 'package:front_porch_ai/utils/utils.dart';
 import 'package:front_porch_ai/services/xai/xai.dart';
 
 part 'backend_facade.local_model.dart';
+part 'backend_facade.chat_template.dart';
 
 /// Web adapter for local-backend lifecycle, local-model switching, and the
 /// HuggingFace model browser/downloader. Reuses [LLMProvider]'s managed-backend

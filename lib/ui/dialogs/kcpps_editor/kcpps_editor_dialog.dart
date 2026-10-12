@@ -9,14 +9,7 @@ import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/ui/widgets/widgets.dart';
 import 'package:front_porch_ai/utils/utils.dart';
 
-import 'kcpps_editor_controller.dart';
-import 'kcpps_editor_prompts.dart';
-import 'kcpps_editor_style.dart';
-import 'kcpps_fit_panel.dart';
-import 'kcpps_model_field.dart';
-import 'kcpps_preset_list.dart';
-import 'kcpps_sections.dart';
-import 'kcpps_sections_more.dart';
+import 'kcpps_editor.dart';
 
 /// The preset editor. True when a preset was saved.
 class KcppsEditorDialog extends StatefulWidget {
@@ -285,6 +278,11 @@ class _KcppsEditorDialogState extends State<KcppsEditorDialog> {
         KcppsChatLengthSection(c: c),
         KcppsSpeedSection(c: c),
         KcppsSmartCacheSection(c: c),
+        KcppsChatTemplateField(
+          path: c.draft.chatTemplatePath,
+          onChanged: (path) =>
+              c.edit((d) => d.copyWith(chatTemplatePath: path)),
+        ),
         KcppsExtrasSection(c: c),
       ];
       if (box.maxWidth < 720) {
