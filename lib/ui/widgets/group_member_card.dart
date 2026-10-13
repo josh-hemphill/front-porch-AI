@@ -20,24 +20,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:front_porch_ai/database/database.dart' hide AvatarImage, World;
 import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/chat/chat.dart';
-import 'package:front_porch_ai/ui/dialogs/dialogs.dart'
-    show showPocketItemDialog;
-import 'package:front_porch_ai/ui/pages/pages.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/ui/theme/tier_colors.dart';
-import 'package:front_porch_ai/ui/widgets/realism_progress_row.dart';
-import 'package:front_porch_ai/ui/widgets/needs_bar.dart';
-import 'package:front_porch_ai/ui/widgets/fixation_chip.dart';
-import 'package:front_porch_ai/ui/widgets/group_member_chips.dart';
+import 'package:front_porch_ai/ui/widgets/widgets.dart';
+import 'package:front_porch_ai/ui/widgets/group_member_card/group_member_card.dart';
 import 'package:front_porch_ai/ui/chat_components/sidebar/character_state/character_state.dart';
-import 'package:front_porch_ai/utils/utils.dart';
-
-part 'group_member_card_menu.dart';
-part 'group_member_card_views.dart';
 
 /// First-class representation of a group chat member in the sidebar.
 ///
@@ -110,9 +100,9 @@ class _GroupMemberCardState extends State<GroupMemberCard> {
   Widget build(BuildContext context) {
     final chat = widget.chatService;
     // Public getters — isGroupRealismActive reads a library-private field
-    // and cannot be faked. Same formula.
-    final isRealism =
-        chat.realismEnabled && chat.isGroupMode && !chat.observerMode;
+    // and cannot be faked. Same formula. Directing keeps it on: Needs and the
+    // cast's feelings run while you direct, and the card marks what is held.
+    final isRealism = chat.realismEnabled && chat.isGroupMode;
 
     // Resolve per-character state (only meaningful when realism is on)
     final emotion = isRealism
@@ -222,14 +212,19 @@ class _GroupMemberCardState extends State<GroupMemberCard> {
       ),
       padTop: false,
     );
+    // While the user directs, the cast is still live (Needs, the clock and
+    // their feelings for each other), so the card stays lit; only the feelings
+    // toward the user hold, marked by the pause icon beside the emotion.
     final isDirector = chat.observerMode;
-    // Away / At work uses the signed 0.45. Director 0.38 is only for With you.
-    final opacity = presence.dimCard ? 0.45 : (isDirector ? 0.38 : 1.0);
+    // Away / At work uses the signed 0.45.
+    final opacity = presence.dimCard ? 0.45 : 1.0;
 
     final ringColor = (emotion != null && isRealism)
         ? emotionRingColor(emotion)
         : widget.avatarColor;
-    final look = _GroupMemberCardLook(
+    final look = GroupMemberCardLook(
+      character: widget.character,
+      onOpenObjectives: widget.onOpenObjectives,
       chat: chat,
       isRealism: isRealism,
       emotion: emotion,
@@ -300,7 +295,8 @@ class _GroupMemberCardState extends State<GroupMemberCard> {
                 // Header row (avatar + name + badges) — secondary tap only here for reliable "Edit Group" right-click
                 // even on fully-expanded rich speaker view (avoids child gesture absorption).
                 GestureDetector(
-                  onSecondaryTapUp: _showEditGroupMenu,
+                  onSecondaryTapUp: (details) =>
+                      showGroupMemberEditMenu(context, chat, details),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -315,17 +311,21 @@ class _GroupMemberCardState extends State<GroupMemberCard> {
                         child: CircleAvatar(
                           radius: widget.isExpanded ? 18 : 16,
                           backgroundColor: widget.avatarColor,
-                          child: !_hasAvatarFile
-                              ? _avatarLetter()
-                              : ClipOval(
-                                  child: Image.file(
-                                    widget.avatarFile!,
-                                    width: widget.isExpanded ? 36 : 32,
-                                    height: widget.isExpanded ? 36 : 32,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, _, _) => _avatarLetter(),
-                                  ),
-                                ),
+                          // No portrait, or only the flat placeholder a
+                          // character made without one carries: the letter.
+                          child: RealPortrait(
+                            file: _hasAvatarFile ? widget.avatarFile : null,
+                            portrait: (_, file) => ClipOval(
+                              child: Image.file(
+                                file,
+                                width: widget.isExpanded ? 36 : 32,
+                                height: widget.isExpanded ? 36 : 32,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => _avatarLetter(),
+                              ),
+                            ),
+                            noPortrait: (_) => _avatarLetter(),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -441,9 +441,9 @@ class _GroupMemberCardState extends State<GroupMemberCard> {
                 ),
 
                 if (widget.isExpanded && isRealism && !widget.character.isLite)
-                  ..._expandedChildren(look),
+                  ...look.expandedChildren(context),
                 if (!widget.isExpanded && !widget.character.isLite)
-                  ..._compactChildren(look),
+                  ...look.compactChildren(context),
               ],
             ),
           ),

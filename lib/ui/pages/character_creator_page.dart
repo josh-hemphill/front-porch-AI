@@ -18,7 +18,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:front_porch_ai/providers/app_state.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
+import 'package:front_porch_ai/ui/widgets/widgets.dart';
 import 'package:front_porch_ai/ui/character_creator/character_creator.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/ui/character_creator/steps/mode_select_step.dart';
@@ -34,7 +36,10 @@ import 'package:front_porch_ai/ui/character_creator/steps/review_step.dart';
 /// Top-bar step dots + labels, [AnimatedSwitcher] for step content,
 /// `_buildNavButtons` at the bottom. No side menus, tab bars, or free-jumping.
 class CharacterCreatorPage extends StatefulWidget {
-  const CharacterCreatorPage({super.key});
+  const CharacterCreatorPage({super.key, this.seed});
+
+  /// "Make a Character" → AI Assist: starts Quick mode from a persona.
+  final PersonaCharacterSeed? seed;
 
   @override
   State<CharacterCreatorPage> createState() => _CharacterCreatorPageState();
@@ -43,6 +48,10 @@ class CharacterCreatorPage extends StatefulWidget {
 class _CharacterCreatorPageState extends State<CharacterCreatorPage> {
   late final CreatorState creatorState = CreatorState();
 
+  /// Set once Save has written the card, so this page stops counting as
+  /// unsaved while it asks about the tab it is about to switch away from.
+  bool _saved = false;
+
   void _onCreatorStateChanged() {
     if (mounted) setState(() {});
   }
@@ -50,7 +59,12 @@ class _CharacterCreatorPageState extends State<CharacterCreatorPage> {
   @override
   void initState() {
     super.initState();
-    creatorState.loadSavedState();
+    final seed = widget.seed;
+    if (seed != null) {
+      creatorState.applyPersonaSeed(seed);
+    } else {
+      creatorState.loadSavedState();
+    }
     creatorState.addListener(_onCreatorStateChanged);
 
     // Ensure local models are scanned for the KoboldCpp picker in Setup (was never called before).
@@ -133,9 +147,15 @@ class _CharacterCreatorPageState extends State<CharacterCreatorPage> {
   /// Persist the finished character, then show a result SnackBar and close the
   /// wizard on success. The engine returns the outcome (it has no context); the
   /// page owns the messaging and navigation.
+  ///
+  /// The wizard is pushed over whichever page the sidebar was showing, so a
+  /// bare pop lands there (User Personas, Settings...). Like the manual
+  /// creator's Done, it switches the main screen to Home first, where the new
+  /// character now sits.
   Future<void> _saveAndFinish() async {
     final repo = Provider.of<CharacterRepository>(context, listen: false);
     final storage = Provider.of<StorageService>(context, listen: false);
+    final appState = Provider.of<AppState>(context, listen: false);
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     final name = creatorState.generatedCard?.name ?? 'Character';
@@ -143,29 +163,32 @@ class _CharacterCreatorPageState extends State<CharacterCreatorPage> {
     final ok = await creatorState.saveCharacter(repo: repo, storage: storage);
     if (!mounted) return;
     if (ok) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            '$name created successfully!',
-            style: TextStyle(color: AppColors.textPrimary(context)),
-          ),
-          backgroundColor: AppColors.surfaceContainerOf(context),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      messenger.showSnackBar(characterCreatedSnackBar(context, name));
+      _saved = true;
+      // Already on Home: leave it as it is (a second setIndex(0) would
+      // read as a Home re-tap and close the open folder). The tab underneath
+      // may hold its own unsaved draft; keeping it skips the switch.
+      if (appState.selectedIndex != 0 &&
+          await UnsavedChanges.instance.confirmLeave(context)) {
+        appState.setIndex(0);
+      }
       navigator.pop();
     } else {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
             creatorState.engineError ?? 'Failed to save character.',
-            style: TextStyle(color: AppColors.textPrimary(context)),
+            // Dark ink on dark mode's bright red, white on light mode's deep
+            // red: theme text ink was dark on dark red in light mode.
+            style: TextStyle(
+              color: AppColors.resolve(
+                context,
+                AppColors.onChaosAccent,
+                Colors.white,
+              ),
+            ),
           ),
-          backgroundColor: AppColors.resolve(
-            context,
-            Colors.red.shade800,
-            Colors.red.shade700,
-          ),
+          backgroundColor: AppColors.negativeAccentOf(context),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -363,8 +386,15 @@ class _CharacterCreatorPageState extends State<CharacterCreatorPage> {
     );
   }
 
+  /// The typed inputs are kept in preferences; a generated character is
+  /// not, until Save.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => UnsavedChangesGuard(
+    isDirty: () => !_saved && creatorState.generatedCard != null,
+    child: _scaffold(context),
+  );
+
+  Widget _scaffold(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.backgroundOf(context),
       appBar: AppBar(
@@ -373,7 +403,7 @@ class _CharacterCreatorPageState extends State<CharacterCreatorPage> {
           icon: const Icon(Icons.arrow_back),
           onPressed: creatorState.isGenerating
               ? null
-              : () => Navigator.of(context).pop(),
+              : () => Navigator.of(context).maybePop(),
         ),
         title: Row(
           children: [

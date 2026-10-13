@@ -3,9 +3,8 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:front_porch_ai/services/image/image.dart';
-import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
-import 'expression_workspace_test.dart' as fixture;
+import '../../helpers/expression_workspace_harness.dart' as fixture;
 
 void main() {
   testWidgets('full batch skips existing expressions and freezes local rules', (

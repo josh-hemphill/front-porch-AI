@@ -191,12 +191,18 @@ class RootRelocationGate {
   Future<void> get settled => _completion?.future ?? Future<void>.value();
   final Set<String? Function()> blockers = {};
 
-  Future<String?> move(Future<String?> Function() relocate) async {
+  String? get refusal {
     if (isMoving) return 'A data directory move is already in progress.';
     for (final blocker in blockers) {
       final refusal = blocker();
       if (refusal != null) return refusal;
     }
+    return null;
+  }
+
+  Future<String?> move(Future<String?> Function() relocate) async {
+    final blocked = refusal;
+    if (blocked != null) return blocked;
     isMoving = true;
     _completion = Completer<void>();
     try {

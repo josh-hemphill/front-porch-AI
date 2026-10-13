@@ -19,48 +19,12 @@
 part of '../chat_service.dart';
 
 /// Turn-progression surfaces that sit outside the [ChatServiceSend] spine:
-/// Director/observer/auto-play controls, group speaker picking, TTS-paced
+/// group speaker picking, TTS-paced
 /// auto-play, the web/mobile Chance Time reveal surface, the Journal recap
 /// controls, background RAG embedding, and the periodic (cast-detection)
 /// eval coordinator. Extracted verbatim from `chat_service.dart` — zero
 /// behaviour change.
 extension ChatServiceTurnFlow on ChatService {
-  /// Set observer mode on/off.
-  void setObserverMode(bool value) {
-    _observerMode = value;
-    if (!value) {
-      _autoPlayActive = false;
-    }
-    notifyListeners();
-  }
-
-  /// Start auto-play: characters keep chatting automatically.
-  void startAutoPlay() {
-    if (_activeGroup == null || !_observerMode) return;
-    _autoPlayActive = true;
-    notifyListeners();
-    _autoPlayNext();
-  }
-
-  /// Stop auto-play.
-  void stopAutoPlay() {
-    _autoPlayActive = false;
-    notifyListeners();
-  }
-
-  /// Internal: trigger the next auto-play response.
-  Future<void> _autoPlayNext() async {
-    if (!_autoPlayActive || !_observerMode || _activeGroup == null) return;
-    // Both auto-play schedulers (generation.dart and _waitForTtsThenContinue)
-    // arm their delay AFTER the awaited post-gen section has already finished,
-    // so this is clear by the time they fire; no re-arm machinery is needed.
-    if (_isTurnBusy) return; // wait for the current turn to finish settling
-
-    // Each spoken reply post-decides the clock; the next speaker is
-    // announced at that time (bucket brigade). No pre-tick.
-    await _generateResponse(GenerationMode.normal);
-  }
-
   /// Trigger the next character to speak in group mode.
   Future<void> triggerNextCharacter() async {
     if (_activeGroup == null || _groupCharacters.isEmpty || _isTurnBusy) {
@@ -258,7 +222,7 @@ extension ChatServiceTurnFlow on ChatService {
     if (!_chaosModeService.chaosModeEnabled) return false;
     if (_chaosModeService.hasPendingChaosEvent) return false;
     if (_webChanceTimeEvent != null) return false;
-    final wheel = _chaosModeService.spinWheelEvents();
+    final wheel = spinWheelEvents();
     if (wheel.isEmpty) return false;
     _webChanceTimeEvent = wheel.first;
     notifyListeners();
@@ -271,10 +235,11 @@ extension ChatServiceTurnFlow on ChatService {
   String get chanceTimeSpeakerName =>
       nextCharacter?.name ?? activeCharacter?.name ?? 'Character';
 
-  /// The pre-picked pending event with `{{char}}` resolved, for the web reveal
+  /// The pre-picked pending event with its placeholders resolved, for the web reveal
   /// modal. Null when nothing is parked.
-  String? get webChanceTimeDisplay =>
-      _webChanceTimeEvent?.replaceAll('{{char}}', chanceTimeSpeakerName);
+  String? get webChanceTimeDisplay => _webChanceTimeEvent == null
+      ? null
+      : resolveChanceTimeEvent(_webChanceTimeEvent!, chanceTimeSpeakerName);
 
   /// Web/mobile "Accept Your Fate": applies the pre-picked pending event using
   /// the same attribution the desktop wheel uses, then lets generation resume.
@@ -351,8 +316,8 @@ extension ChatServiceTurnFlow on ChatService {
           userMessagesSincePass >=
           _storageService.memorySettings.journalInterval;
       // Salient immediacy is ONLY eventKickPending, which already passed
-      // [_requestSalienceKick]. Reading the window again would bypass the
-      // shared cooldown Growth already honors.
+      // GrowthDesk.requestSalienceKick. Reading the window again would bypass
+      // the shared cooldown Growth already honors.
       if (due || _journalMaintenance.eventKickPending) {
         _journalMaintenance.runMaintenancePass();
       }
@@ -409,7 +374,7 @@ extension ChatServiceTurnFlow on ChatService {
   List<String> _formatMessagesForRagEmbedding(List<ChatMessage> messages) {
     return messages.map((m) {
       if (m.characterId == '__director__') {
-        return '[Director: ${m.text}]';
+        return m.toPromptHistoryLine(); // note or narration
       }
       return '${m.sender}: ${m.text}';
     }).toList();
@@ -418,8 +383,8 @@ extension ChatServiceTurnFlow on ChatService {
   /// Coordinator for the periodic background evals (now just Scene Guest cast
   /// detection). User-fact extraction and chat summaries were replaced by the
   /// Journal maintenance pass (_maybeRunJournalPass); character evolution was
-  /// replaced by the growth pass (_maybeRunGrowthPass in
-  /// chat_service_growth.dart), which has its own cursor-based cadence.
+  /// replaced by the growth pass (GrowthDesk.maybeRunGrowthPass), which has
+  /// its own cursor-based cadence.
   void _maybeRunPeriodicEvals() {
     // Scene Guest cast detection (1:1 only). Runs on its own cadence and
     // fires-and-forget so it never blocks the turn. See _maybeRunCastDetection.

@@ -14,9 +14,6 @@ extension ChatServiceSessionWindow on ChatService {
   bool get isBackfillingHistory => _history.isBackfilling;
   bool get hasOlderHistory => _history.hasMore;
 
-  Future<int> countSessionsForCharacterId(String characterId) =>
-      _db.countSessionsForCharacter(characterId);
-
   /// True when the picker must open. Uses the card's UUID internally —
   /// the home tap handler must not pass that UUID to [getSessionsForId].
   Future<bool> hasMultipleSavedSessions(CharacterCard card) async {
@@ -146,7 +143,7 @@ extension ChatServiceSessionWindow on ChatService {
     // After basePosition/hasMore so the last page sees a complete
     // history. A bad stamp cast must not skip the rest of open.
     try {
-      _backfillLoadedSlotClocks();
+      _clockReader.backfillLoadedSlotClocks();
     } catch (e, st) {
       debugPrint('[Clock] page backfill failed: $e\n$st');
     }

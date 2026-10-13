@@ -17,6 +17,28 @@ extension ChatServiceContextBudget on ChatService {
     await _db.setContextBudgetJson(sessionId, json);
   }
 
+  /// Records the send that produced [target] on its shown swipe. A Continue
+  /// extends a reply whose prompt is already recorded, so it keeps that one.
+  void _stampReplyContext(ChatMessage target, {required bool continuing}) {
+    if (target.isUser) return;
+    if (continuing && target.activeMetadata?[kReplyContextKey] != null) {
+      return;
+    }
+    final send = _contextBudget.lastSend;
+    if (send == null || send.isEmpty) return;
+    target.activeMetadata ??= {};
+    target.activeMetadata![kReplyContextKey] = send.toJson();
+    trimReplyContextTexts(_messages);
+  }
+
+  /// The prompt record of the reply at [index], or null when none was kept.
+  ContextViewerSnapshot? replyContextSnapshot(int index) {
+    if (index < 0 || index >= _messages.length) return null;
+    final m = _messages[index];
+    if (m.isUser) return null;
+    return replyContextOf(m);
+  }
+
   /// Live estimate from the open chat (no model call). Context Viewer refresh.
   Future<void> _estimateContextBudgetNow() async {
     if (_activeCharacter == null && _activeGroup == null) return;
@@ -52,7 +74,7 @@ extension ChatServiceContextBudget on ChatService {
         ];
         speakerCard =
             '${(speaker.isLite ? buildLiteGroupTurnNote : buildSpeakerTurnNote)(speakerName: speaker.name, otherMemberNames: others, userName: _userPersonaService.persona.name, observerMode: _observerMode)}'
-            '${buildSpeakerPersonaLine(name: speaker.name, personality: _getEffectivePersonality(speaker))}\n'
+            '${buildSpeakerPersonaLine(name: speaker.name, personality: _growthDesk.effectivePersonality(speaker))}\n'
             '${speaker.mesExample}';
       }
     } else if (_activeCharacter != null) {
@@ -71,7 +93,7 @@ extension ChatServiceContextBudget on ChatService {
     final historyLines = <String>[];
     for (final m in _messages) {
       if (m.characterId == '__director__') {
-        historyLines.add('[Director: ${m.text}]');
+        historyLines.add(m.toPromptHistoryLine());
       } else {
         historyLines.add('${m.sender}: ${m.text}');
       }

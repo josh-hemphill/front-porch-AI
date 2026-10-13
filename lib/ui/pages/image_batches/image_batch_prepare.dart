@@ -1,9 +1,58 @@
 // Copyright (C) 2026 Front Porch AI
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-part of '../image_batches_page.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:front_porch_ai/services/services.dart';
+import 'package:front_porch_ai/services/image/image.dart';
+import 'package:front_porch_ai/services/capability/capability.dart';
+import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
+import 'package:front_porch_ai/ui/image_studio/studio_widgets.dart';
 
-extension _ImageBatchPrepareView on _ImageBatchesPageState {
+class ImageBatchPrepare extends StatefulWidget {
+  const ImageBatchPrepare({
+    super.key,
+    required this.queue,
+    required this.repository,
+    required this.busy,
+    required this.onAction,
+    required this.onPrepared,
+  });
+  final VoidCallback onPrepared;
+  final ImageBatchService queue;
+  final CharacterRepository repository;
+  final bool busy;
+  final Future<void> Function(Future<void> Function()) onAction;
+  @override
+  State<ImageBatchPrepare> createState() => _ImageBatchPrepareState();
+}
+
+class _ImageBatchPrepareState extends State<ImageBatchPrepare> {
+  final _selected = <String>{};
+  final _prompt = TextEditingController();
+  String _kind = 'additional';
+  String _search = '';
+  bool _edit = false;
+  bool _missing = true;
+  bool _fullSet = false;
+  ExpressionPromptRules? _rules;
+
+  @override
+  void dispose() {
+    _prompt.dispose();
+    super.dispose();
+  }
+
+  void _update(VoidCallback change) {
+    if (mounted) setState(change);
+  }
+
+  Future<void> _action(Future<void> Function() action) =>
+      widget.onAction(action);
+  @override
+  Widget build(BuildContext context) =>
+      _prepare(widget.queue, widget.repository, widget.busy);
+
   String _folderPath(String? imagePath) {
     final folders = context.watch<FolderService?>();
     final folder = imagePath == null
@@ -60,9 +109,9 @@ extension _ImageBatchPrepareView on _ImageBatchesPageState {
   ) => ListView(
     padding: const EdgeInsets.all(20),
     children: [
-      const Text(
+      Text(
         'Add work across characters',
-        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        style: Theme.of(context).textTheme.titleLarge,
       ),
       const SizedBox(height: 12),
       DropdownButtonFormField<String>(
@@ -175,6 +224,33 @@ extension _ImageBatchPrepareView on _ImageBatchesPageState {
         decoration: const InputDecoration(labelText: 'Find characters'),
         onChanged: (v) => _update(() => _search = v.toLowerCase()),
       ),
+      Wrap(
+        spacing: 8,
+        children: [
+          TextButton(
+            onPressed: busy
+                ? null
+                : () => _update(() {
+                    _selected.addAll(
+                      repo.characters
+                          .where(
+                            (c) =>
+                                c.dbId != null &&
+                                '${c.name} ${_folderPath(c.imagePath)}'
+                                    .toLowerCase()
+                                    .contains(_search),
+                          )
+                          .map((c) => c.dbId!),
+                    );
+                  }),
+            child: const Text('Select visible'),
+          ),
+          TextButton(
+            onPressed: busy ? null : () => _update(_selected.clear),
+            child: const Text('Clear selection'),
+          ),
+        ],
+      ),
       for (final card in repo.characters.where(
         (c) =>
             c.dbId != null &&
@@ -186,13 +262,18 @@ extension _ImageBatchPrepareView on _ImageBatchesPageState {
           value: _selected.contains(card.dbId),
           title: Text(card.name),
           subtitle: Text(_folderPath(card.imagePath)),
-          secondary: CircleAvatar(
-            backgroundImage: card.imagePath == null
-                ? null
-                : ResizeImage(FileImage(File(card.imagePath!)), width: 80),
-            onBackgroundImageError: card.imagePath == null ? null : (_, _) {},
-            child: card.imagePath == null ? const Icon(Icons.person) : null,
-          ),
+          secondary: card.imagePath == null
+              ? const Icon(Icons.person)
+              : ClipOval(
+                  child: Image.file(
+                    queue.storage.resolveCharacterImage(card.imagePath!),
+                    width: 40,
+                    height: 40,
+                    cacheWidth: 80,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => const Icon(Icons.person),
+                  ),
+                ),
           onChanged: busy
               ? null
               : (v) => _update(() {
@@ -218,10 +299,7 @@ extension _ImageBatchPrepareView on _ImageBatchesPageState {
                   promptRules: _rules,
                 );
                 if (mounted) {
-                  _update(() {
-                    _tab = 1;
-                    _error = null;
-                  });
+                  widget.onPrepared();
                 }
               }),
         child: Text('Prepare for ${_selected.length} characters'),

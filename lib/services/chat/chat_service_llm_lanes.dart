@@ -58,6 +58,19 @@ extension ChatServiceLlmLanes on ChatService {
       ? testIsLocalOverride
       : (_llmProvider?.modelIsLocal ?? true);
 
+  /// Whether the model that runs the Realism evals is the user's own: the
+  /// helper while its lane is on, else the chat model. One-Shot Auto reads
+  /// it, beside the same lane's tool verdict ([_evalBackendIdentity]).
+  bool get _evalModelIsLocal {
+    if (!_workerLaneActive) return _mouthModelIsLocal;
+    final worker = testWorkerLlmServiceOverride;
+    if (worker == null) return _llmProvider?.workerModelIsLocal ?? true;
+    return backendLaneIsLocal(
+      worker is KoboldService ? 'kobold' : 'openRouter',
+      worker is LlmApiEndpoint ? (worker as LlmApiEndpoint).apiUrl : '',
+    );
+  }
+
   bool get _sideLaneIsKobold {
     if (testWorkerLlmServiceOverride != null) return false;
     if (testLlmServiceOverride != null) return testIsLocalOverride;
@@ -122,6 +135,34 @@ extension ChatServiceLlmLanes on ChatService {
     if (p == null || p.workerService == null) return work();
     return p.withWorkerLane(work);
   }
+
+  /// The realism/eval text door: [LlmEvalEngine.fireLLMEval] on the worker
+  /// lane.
+  Future<String?> _fireLLMEval(
+    String prompt, {
+    void Function(String)? onChunk,
+    double repeatPenalty = 1.15,
+    String label = 'eval',
+    bool salvageReasoning = true,
+    int? maxLength,
+    Duration? wallClockTimeout,
+    bool abortClientOnStop = false,
+    bool Function(String accumulated)? stopWhen,
+    void Function()? onGuardAbort,
+  }) => _withWorkerLane(
+    () => _llmEvalEngine.fireLLMEval(
+      prompt,
+      onChunk: onChunk,
+      repeatPenalty: repeatPenalty,
+      label: label,
+      salvageReasoning: salvageReasoning,
+      maxLength: maxLength,
+      wallClockTimeout: wallClockTimeout,
+      abortClientOnStop: abortClientOnStop,
+      stopWhen: stopWhen,
+      onGuardAbort: onGuardAbort,
+    ),
+  );
 
   Future<void> _openWorkerLane() {
     if (testWorkerLlmServiceOverride != null) return Future<void>.value();

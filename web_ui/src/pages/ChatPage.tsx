@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMous
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { CastBar } from '../components/CastBar';
-import { SmartImg } from '../components/ChatAvatar';
+import { DirectorStrip, ExitUndoBar } from '../components/DirectorStrip';
 import { ChatMessageList } from '../components/ChatMessageList';
 import { ChatComposer } from '../components/ChatComposer';
 import { ChatInsight } from '../components/ChatInsight';
@@ -14,7 +14,7 @@ import { ChatThemeSettings } from '../components/ChatThemeSettings';
 import { ProcessingOverlay } from '../components/ProcessingOverlay';
 import { type Realism } from '../components/chatTypes';
 import { useLayout } from '../hooks/useBreakpoint';
-import { ChatModelSwitcher } from './chat/ChatModelSwitcher';
+import { ChatHeader } from './chat/ChatHeader';
 import { ChatNotices } from './chat/ChatNotices';
 import { ChatOverlays } from './chat/ChatOverlays';
 import { useChatSend } from './chat/useChatSend';
@@ -29,7 +29,7 @@ export function ChatPage() {
   // screen. `display:none` does not unmount, so rendering both meant every
   // chat refresh fired the sidebar's GETs (tools / journal / growth / places)
   // for a panel nobody could see, twice over with the drawer open.
-  const { isDesktop } = useLayout();
+  const { isDesktop, isPhone } = useLayout();
   const followStreamingReplies = useFollowStreamingReplies();
   useUserMessageSide();
   const session = useChatSession();
@@ -43,7 +43,7 @@ export function ChatPage() {
   const {
     sendError, setSendError, actionError, setActionError, reportActionFailure,
     editTarget, setEditTarget, reprocessIndex, setReprocessIndex, sendMessage, retrySend, regenerate, continueGen, fork,
-    swipe, del, beginEdit, saveEdit, saveAuthorNote, saveTheme,
+    swipe, del, pendingConfirm, confirmPending, cancelPending, beginEdit, saveEdit, saveAuthorNote, saveTheme,
     submitReprocess, submitReprocessFeelings, revertNeeds,
   } = send;
 
@@ -154,6 +154,13 @@ export function ChatPage() {
   }
 
   const cast = state.cast ?? [];
+  // One Director setting to the app, then a refresh (or the failure shown).
+  const postDirector = (path: string, body: object, what: string) => {
+    api
+      .post(`/api/chat/director/${path}`, body)
+      .then(() => refresh())
+      .catch((e) => reportActionFailure(what, e));
+  };
   // A chat is active if there's a cast (group or 1:1) or a host character.
   // (In a group, state.character is null — the cast carries the participants.)
   if (cast.length === 0 && !state.character) {
@@ -200,6 +207,7 @@ export function ChatPage() {
       isGroup={state.isGroupMode ?? false}
       focusedIsHost={focused?.isHost ?? !state.isGroupMode}
       focusedAvatarUrl={focused?.avatarUrl}
+      focusedPlaceholderPortrait={focused?.placeholderPortrait}
       toolsKey={toolsBump}
       focusedId={focusedId}
       groupId={state.groupId ?? null}
@@ -213,56 +221,20 @@ export function ChatPage() {
   return (
     <div className="chat-layout">
       <div className="chat-view">
-        <div className="chat-header">
-          <div className="chat-header-id">
-            {focused && (
-              state.isGroupMode ? (
-                // Groups have no single avatar and member images don't resolve in
-                // the cast — show a group glyph rather than a broken image.
-                <span className="chat-header-avatar group" aria-hidden>👥</span>
-              ) : focused.isHost ? (
-                <SmartImg
-                  primary={`/api/chat/expression-avatar?v=${encodeURIComponent(state.expressionLabel ?? '')}`}
-                  fallback={`/api/characters/${focused.dbId ?? state.character?.id ?? ''}/avatar`}
-                  className="chat-header-avatar"
-                />
-              ) : (
-                <SmartImg primary={focused.avatarUrl ?? ''} className="chat-header-avatar" />
-              )
-            )}
-            <span className="chat-title">{title}</span>
-          </div>
-          <div className="chat-header-actions">
-            <ChatModelSwitcher />
-            {editId && (
-              <button
-                className="link-btn"
-                title="Edit character"
-                onClick={() => navigate(`/edit/${editId}`)}
-              >
-                ✎
-              </button>
-            )}
-            {insight && (
-              <button className="link-btn stats-btn" onClick={() => setShowStats(true)}>
-                Stats ▾
-              </button>
-            )}
-            <button
-              className="link-btn"
-              title="Who you are in this chat"
-              onClick={() => setShowPersona(true)}
-            >
-              Persona
-            </button>
-            <button className="link-btn" onClick={() => setShowTheme(true)}>
-              Theme
-            </button>
-            <button className="link-btn conversations-btn" onClick={openSessions}>
-              Conversations ▾
-            </button>
-          </div>
-        </div>
+        <ChatHeader
+          title={title}
+          focused={focused}
+          isGroupMode={state.isGroupMode ?? false}
+          expressionLabel={state.expressionLabel}
+          characterId={state.character?.id}
+          isPhone={isPhone}
+          hasStats={!!insight}
+          onEdit={editId ? () => navigate(`/edit/${editId}`) : undefined}
+          onStats={() => setShowStats(true)}
+          onPersona={() => setShowPersona(true)}
+          onTheme={() => setShowTheme(true)}
+          onConversations={openSessions}
+        />
 
         <CastBar
           cast={cast}
@@ -274,6 +246,29 @@ export function ChatPage() {
           onFocus={focusParticipant}
           onAdd={() => setShowPicker(true)}
           onCommand={sendMessage}
+          canRemoveMember={state.director?.canRemoveMember ?? true}
+        />
+        {state.director && (state.isGroupMode || cast.length > 1) && (
+          <DirectorStrip
+            director={state.director}
+            busy={state.isGenerating}
+            onCommand={sendMessage}
+            memberNames={cast.map((c) => c.name)}
+            onAutoPlay={(on) => postDirector('autoplay', { on }, 'change auto-chat')}
+            onDelay={(seconds) => postDirector('delay', { seconds }, 'change the auto-chat delay')}
+            onGoal={(text) => postDirector('goal', { text }, 'change the scene goal')}
+            onClearWhisper={(id) => postDirector('whisper', { id, text: '' }, 'clear the whisper')}
+            onTurnBudget={(turns) => postDirector('budget', { turns }, 'change the auto-chat run')}
+          />
+        )}
+        <ExitUndoBar
+          undo={state.exitUndo ?? null}
+          onUndo={() => {
+            api
+              .post('/api/chat/exit-undo')
+              .then(() => refresh())
+              .catch((e) => reportActionFailure('undo that exit', e));
+          }}
         />
 
         <ChatNotices
@@ -378,6 +373,7 @@ export function ChatPage() {
           }}
           apiReady={state.llmReady !== false}
           apiHint={state.llmHint}
+          directing={!!state.director?.directing}
         />
       </div>
 
@@ -487,6 +483,9 @@ export function ChatPage() {
         onReveal={revealFate}
         onAccept={acceptFate}
         imagePromptReview={state.imagePromptReview}
+        pendingConfirm={pendingConfirm}
+        onConfirmPending={confirmPending}
+        onCancelPending={cancelPending}
       />
     </div>
   );

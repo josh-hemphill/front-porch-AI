@@ -3,139 +3,145 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/painting.dart' show FileImage;
-import 'package:path/path.dart' as p;
-import 'package:uuid/uuid.dart';
-import 'package:crypto/crypto.dart';
-import 'package:front_porch_ai/services/services.dart';
-import 'package:front_porch_ai/services/portrait_promotion.dart';
+import 'package:front_porch_ai/services/storage_service.dart';
+import 'package:front_porch_ai/services/image_gen_service.dart';
+import 'package:front_porch_ai/services/character_repository.dart';
 import 'package:front_porch_ai/services/capability/capability.dart';
 import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
 
-part 'image_batch_service.prepare.dart';
-part 'image_batch_service.review.dart';
-part 'image_batch_service.store.dart';
+import 'image_batch_store.dart';
+import 'image_batch_preparation.dart';
+import 'image_batch_review.dart';
 
 class ImageBatchService extends ChangeNotifier {
   ImageBatchService(this.storage, this.image) {
-    storage.rootRelocation.blockers.add(_rootBlocker);
-    storage.addListener(_rootListener);
-    ready = _load();
+    store = ImageBatchStore(storage, image, notifyListeners);
+    _prepare = ImageBatchPreparation(store);
+    _review = ImageBatchReview(store);
   }
-  late final VoidCallback _rootListener = _rootChanged;
-  late final String? Function() _rootBlocker = _rootMoveBlocker;
   final StorageService storage;
   final ImageGenService image;
-  late final Future<void> ready;
-  String? _storedRoot;
-  bool _loaded = false;
-  int _pendingWrites = 0;
-  final List<ImageBatchJob> _jobs = [];
-  List<ImageBatchJob> get jobs => List.unmodifiable(_jobs);
-  bool running = false;
-  bool working = false;
-  bool pauseRequested = false;
-  String? error;
-  Future<void> _writes = Future.value();
-  @override
-  void dispose() {
-    storage.removeListener(_rootListener);
-    storage.rootRelocation.blockers.remove(_rootBlocker);
-    super.dispose();
+  late final ImageBatchStore store;
+  late final ImageBatchPreparation _prepare;
+  late final ImageBatchReview _review;
+  Future<void> get ready => store.ready;
+  List<ImageBatchJob> get jobs => List.unmodifiable(store.jobs);
+  bool get running => store.running;
+  bool get working => store.working;
+  bool get pauseRequested => store.pauseRequested;
+  String? get error => store.error;
+  bool get loadFailed => store.loadFailed;
+  Map<String, dynamic> snapshot() => store.snapshot();
+  ImageBatchJob job(String id) => _review.job(id);
+  Future<Uint8List> picture(String id) => _review.picture(id);
+  Future<void> prepare({
+    required CharacterRepository repository,
+    required List<String> characterIds,
+    required String kind,
+    required String prompt,
+    bool edit = false,
+    bool missingOnly = true,
+    double? denoise,
+    bool fullSet = false,
+    ExpressionPromptRules? promptRules,
+  }) => _prepare.prepare(
+    repository: repository,
+    characterIds: characterIds,
+    kind: kind,
+    prompt: prompt,
+    edit: edit,
+    missingOnly: missingOnly,
+    denoise: denoise,
+    fullSet: fullSet,
+    promptRules: promptRules,
+  );
+  Future<void> decide(
+    String id,
+    String action, {
+    String? prompt,
+    bool newSeed = true,
+    CharacterRepository? repository,
+  }) {
+    store.repository = repository ?? store.repository;
+    return _review.decide(id, action, prompt: prompt, newSeed: newSeed);
   }
 
-  void _changed() => notifyListeners();
+  Future<void> saveKept(CharacterRepository repository) =>
+      _review.saveKept(repository);
+  Future<void> retryLoad() {
+    if (running || working) throw StateError('Queue is busy.');
+    store.ready = store.reload();
+    return store.ready;
+  }
+
+  void pause() {
+    store.pauseRequested = true;
+    store.changed();
+  }
+
   void reportError(Object problem) {
-    error = '$problem';
-    _changed();
-  }
-
-  Map<String, dynamic> snapshot() {
-    final s = storage.imageGenSettings;
-    final prefs = s.prefs;
-    final keys = (prefs?.getKeys() ?? <String>{}).where((key) {
-      final plain = key.startsWith('beta_') ? key.substring(5) : key;
-      return plain.startsWith('image_') ||
-          plain.startsWith('comfy_') ||
-          plain.startsWith('draw_things') ||
-          plain == 'local_image_gen_url';
-    }).toList()..sort();
-    return {
-      'root': storage.rootPath,
-      'backend': s.imageGenBackend,
-      'model': s.imageGenModel,
-      'editModel': s.imageGenEditModel,
-      'size': s.imageGenSize,
-      'negativePrompt': s.imageGenNegativePrompt,
-      'createGraph': s.comfyCreateWorkflowId,
-      'editGraph': s.comfyEditWorkflowId,
-      'fingerprint': sha256
-          .convert(
-            utf8.encode(
-              jsonEncode({
-                for (final key in keys) key: prefs!.get(key),
-                if (s.imageGenBackend == 'remote')
-                  'resolvedRemoteUrl': s.imageRemoteApiUrl.trim().isEmpty
-                      ? storage.backendSettings.remoteApiUrl
-                      : s.imageRemoteApiUrl,
-              }),
-            ),
-          )
-          .toString(),
-    };
+    store.error = '$problem';
+    store.changed();
   }
 
   Map<String, dynamic> view() => {
     'running': running,
     'working': working,
+    'loadFailed': loadFailed,
     'pauseRequested': pauseRequested,
     'error': error,
-    'jobs': [for (final job in _jobs) job.view()],
+    'jobs': [for (final job in jobs) job.view()],
   };
-
-  void pause() {
-    pauseRequested = true;
-    notifyListeners();
+  @override
+  void dispose() {
+    store.dispose();
+    super.dispose();
   }
 
-  Future<void> run() async {
-    await ready;
-    _requireRootStable();
-    if (running || working || image.isGenerating) {
+  void checkCanRun() {
+    store.requireRootStable();
+    if (store.running || store.working || store.image.isGenerating) {
       throw StateError('Another image operation is busy.');
     }
     if (expressionPackBoard.run != null) {
       throw StateError('Finish or discard the current expression pack first.');
     }
-    running = true;
-    pauseRequested = false;
-    error = null;
-    notifyListeners();
+  }
+
+  Future<void> run() async {
+    await store.ready;
+    checkCanRun();
+    store.running = true;
+    store.pauseRequested = false;
+    store.error = null;
+    store.changed();
     try {
-      final started = await image.startExpressionPack([], (_) async {
-        for (final job in _jobs.where((j) => j.state == 'waiting').toList()) {
-          if (pauseRequested) break;
+      final started = await ImageGenService.startExpressionPackOn(store.image, [], (
+        _,
+      ) async {
+        for (final job
+            in store.jobs.where((j) => j.state == 'waiting').toList()) {
+          if (store.pauseRequested) break;
           if (job.state != 'waiting') continue;
-          if (jsonEncode(job.data['config']) != jsonEncode(snapshot())) {
-            error =
+          if (jsonEncode(job.data['config']) != jsonEncode(store.snapshot())) {
+            store.error =
                 'Image settings changed. Restore the captured configuration or prepare another pass.';
             break;
           }
           job.data['state'] = 'running';
           try {
-            await _persist();
+            await store.persist();
             final source = job.data['source'] as String?;
-            final bytes = await image.expressionFrame(
+            final bytes = await ImageGenService.expressionFrameOn(
+              store.image,
               prompt: job.prompt,
               negativePrompt: job.data['negativePrompt'] as String,
               size: job.data['size'] as String,
               referenceImage: source == null
                   ? null
-                  : await _file(source).readAsBytes(),
+                  : await store.file(source).readAsBytes(),
               seed: job.data['seed'] as int,
               denoise: (job.data['denoise'] as num).toDouble(),
               intent: job.edit ? StudioIntent.edit : StudioIntent.create,
@@ -145,9 +151,9 @@ class ImageBatchService extends ChangeNotifier {
             );
             if (bytes == null) {
               throw StateError(
-                image.statusMessage.isEmpty
+                store.image.statusMessage.isEmpty
                     ? 'Generation returned no image.'
-                    : image.statusMessage,
+                    : store.image.statusMessage,
               );
             }
             final normalized = await imageBatchPixels(bytes);
@@ -155,7 +161,8 @@ class ImageBatchService extends ChangeNotifier {
               throw StateError('Generation returned an unreadable image.');
             }
             final name = '${job.id}.png';
-            await _file(name).writeAsBytes(normalized, flush: true);
+            await store.ensureCapacity(normalized.length);
+            await store.file(name).writeAsBytes(normalized, flush: true);
             job.data.addAll({
               'state': 'review',
               'candidate': name,
@@ -163,11 +170,11 @@ class ImageBatchService extends ChangeNotifier {
             });
           } catch (e) {
             job.data.addAll({'state': 'failed', 'error': '$e'});
-            error =
+            store.error =
                 'Generation stopped. Review the failed request before continuing.';
-            pauseRequested = true;
+            store.pauseRequested = true;
           }
-          await _persist();
+          await store.persist();
         }
         return <String>[];
       });
@@ -175,8 +182,8 @@ class ImageBatchService extends ChangeNotifier {
         throw StateError('Another generation acquired the image service.');
       }
     } finally {
-      running = false;
-      notifyListeners();
+      store.running = false;
+      store.changed();
     }
   }
 }

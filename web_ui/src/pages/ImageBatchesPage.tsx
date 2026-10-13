@@ -11,9 +11,9 @@ import './imageBatches.css';
 interface Job {
   id: string; characterId: string; characterName: string; kind: string;
   label: string; prompt: string; state: string; kept: boolean; seed: number;
-  edit: boolean; size: string; candidate?: string; error?: string;
+  edit: boolean; size: string; candidate?: string; error?: string; loadFailed?: boolean;
 }
-interface Queue { running: boolean; working: boolean; pauseRequested: boolean; error?: string; jobs: Job[] }
+interface Queue { running: boolean; working: boolean; pauseRequested: boolean; error?: string; loadFailed?: boolean; jobs: Job[] }
 interface Character { id: string; name: string; folderId?: string; hasAvatar?: boolean; avatarVersion?: number }
 interface Folder { id: string; name: string; parentId?: string }
 export function batchCharacterPath(id: string | undefined, folders: Folder[]): string {
@@ -78,14 +78,14 @@ export function ImageBatchesPage() {
     finally { mutating.current = false; setBusy(false); if (!completed) void refresh(); }
   };
   const locked = busy || queue?.running || queue?.working;
-  const reviewLocked = busy || queue?.working;
+  const reviewLocked = locked;
   const jobs = queue?.jobs ?? [];
   const waiting = jobs.filter((j) => j.state === 'waiting').length;
   const kept = jobs.filter((j) => j.state === 'review' && j.kept);
   const rows = jobs.filter((j) => tab === 'review' ? ['review', 'saved', 'failed', 'interrupted'].includes(j.state) : j.state !== 'discarded');
   const save = async () => { if (await action('save')) setConfirmSave(false); };
   return <div className="image-batches">
-    <header><h2>Images</h2><button disabled={reviewLocked || !kept.length} onClick={() => {
+    <header><h2>Image batches</h2><button disabled={reviewLocked || !kept.length} onClick={() => {
       if (kept.some((j) => j.kind === 'portrait')) setConfirmSave(true); else void save();
     }}>Save {kept.length} kept</button></header>
     <section className="card batch-status" aria-label="Queue status">
@@ -94,6 +94,7 @@ export function ImageBatchesPage() {
       <button disabled={busy || !queue?.running} onClick={() => void action('pause')}>{queue?.pauseRequested ? 'Pausing after current image…' : 'Pause after current image'}</button>
       <small>Runs while the desktop app remains open.</small>
     </section>
+    {queue?.loadFailed ? <button disabled={busy} onClick={() => void action('retry')}>Retry loading queue</button> : null}
     {error || queue?.error ? <p role="alert">{error || queue?.error}</p> : null}
     <div role="group" aria-label="Images views" className="batch-tabs">
       {['prepare', 'queue', 'review'].map((value) => <button key={value} aria-pressed={tab === value} onClick={() => setTab(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}
@@ -129,6 +130,7 @@ export function ImageBatchesPage() {
         </> : null}
         <BatchConfiguration expressions={kind === 'expressions'} edit={edit} busy={!!locked} />
         <label>Find characters<input value={search} onChange={(e) => setSearch(e.target.value)} /></label>
+        <div className="batch-actions"><button type="button" onClick={() => setSelected(characters.filter(c => `${c.name} ${batchCharacterPath(c.folderId, folders)}`.toLowerCase().includes(search.toLowerCase())).map(c => c.id))}>Select visible</button><button type="button" onClick={() => setSelected([])}>Clear selection</button></div>
         <div className="batch-characters">{characters.filter((c) => `${c.name} ${batchCharacterPath(c.folderId, folders)}`.toLowerCase().includes(search.toLowerCase())).map((c) => <label key={c.id}>
           <input type="checkbox" checked={selected.includes(c.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, c.id] : selected.filter((id) => id !== c.id))} />{c.hasAvatar ? <img loading="lazy" src={api.avatarUrl(`/api/characters/${c.id}/avatar`, 80, c.avatarVersion)} alt="" /> : <span className="batch-portrait-placeholder" aria-hidden="true">?</span>}
           <span>{c.name}<small>{batchCharacterPath(c.folderId, folders)}</small></span>

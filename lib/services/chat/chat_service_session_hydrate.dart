@@ -229,9 +229,14 @@ extension ChatServiceSessionHydrate on ChatService {
     );
     final nv = s.needsVector;
     final hasSavedNeeds = nv is String && nv.isNotEmpty;
+    // A card that says nothing asks for Needs when Porch Life does and this
+    // chat's Realism (hydrated above) is on — the seed rule, NeedsPass.seedNeedsSim.
+    // An explicit card choice is read as before.
     final cardWantsNeeds =
         _activeGroup == null &&
-        (_activeCharacter?.frontPorchExtensions?.needsSimEnabled ?? false);
+        _needsPass.seedNeedsSim(
+          _activeCharacter?.frontPorchExtensions?.needsSimChoice,
+        );
     // Session flag is seed-time AND, column default FALSE. A lived-in 1:1
     // that never flipped the column (no saved vector) still promotes ON
     // when card + Porch Life ask for Needs. Explicit OFF keeps its vector
@@ -312,6 +317,8 @@ extension ChatServiceSessionHydrate on ChatService {
     _chaosModeService.loadScalars(
       modeEnabled: s.chaosModeEnabled,
       pressure: s.chaosPressure,
+      // A group's spicy switch lives on the group row (seeded on entry).
+      nsfwEnabled: _activeGroup == null ? s.chaosNsfwEnabled : null,
     );
     debugPrint(
       '[ChatService] session scalars hydrated: arousal=${_nsfwService.arousalLevel}, fixation=${_relationshipService.activeFixation}/${_relationshipService.fixationLifespan}',
@@ -325,7 +332,7 @@ extension ChatServiceSessionHydrate on ChatService {
     // Cache growth rings (and any not-yet-distilled legacy evolved blobs) for
     // this session so the injection layer can read them synchronously —
     // scoped to the session, not the character (1:1 + group both).
-    await _refreshGrowthCache();
+    await _growthDesk.refreshCache();
   }
 
   /// Chat-scoped only — never moves [UserPersonaService.defaultPersonaId].

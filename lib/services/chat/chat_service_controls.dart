@@ -37,7 +37,7 @@ extension ChatServiceControls on ChatService {
       // ── Solution 1: Pending greeting flag ────────────────────────────
       // The greeting was placed while realism was off. Fire the baseline
       // eval now that the user has explicitly enabled it.
-      if (_greetingEvalPending && !_hasRealismBaseline) {
+      if (_greetingEvalPending && !_realismDance.hasBaseline) {
         debugPrint(
           '[Realism] Consuming pending greeting eval (user enabled realism after load).',
         );
@@ -47,7 +47,7 @@ extension ChatServiceControls on ChatService {
       // Realism was enabled mid-conversation with no baseline captured yet
       // (emotion is blank, affection is zero, multiple messages exist).
       // Run a full retrospective eval against all visible messages.
-      else if (!_hasRealismBaseline && _messages.length > 1) {
+      else if (!_realismDance.hasBaseline && _messages.length > 1) {
         debugPrint(
           '[Realism] No baseline detected — running retroactive scan on enable.',
         );
@@ -77,7 +77,7 @@ extension ChatServiceControls on ChatService {
     if (_activeGroup != null) {
       for (final c in _groupCharacters) {
         final id = _getCharacterIdFromCard(c);
-        final entry = _memberForWrite(id);
+        final entry = _groupStore.memberForWrite(id);
         entry.nsfwCooldownEnabled = enabled;
         // Parity with 1:1: NsfwService.setNsfwCooldownEnabled(false) zeroes
         // the scalar arousal + cooldowns, so disabling must clear each
@@ -169,12 +169,15 @@ extension ChatServiceControls on ChatService {
   Future<void> nudgeTimePeriod(int delta) async {
     if (!_clockRunning) return;
     final before = _timeService.clock;
-    _pendingNudgeBefore = before;
+    _clockWriter.pendingNudgeBefore = before;
     await _timeService.nudgeTimePeriod(delta);
-    _writeSlotClock(_visibleTipMessage(), kind: _SlotClockWrite.nudge);
+    _clockWriter.writeSlotClock(
+      _clockReader.visibleTipMessage(),
+      kind: SlotClockWrite.nudge,
+    );
     // Day-ate journal rides TimeService.onStoryDayChanged.
-    await _maybeMintEpisodeCrumbs(before, _timeService.clock);
-    unawaited(_ensureBirthdayState());
+    await _episodeCrumbs.maybeMint(before, _timeService.clock);
+    unawaited(_birthdaySync.ensure());
     await _saveChat();
     notifyListeners();
   }
@@ -184,12 +187,15 @@ extension ChatServiceControls on ChatService {
   Future<void> setStoryClock(DateTime clock) async {
     if (!_clockRunning) return;
     final before = _timeService.clock;
-    _pendingNudgeBefore = before;
+    _clockWriter.pendingNudgeBefore = before;
     await _timeService.setClockDirect(clock);
-    _writeSlotClock(_visibleTipMessage(), kind: _SlotClockWrite.nudge);
+    _clockWriter.writeSlotClock(
+      _clockReader.visibleTipMessage(),
+      kind: SlotClockWrite.nudge,
+    );
     // Day-ate journal rides TimeService.onStoryDayChanged.
-    await _maybeMintEpisodeCrumbs(before, _timeService.clock);
-    unawaited(_ensureBirthdayState());
+    await _episodeCrumbs.maybeMint(before, _timeService.clock);
+    unawaited(_birthdaySync.ensure());
     await _saveChat();
     notifyListeners();
   }
@@ -203,8 +209,8 @@ extension ChatServiceControls on ChatService {
     final delta = _timeService.startDate.difference(oldStart);
     shiftMessageClockStamps(_messages, delta);
     await _shiftPersistedSessionClockStamps(delta);
-    _applyTipClock();
-    unawaited(_ensureBirthdayState());
+    _clockReader.applyTipClock();
+    unawaited(_birthdaySync.ensure());
     await _saveChat();
     notifyListeners();
   }
@@ -266,14 +272,44 @@ extension ChatServiceControls on ChatService {
     notifyListeners();
   }
 
-  /// Returns 8 randomly-sampled events for the wheel UI to display.
+  /// Returns 8 raw events for the wheel. Pair events (`{{other}}`) need a
+  /// second group member; user events need the user in the scene.
   List<String> spinWheelEvents() {
-    return _chaosModeService.spinWheelEvents();
+    return _chaosModeService.spinWheelEvents(
+      allowPair: _chanceTimePartners(chanceTimeSpeakerName).isNotEmpty,
+      allowUser: !observerMode,
+    );
+  }
+
+  List<String> _chanceTimePartners(String speakerName) => [
+    for (final c in groupCharacters)
+      if (c.name != speakerName) c.name,
+  ];
+
+  /// A raw event with its placeholders filled for [charName]: `{{user}}` is
+  /// the persona, `{{other}}` a group member other than [charName]. The
+  /// partner is picked from the event text, so the wheel's preview and the
+  /// applied event always name the same person.
+  String resolveChanceTimeEvent(String raw, String charName) {
+    var text = raw.replaceAll('{{char}}', charName);
+    if (text.contains('{{user}}')) {
+      final user = _userPersonaService.persona.name.trim();
+      text = text.replaceAll('{{user}}', user.isEmpty ? 'you' : user);
+    }
+    if (text.contains('{{other}}')) {
+      final partners = _chanceTimePartners(charName);
+      final other = partners.isEmpty
+          ? 'someone nearby'
+          : partners[raw.hashCode.abs() % partners.length];
+      text = text.replaceAll('{{other}}', other);
+    }
+    return text;
   }
 
   /// Called by the wheel overlay once the animation lands on an event.
-  /// Thin wrapper: compute display ({{char}} replace), set UI flag, delegate core
-  /// (pressure/injection/metadata/save/notify) to service, then complete completer.
+  /// Thin wrapper: resolve the placeholders, remember the event so the next
+  /// wheels skip it, delegate core (pressure/cooldown/injection/metadata/save/
+  /// notify) to the service, then complete the completer.
   Future<void> applyChanceTimeResult(String event, String charName) async {
     // One shared ChatService serves both the desktop wheel and any web clients,
     // so either surface may resolve the same parked completer. Whoever lands
@@ -281,7 +317,8 @@ extension ChatServiceControls on ChatService {
     // already-completed completer (which would throw a StateError).
     final completer = _chanceTimeCompleter;
     if (completer != null && completer.isCompleted) return;
-    final display = event.replaceAll('{{char}}', charName);
+    final display = resolveChanceTimeEvent(event, charName);
+    _chaosModeService.rememberEvent(event);
     await _chaosModeService.applyPreparedEvent(display);
     _webChanceTimeEvent = null;
     // Resume a parked send if one is waiting. Manual SPIN NOW has no
@@ -293,8 +330,6 @@ extension ChatServiceControls on ChatService {
   bool checkAndTickChaosPressure() {
     return _chaosModeService.checkAndTickChaosPressure();
   }
-
-  // (Chance Time pools moved verbatim to ChaosModeService; deletion complete.)
 
   // ── Central dispose guard (rec 2 from PR #47) ─────────────────────────────────
   // Overrides protect every notifyListeners() call (many direct + after async DB/repo

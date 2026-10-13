@@ -107,3 +107,15 @@ its journey to the existing journey suite. Those test edits require the
 maintainer's `approved-test-change` label. An actual configured backend smoke
 run is still needed to validate external generation alongside the synthetic
 workspace checks.
+
+
+## Review follow-up
+
+The queue uses separate preparation, persistence and review classes. An unreadable
+manifest is retained with a Retry loading action; the data folder can still move.
+Review writes are disabled while a frame runs. Another pass captures current
+size, negative prompt, variation and source portrait. Primary saves use gallery
+promotion, preserve raw card metadata and keep external imports untouched.
+Expression replacement saves the new image before removing the old label.
+Temporary pictures are removed after save/discard and abandoned preparation;
+storage is capped at 512 MiB, 1024 requests and 100 finished history rows.

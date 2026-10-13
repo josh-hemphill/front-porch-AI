@@ -75,6 +75,7 @@ const List<String> kStateZoneSectionIds = [
 /// (docs/design/god-file-elimination.md). Zero behaviour change.
 extension ChatServiceGenerationPlan on ChatService {
   Future<void> _buildGenerationPlan(_GenTurn t) async {
+    _applyRegenSeed(t);
     // ── Continue mode: remove the last message from history ──
     // For continue mode, we exclude the last message from the chat history
     // and place it as the prompt suffix so the LLM continues from it naturally.
@@ -222,7 +223,9 @@ extension ChatServiceGenerationPlan on ChatService {
       final skipOneShots = t.mode == GenerationMode.continue_;
 
       // Chance Time injection — independent of realism mode
-      final chanceTimeBlock = skipOneShots ? '' : _getChanceTimeInjection();
+      final chanceTimeBlock = skipOneShots
+          ? ''
+          : _chaosInjection.buildChanceTimeInjection();
 
       // Hand-added item one-shots (gift / the surprise Easter egg) — same
       // register as Chance Time: a bracketed directive at maximum recency.

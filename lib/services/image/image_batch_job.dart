@@ -13,5 +13,10 @@ class ImageBatchJob {
   String get state => data['state'] as String;
   bool get edit => data['edit'] == true;
   bool get kept => data['kept'] == true;
-  Map<String, dynamic> view() => Map.of(data);
+  Map<String, dynamic> view() => {
+    ...data,
+    'config': {...(data['config'] as Map)}
+      ..remove('root')
+      ..remove('fingerprint'),
+  }..remove('source');
 }

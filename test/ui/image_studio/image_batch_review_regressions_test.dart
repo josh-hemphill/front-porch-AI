@@ -10,7 +10,7 @@ import 'package:image/image.dart' as img;
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/utils/utils.dart';
-import 'expression_workspace_test.dart' as fixture;
+import '../../helpers/expression_workspace_harness.dart' as fixture;
 
 Future<void> finish(WidgetTester tester, Future<void> Function() action) async {
   var done = false;

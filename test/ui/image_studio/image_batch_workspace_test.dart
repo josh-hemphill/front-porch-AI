@@ -9,7 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/ui/pages/pages.dart';
-import 'expression_workspace_test.dart' as fixture;
+import '../../helpers/expression_workspace_harness.dart' as fixture;
 
 void main() {
   testWidgets(
@@ -109,14 +109,13 @@ void main() {
       await finish(queue.run);
       expect(queue.jobs.map((j) => j.state), ['review', 'review']);
       await finish(() async {
+        final pixels = img.decodePng(await queue.picture(queue.jobs.first.id))!;
+        expect((pixels.width, pixels.height), (64, 80));
         await queue.decide(queue.jobs.first.id, 'keep');
         await queue.saveKept(rig.repository);
         final looks = await rig.repository.getAvatarImages(rig.first.dbId!);
         expect(looks, hasLength(1));
         expect(looks.single.isLook, isTrue);
-        final pixels = img.decodePng(await queue.picture(queue.jobs.first.id))!;
-        expect((pixels.width, pixels.height), (64, 80));
-        queue.jobs.first.data['state'] = 'review';
         await queue.saveKept(rig.repository);
         expect(
           await rig.repository.getAvatarImages(rig.first.dbId!),
@@ -137,6 +136,7 @@ void main() {
           'redo',
           prompt: 'A refined garden scene',
           newSeed: false,
+          repository: rig.repository,
         );
         expect(restored.jobs.last.prompt, 'A refined garden scene');
         expect(restored.jobs.last.data['seed'], restored.jobs[1].data['seed']);

@@ -1,9 +1,11 @@
 // Copyright (C) 2026 Front Porch AI
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:front_porch_ai/services/image/image.dart';
+import 'package:front_porch_ai/services/character_repository.dart';
+import 'package:provider/provider.dart';
+import 'image_batch_candidate_picture.dart';
 import 'package:front_porch_ai/ui/widgets/widgets.dart';
 
 class ImageBatchResults extends StatelessWidget {
@@ -50,22 +52,7 @@ class ImageBatchResults extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 if (review && job.data['candidate'] != null)
-                  FutureBuilder<Uint8List>(
-                    future: queue.picture(job.id),
-                    builder: (context, image) => image.hasData
-                        ? Image.memory(
-                            image.data!,
-                            height: 220,
-                            fit: BoxFit.contain,
-                            semanticLabel:
-                                '${job.characterName} ${job.label} candidate',
-                          )
-                        : Text(
-                            image.hasError
-                                ? 'Could not load candidate: ${image.error}'
-                                : 'Loading candidate…',
-                          ),
-                  ),
+                  ImageBatchCandidatePicture(queue: queue, job: job),
                 SelectableText(job.prompt),
                 Text(
                   'Seed ${job.data['seed']} · ${job.edit ? 'Edit' : 'Create'} · ${job.data['size']}',
@@ -76,7 +63,7 @@ class ImageBatchResults extends StatelessWidget {
                   children: [
                     if (job.state == 'review')
                       TextButton(
-                        onPressed: queue.working
+                        onPressed: queue.working || queue.running
                             ? null
                             : () =>
                                   onAction(() => queue.decide(job.id, 'keep')),
@@ -89,7 +76,7 @@ class ImageBatchResults extends StatelessWidget {
                       'interrupted',
                     ].contains(job.state))
                       TextButton(
-                        onPressed: queue.working
+                        onPressed: queue.working || queue.running
                             ? null
                             : () async {
                                 final controller = TextEditingController(
@@ -148,6 +135,8 @@ class ImageBatchResults extends StatelessWidget {
                                       'redo',
                                       prompt: controller.text,
                                       newSeed: newSeed,
+                                      repository: context
+                                          .read<CharacterRepository>(),
                                     ),
                                   );
                                 }
@@ -162,7 +151,7 @@ class ImageBatchResults extends StatelessWidget {
                       'interrupted',
                     ].contains(job.state))
                       TextButton(
-                        onPressed: queue.working
+                        onPressed: queue.working || queue.running
                             ? null
                             : () => onAction(
                                 () => queue.decide(job.id, 'discard'),

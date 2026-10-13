@@ -2,19 +2,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/image/image.dart';
-import 'package:front_porch_ai/services/capability/capability.dart';
 import 'package:front_porch_ai/ui/widgets/widgets.dart';
 import 'package:front_porch_ai/ui/theme/app_colors.dart';
 import 'package:front_porch_ai/ui/pages/image_batches/image_batches.dart';
-import 'package:front_porch_ai/ui/image_studio/studio_widgets.dart';
-import 'package:front_porch_ai/services/image_prompt/image_prompt.dart';
-
-part 'image_batches/image_batch_prepare.dart';
 
 class ImageBatchesPage extends StatefulWidget {
   const ImageBatchesPage({super.key, this.queue});
@@ -24,24 +18,11 @@ class ImageBatchesPage extends StatefulWidget {
 }
 
 class _ImageBatchesPageState extends State<ImageBatchesPage> {
-  final _selected = <String>{};
-  final _prompt = TextEditingController();
-  String _kind = 'additional';
-  String _search = '';
-  bool _edit = false;
-  bool _missing = true;
-  bool _fullSet = false;
-  ExpressionPromptRules? _rules;
   int _tab = 0;
   String? _error;
   @override
   void dispose() {
-    _prompt.dispose();
     super.dispose();
-  }
-
-  void _update(VoidCallback change) {
-    if (mounted) setState(change);
   }
 
   Future<void> _action(Future<void> Function() action) async {
@@ -80,10 +61,10 @@ class _ImageBatchesPageState extends State<ImageBatchesPage> {
                 .length;
             return Scaffold(
               appBar: AppBar(
-                title: const Text('Images'),
+                title: const Text('Image batches'),
                 actions: [
                   TextButton(
-                    onPressed: queue.working || kept == 0
+                    onPressed: busy || kept == 0
                         ? null
                         : () async {
                             if (!await confirmImageBatchSave(context, queue)) {
@@ -97,6 +78,11 @@ class _ImageBatchesPageState extends State<ImageBatchesPage> {
               ),
               body: Column(
                 children: [
+                  if (queue.loadFailed)
+                    TextButton(
+                      onPressed: () => _action(queue.retryLoad),
+                      child: const Text('Retry loading image queue'),
+                    ),
                   Padding(
                     padding: const EdgeInsets.all(16),
                     child: Wrap(
@@ -129,7 +115,7 @@ class _ImageBatchesPageState extends State<ImageBatchesPage> {
                       padding: const EdgeInsets.all(12),
                       child: Text(
                         error,
-                        style: TextStyle(color: AppColors.textPrimary(context)),
+                        style: TextStyle(color: AppColors.logError),
                       ),
                     ),
                   SegmentedButton<int>(
@@ -142,13 +128,28 @@ class _ImageBatchesPageState extends State<ImageBatchesPage> {
                     onSelectionChanged: (s) => setState(() => _tab = s.first),
                   ),
                   Expanded(
-                    child: _tab == 0
-                        ? _prepare(queue, repo, busy)
-                        : ImageBatchResults(
-                            queue: queue,
-                            review: _tab == 2,
-                            onAction: _action,
-                          ),
+                    child: IndexedStack(
+                      index: _tab,
+                      children: [
+                        ImageBatchPrepare(
+                          queue: queue,
+                          repository: repo,
+                          busy: busy || queue.loadFailed,
+                          onAction: _action,
+                          onPrepared: () => setState(() => _tab = 1),
+                        ),
+                        ImageBatchResults(
+                          queue: queue,
+                          review: false,
+                          onAction: _action,
+                        ),
+                        ImageBatchResults(
+                          queue: queue,
+                          review: true,
+                          onAction: _action,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),

@@ -35,6 +35,8 @@ it('uses full sets and shared inline Edit settings with portrait selection', asy
   expect(text()).toContain('Prompt rules');
   expect(text()).toContain('Generation settings · Edit graph and model');
   expect(text()).not.toContain('Configure in Image Studio');
+  act(() => { const settings = container.querySelector<HTMLDetailsElement>('.batch-configuration')!; settings.open = true; settings.dispatchEvent(new Event('toggle', {bubbles: true})); });
+  await settle();
   expect(container.querySelector('.fp-config-only')).not.toBeNull();
   act(() => (container.querySelector('.batch-characters input') as HTMLInputElement).click());
   click('Prepare for 1 characters'); await settle();
