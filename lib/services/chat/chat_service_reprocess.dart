@@ -245,7 +245,7 @@ extension ChatServiceReprocess on ChatService {
         // review 2026-08-11). Group-safe: the stamp carries the speaker's
         // own charId. The journal invalidation above already took the
         // rejected turn's item cards with it.
-        _restorePocketsFromStamp(lastMsg, after: false);
+        _pocketsRewinds.restoreFromStamp(lastMsg, after: false);
       }
 
       // Capture the live clock first. Fail/cancel/abort put it back so
@@ -262,13 +262,13 @@ extension ChatServiceReprocess on ChatService {
         _messages.add(lastMsg);
         _clockWriter.restoreCapturedThroughReader();
         _restoreRealismStateForSpeaker(lastMsg);
-        _restorePocketsFromStamp(lastMsg, after: true);
+        _pocketsRewinds.restoreFromStamp(lastMsg, after: true);
         return;
       }
 
       // After the unreadable-baseline bail: the bubble stays, so its
       // journal/growth cites must stay too (same rule as a departed guest).
-      _invalidateJournalFrom(
+      _timeline.invalidateFrom(
         persistMessagePosition(
           base: _history.basePosition,
           index: _messages.length,
@@ -303,7 +303,7 @@ extension ChatServiceReprocess on ChatService {
         // (and deleting the regenerated reply under-refunds by it — caught by
         // regen_chip_attach_test: the original showed a hygiene chip, the
         // regen didn't).
-        if (_needsActive && _needsSimulation.vector.isNotEmpty) {
+        if (_needsPass.active && _needsSimulation.vector.isNotEmpty) {
           _pendingRealismMetadata ??= {};
           _pendingRealismMetadata!['needs_pre_turn_vector'] =
               Map<String, int>.from(_needsSimulation.vector);
@@ -313,9 +313,9 @@ extension ChatServiceReprocess on ChatService {
 
         // Wear waits until the clock commits on the replayed reply.
         _applyMoodDecay();
-        _tickRefractoryPerReply();
+        _afterglow.tickPerReply();
 
-        await _runPreGenRealismJudges(
+        await _realismJudges.runPreGenJudges(
           onChunk: handleChunk,
           logSpeakerName: _activeCharacter?.name,
         );
@@ -346,7 +346,7 @@ extension ChatServiceReprocess on ChatService {
           _messages.add(lastMsg);
           _clockReader.applyTipClock();
           _restoreRealismStateForSpeaker(lastMsg);
-          _restorePocketsFromStamp(lastMsg, after: true);
+          _pocketsRewinds.restoreFromStamp(lastMsg, after: true);
           _pendingRealismMetadata = null;
           _realismEvalCancelled = false;
           _evalChunkTimer?.cancel();
@@ -365,7 +365,7 @@ extension ChatServiceReprocess on ChatService {
       }
 
       // In group mode the per-speaker realism eval (and its metadata / needs deltas)
-      // happens inside _generateResponse via _evaluateRealismForUpcomingSpeaker
+      // happens inside _generateResponse via RealismDance.evaluateForUpcomingSpeaker
       // for the correctly-forced speaker. Skip the 1:1 scalar synthesis here.
       Map<String, int>? regenPreTurn;
       if (_activeGroup == null && regenGuest == null) {
@@ -384,7 +384,7 @@ extension ChatServiceReprocess on ChatService {
         if (_realismEnabled) {
           _pendingRealismMetadata!['emotion_label'] = _characterEmotion;
         }
-        _pendingRealismMetadata!['realism_state'] = _captureRealismState(
+        _pendingRealismMetadata!['realism_state'] = _realismSnapshot.capture(
           preTurn: regenPreTurn,
         );
 
@@ -398,7 +398,7 @@ extension ChatServiceReprocess on ChatService {
           // returns WITH the state it was accepted under.
           _clockReader.applyTipClock();
           _restoreRealismStateForSpeaker(lastMsg);
-          _restorePocketsFromStamp(lastMsg, after: true);
+          _pocketsRewinds.restoreFromStamp(lastMsg, after: true);
           _pendingRealismMetadata = null;
           _realismEvalCancelled = false;
           notifyListeners();

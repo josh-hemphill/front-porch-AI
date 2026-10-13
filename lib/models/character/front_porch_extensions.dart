@@ -63,7 +63,7 @@ class FrontPorchExtensions {
   /// True only when the card explicitly asks for Needs. Not "does this card
   /// get Needs": a silent card reads false here yet follows the Porch Life
   /// switch, so anything deciding whether a chat runs Needs reads
-  /// [needsSimChoice] (ChatService `_seedNeedsSim`).
+  /// [needsSimChoice] (`NeedsPass.seedNeedsSim`).
   bool get needsSimEnabled => needsSimChoice ?? false;
   set needsSimEnabled(bool value) => needsSimChoice = value;
 
@@ -128,8 +128,8 @@ class FrontPorchExtensions {
   ///
   /// Kept as a raw map rather than a typed Pockets: this is the MODEL layer and
   /// it must not depend on a chat service leaf. The one place that reads it
-  /// (chat_service_pockets.dart) parses it through Pockets.fromJson, which
-  /// already tolerates both shapes.
+  /// (PocketsLedger) parses it through Pockets.fromJson, which already
+  /// tolerates both shapes.
   Map<String, dynamic> inventory;
 
   // Optional director/verifier thread for Realism Engine + Needs (ingests full latent context + deltas JSON;

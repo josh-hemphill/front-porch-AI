@@ -34,7 +34,7 @@ extension ChatServiceWiringRealism on ChatService {
       onSetPendingRealismMetadata: (key, value) {
         _pendingRealismMetadata ??= {};
         _pendingRealismMetadata![key] = value;
-        _requestSalienceKick(onlyIf: _pendingRealismMetadata);
+        _growthDesk.requestSalienceKick(onlyIf: _pendingRealismMetadata);
       },
       onStoryDayChanged: () {
         _recordTodayPointerOp();
@@ -121,6 +121,113 @@ extension ChatServiceWiringRealism on ChatService {
     maxSecondaryObjectives: kMaxSecondaryObjectives,
   );
 
+  /// Per-member group realism state; the map lives on [GroupRealismStore].
+  Map<String, GroupMemberRealism> get _groupRealism => _groupStore.members;
+  set _groupRealism(Map<String, GroupMemberRealism> v) =>
+      _groupStore.members = v;
+
+  GroupRealismStore _buildGroupStore() => GroupRealismStore(
+    isGroup: () => _activeGroup != null,
+    groupCharacters: () => _groupCharacters,
+    characterIdFor: _getCharacterIdFromCard,
+    hostId: _getCharacterId,
+    activeCharacter: () => _activeCharacter,
+    isGenerating: () => _isGenerating,
+    nextCharacter: () => nextCharacter,
+    workFieldsFor: _workFieldsFor,
+  );
+
+  /// The open chat as Realism and Needs read and write it — live only.
+  RealismScope _realismScope() => RealismScope(
+    messages: _messages,
+    activeCharacter: () => _activeCharacter,
+    setActiveCharacter: (c) => _activeCharacter = c,
+    activeGroup: () => _activeGroup,
+    groupCharacters: () => _groupCharacters,
+    observerMode: () => _observerMode,
+    realismEnabled: () => _realismEnabled,
+    needsSimEnabled: () => _needsSimEnabled,
+    realismSettings: () => _storageService.realismSettings,
+    clockRunning: () => _clockRunning,
+    characterIdFor: _getCharacterIdFromCard,
+    groups: _groupStore,
+    needs: () => _needsSimulation,
+    relationship: () => _relationshipService,
+    nsfw: () => _nsfwService,
+    time: () => _timeService,
+    pending: () => _pendingRealismMetadata,
+    setPending: (v) => _pendingRealismMetadata = v,
+    emotion: () => _characterEmotion,
+    setEmotion: (v) => _characterEmotion = v,
+    intensity: () => _emotionIntensity,
+    setIntensity: (v) => _emotionIntensity = v,
+    saveChat: _saveChat,
+    notify: notifyListeners,
+  );
+
+  NeedsPass _buildNeedsPass() => NeedsPass(
+    _realismScope(),
+    loadIntoScalars: (id) => _realismDance.loadIntoScalars(id),
+  );
+
+  NeedsRewinds _buildNeedsRewinds() => NeedsRewinds(
+    _realismScope(),
+    restoreRefractoryAfterBeat: (msg, id) =>
+        _afterglow.restoreAfterBeat(msg, id),
+  );
+
+  StandingMood _buildStandingMood() =>
+      StandingMood(_realismScope(), weather: () => currentWeather);
+
+  RealismSnapshot _buildRealismSnapshot() => RealismSnapshot(
+    _realismScope(),
+    needsActive: () => _needsPass.active,
+    pocketsFor: pocketsFor,
+    wearBeatOn: (msg) => _needsPass.wearBeatOn(msg),
+  );
+
+  // ── Pockets, Afterglow and their fused reply-facts transport ──
+  PocketsLedger _buildPocketsLedger() => PocketsLedger(
+    _realismScope(),
+    hostRecord: () => _pockets,
+    setHostRecord: (p) => _pockets = p,
+    originLibraryCardFor: originLibraryCardFor,
+    currentSessionId: () => _currentSessionId,
+    storyDayCount: () => storyDayCount,
+    memorySettings: () => _storageService.memorySettings,
+    itemCards: () => _itemCards,
+  );
+
+  PocketsRewinds _buildPocketsRewinds() =>
+      PocketsRewinds(_messages, _pocketsLedger, itemCards: () => _itemCards);
+
+  PocketsPass _buildPocketsPass() => PocketsPass(
+    _realismScope(),
+    _pocketsLedger,
+    _buildPocketsEval(),
+    fusedReply: () => _replyFacts.raw,
+    itemCards: () => _itemCards,
+    currentSessionId: () => _currentSessionId,
+    storyDayCount: () => storyDayCount,
+    memorySettings: () => _storageService.memorySettings,
+  );
+
+  ReplyFacts _buildReplyFacts() => ReplyFacts(
+    _realismScope(),
+    _pocketsLedger,
+    afterglowActive: () => _afterglow.active,
+    storyDayCount: () => storyDayCount,
+    buildEval: _buildReplyFactsEval,
+  );
+
+  AfterglowPass _buildAfterglowPass() => AfterglowPass(
+    _realismScope(),
+    _buildClimaxEval(),
+    fusedReply: () => _replyFacts.raw,
+    isGuestAuthoredMessage: _isGuestAuthoredMessage,
+    resolveGroupSpeakerForMessage: _resolveGroupSpeakerForMessage,
+  );
+
   // ── Chaos Mode (extracted; late final here for injection safety, before _chaosInjection) ──
   ChaosModeService _buildChaosModeService() {
     return ChaosModeService(
@@ -129,7 +236,7 @@ extension ChatServiceWiringRealism on ChatService {
       onSetPendingRealismMetadata: (key, value) {
         _pendingRealismMetadata ??= {};
         _pendingRealismMetadata![key] = value;
-        _requestSalienceKick(onlyIf: _pendingRealismMetadata);
+        _growthDesk.requestSalienceKick(onlyIf: _pendingRealismMetadata);
       },
       isAdultAllowed: () => _storageService.realismSettings.adultThemesEnabled,
       getFrequency: () => _storageService.realismSettings.chaosFrequency,
@@ -147,10 +254,10 @@ extension ChatServiceWiringRealism on ChatService {
   NsfwService _buildNsfwService() {
     return NsfwService(
       getGroupInt: (charId, key, {int defaultValue = 0}) =>
-          _groupIntOr(charId, key, defaultValue),
+          _groupStore.intOr(charId, key, defaultValue),
       getGroupValue: (charId, key) => _groupRealism[charId]?.valueFor(key),
       setGroupValue: (charId, key, v) =>
-          _memberForWrite(charId).setValue(key, v),
+          _groupStore.memberForWrite(charId).setValue(key, v),
       isClockRunning: () => _clockRunning,
     );
   }
@@ -162,12 +269,12 @@ extension ChatServiceWiringRealism on ChatService {
       getTimeOfDay: () => _timeService.timeOfDay,
       getRealismEnabled: () => _realismEnabled,
       getObserverMode: () => _observerMode,
-      getCurrentSpeakerIdForRealism: _getCurrentSpeakerIdForRealism,
+      getCurrentSpeakerIdForRealism: _groupStore.currentSpeakerId,
       getIsGroupNonObserverMode: () => _activeGroup != null,
-      getGroupNeeds: _getGroupNeeds,
-      setGroupNeeds: _setGroupNeeds,
+      getGroupNeeds: _groupStore.needsOf,
+      setGroupNeeds: _groupStore.setNeeds,
       getEnjoysLowHygiene: () => enjoysLowHygiene,
-      getNeedsSimEnabled: () => _needsActive,
+      getNeedsSimEnabled: () => _needsPass.active,
     );
   }
 
@@ -181,7 +288,7 @@ extension ChatServiceWiringRealism on ChatService {
           fullGroupCharacters(_groupCharacters).length,
       getShouldTrackInterCharacterRelationships: () =>
           _shouldTrackInterCharacterRelationships,
-      getCurrentSpeakerIdForRealism: _getCurrentSpeakerIdForRealism,
+      getCurrentSpeakerIdForRealism: _groupStore.currentSpeakerId,
       getCurrentGroupMemberIds: () => fullGroupCharacters(
         _groupCharacters,
       ).map(_getCharacterIdFromCard).toSet(),
@@ -209,43 +316,46 @@ extension ChatServiceWiringRealism on ChatService {
       getGroupAffectionScore: (charId, {int defaultValue = 0}) =>
           _groupRealism[charId]?.affection ?? defaultValue,
       setGroupAffectionScore: (charId, v) =>
-          _memberForWrite(charId).affection = v,
+          _groupStore.memberForWrite(charId).affection = v,
       getGroupLongTermScore: (charId, {int defaultValue = 0}) =>
           _groupRealism[charId]?.longTermScore ?? defaultValue,
       setGroupLongTermScore: (charId, v) =>
-          _memberForWrite(charId).longTermScore = v,
+          _groupStore.memberForWrite(charId).longTermScore = v,
       getGroupTrustLevel: (charId, {int defaultValue = 0}) =>
           _groupRealism[charId]?.trust ?? defaultValue,
-      setGroupTrustLevel: (charId, v) => _memberForWrite(charId).trust = v,
+      setGroupTrustLevel: (charId, v) =>
+          _groupStore.memberForWrite(charId).trust = v,
       getGroupFixation: (charId, {String defaultValue = ''}) =>
           _groupRealism[charId]?.fixation ?? defaultValue,
-      setGroupFixation: (charId, v) => _memberForWrite(charId).fixation = v,
+      setGroupFixation: (charId, v) =>
+          _groupStore.memberForWrite(charId).fixation = v,
       getGroupFixationLifespan: (charId, {int defaultValue = 0}) =>
           _groupRealism[charId]?.fixationLifespan ?? defaultValue,
       setGroupFixationLifespan: (charId, v) =>
-          _memberForWrite(charId).fixationLifespan = v,
+          _groupStore.memberForWrite(charId).fixationLifespan = v,
       getGroupRelationshipTier: (charId, {int defaultValue = 0}) =>
           _groupRealism[charId]?.relationshipTier ?? defaultValue,
       setGroupRelationshipTier: (charId, v) =>
-          _memberForWrite(charId).relationshipTier = v,
+          _groupStore.memberForWrite(charId).relationshipTier = v,
       getGroupLongTermTier: (charId, {int defaultValue = 0}) =>
           _groupRealism[charId]?.longTermTier ?? defaultValue,
       setGroupLongTermTier: (charId, v) =>
-          _memberForWrite(charId).longTermTier = v,
+          _groupStore.memberForWrite(charId).longTermTier = v,
       getGroupSpatialStance: (charId, {String defaultValue = ''}) =>
           _groupRealism[charId]?.spatialStance ?? defaultValue,
       setGroupSpatialStance: (charId, v) =>
-          _memberForWrite(charId).spatialStance = v,
+          _groupStore.memberForWrite(charId).spatialStance = v,
       getGroupWithUser: (charId) => _groupRealism[charId]?.withUser,
-      setGroupWithUser: (charId, v) => _memberForWrite(charId).withUser = v,
+      setGroupWithUser: (charId, v) =>
+          _groupStore.memberForWrite(charId).withUser = v,
       getGroupInterCharacterRelationships: (charId) =>
           _groupRealism[charId]?.relationships ?? const <String, int>{},
       setGroupInterCharacterRelationships: (charId, rels) =>
-          _memberForWrite(charId).relationships = rels,
+          _groupStore.memberForWrite(charId).relationships = rels,
       getGroupCounter: (charId, key, {int defaultValue = 0}) =>
-          _groupIntOr(charId, key, defaultValue),
+          _groupStore.intOr(charId, key, defaultValue),
       setGroupCounter: (charId, key, v) =>
-          _memberForWrite(charId).setValue(key, v),
+          _groupStore.memberForWrite(charId).setValue(key, v),
       // Living Time §7 v1.5: bond/trust tier crossings → "Our Story" cards.
       // Fire-and-forget; plant never throws. Owner is the current speaker.
       onTierCrossing: (crossing) {
@@ -263,7 +373,7 @@ extension ChatServiceWiringRealism on ChatService {
   void _plantTierCrossing(TierCrossing crossing, {required int citeLength}) {
     final sessionId = _currentSessionId;
     if (sessionId == null) return;
-    final charId = _getCurrentSpeakerIdForRealism();
+    final charId = _groupStore.currentSpeakerId();
     if (charId.isEmpty) return;
     unawaited(
       RelationshipMilestones.plant(

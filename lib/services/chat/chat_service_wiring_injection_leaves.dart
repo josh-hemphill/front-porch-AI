@@ -26,13 +26,13 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
       relationshipService: _relationshipService,
       getRealismEnabled: () => _realismEnabled,
       getIsGroupNonObserverMode: () => _activeGroup != null,
-      getCurrentSpeakerIdForRealism: _getCurrentSpeakerIdForRealism,
+      getCurrentSpeakerIdForRealism: _groupStore.currentSpeakerId,
       getGroupCharacters: () => _groupCharacters,
       getActiveCharacter: () => _activeCharacter,
       getShouldTrackInterCharacterRelationships: () =>
           _shouldTrackInterCharacterRelationships,
       getGroupInt: (charId, key, {int defaultValue = 0}) =>
-          _groupIntOr(charId, key, defaultValue),
+          _groupStore.intOr(charId, key, defaultValue),
       getCharacterIdFromCard: _getCharacterIdFromCard,
       getInterCharacterRelationships:
           _relationshipService.getInterCharacterRelationships,
@@ -51,10 +51,11 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
     return BehavioralInjection(
       relationshipService: _relationshipService,
       getRealismEnabled: () => _realismEnabled,
-      getOccupation: () => _workFieldsForCurrentSpeaker().occupation,
-      getHours: () => _workFieldsForCurrentSpeaker().hours,
-      getOccupationBrief: () => _workFieldsForCurrentSpeaker().occupationBrief,
-      getWorkDays: () => _workFieldsForCurrentSpeaker().workDays,
+      getOccupation: () => _groupStore.workFieldsForCurrentSpeaker().occupation,
+      getHours: () => _groupStore.workFieldsForCurrentSpeaker().hours,
+      getOccupationBrief: () =>
+          _groupStore.workFieldsForCurrentSpeaker().occupationBrief,
+      getWorkDays: () => _groupStore.workFieldsForCurrentSpeaker().workDays,
       getClockMinutes: () => _timeService.clockMinutes,
       getWeekday: () => _timeService.clock.weekday,
       getIsGroup: () => _activeGroup != null,
@@ -135,7 +136,7 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
       getWeekday: () => _timeService.clock.weekday,
       getActiveCharacter: () => _activeCharacter,
       getIsGroupNonObserverMode: () => _activeGroup != null,
-      getCurrentSpeakerIdForRealism: _getCurrentSpeakerIdForRealism,
+      getCurrentSpeakerIdForRealism: _groupStore.currentSpeakerId,
       getGroupCharacters: () => _groupCharacters,
       getCharacterIdFromCard: _getCharacterIdFromCard,
     );
@@ -147,7 +148,7 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
       getSessionId: () => _currentSessionId,
       getActiveCharacter: () => _activeCharacter,
       getIsGroupNonObserverMode: () => _activeGroup != null,
-      getCurrentSpeakerIdForRealism: _getCurrentSpeakerIdForRealism,
+      getCurrentSpeakerIdForRealism: _groupStore.currentSpeakerId,
       getGroupCharacters: () => _groupCharacters,
       getCharacterIdFromCard: _getCharacterIdFromCard,
     );
@@ -157,7 +158,7 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
     return PreferencesInjection(
       getActiveCharacter: () => _activeCharacter,
       getIsGroupNonObserverMode: () => _activeGroup != null,
-      getCurrentSpeakerIdForRealism: _getCurrentSpeakerIdForRealism,
+      getCurrentSpeakerIdForRealism: _groupStore.currentSpeakerId,
       getGroupCharacters: () => _groupCharacters,
       getCharacterIdFromCard: _getCharacterIdFromCard,
       // The install's 18+ master switch — the SAME one that shows or hides
@@ -181,7 +182,7 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
     return InventoryInjection(
       getActiveCharacter: () => _activeCharacter,
       getIsGroupNonObserverMode: () => _activeGroup != null,
-      getCurrentSpeakerIdForRealism: _getCurrentSpeakerIdForRealism,
+      getCurrentSpeakerIdForRealism: _groupStore.currentSpeakerId,
       getGroupCharacters: () => _groupCharacters,
       getCharacterIdFromCard: _getCharacterIdFromCard,
       // Off means off: with the switch down the record is never read, so the
@@ -193,27 +194,8 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
       // pass/sidebar/facade (all on storySetAside day now) or the injection
       // would hide an outfit the record still holds after midnight.
       getCurrentDay: () => _timeService.morningAnchoredDayCount,
-      // Get-and-mark: a prompt that carries an intro flags it so the NEXT
-      // user turn drops it (see _dropConsumedItemIntros). Marking here and
-      // clearing there is what lets a regen rebuild reproduce the reaction.
-      takePendingIntros: (charId) {
-        // Session filter: only intros added in THIS chat fire — an add made
-        // in another session stays queued for that chat (see the session
-        // stamp on _PendingItemIntro). Mark included only what fired.
-        final list = _pendingItemIntrosOf[this]?[charId]
-            ?.where((n) => n.session == _currentSessionId)
-            .toList();
-        if (list == null || list.isEmpty) {
-          return const <({String item, bool gift, PocketSection section})>[];
-        }
-        for (final n in list) {
-          n.included = true;
-        }
-        return [
-          for (final n in list)
-            (item: n.item, gift: n.gift, section: n.section),
-        ];
-      },
+      // Get-and-mark, session-filtered; see PocketsLedger.takePendingIntros.
+      takePendingIntros: (charId) => _pocketsLedger.takePendingIntros(charId),
       getUserName: () => _userPersonaService.persona.name,
     );
   }
@@ -224,7 +206,7 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
       getSessionId: () => _currentSessionId,
       getActiveCharacter: () => _activeCharacter,
       getIsGroupNonObserverMode: () => _activeGroup != null,
-      getCurrentSpeakerIdForRealism: _getCurrentSpeakerIdForRealism,
+      getCurrentSpeakerIdForRealism: _groupStore.currentSpeakerId,
       getGroupCharacters: () => _groupCharacters,
       getCharacterIdFromCard: _getCharacterIdFromCard,
       getUserName: () => _userPersonaService.persona.name,
@@ -237,7 +219,7 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
       getRealismEnabled: () => _realismEnabled,
       getActiveCharacter: () => _activeCharacter,
       getIsGroupNonObserverMode: () => _activeGroup != null,
-      getCurrentSpeakerIdForRealism: _getCurrentSpeakerIdForRealism,
+      getCurrentSpeakerIdForRealism: _groupStore.currentSpeakerId,
       getGroupCharacters: () => _groupCharacters,
       getCharacterIdFromCard: _getCharacterIdFromCard,
     );
@@ -253,13 +235,13 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
   NeedsInjection _buildNeedsInjection() {
     return NeedsInjection(
       needsSimulation: _needsSimulation,
-      getNeedsSimEnabled: () => _needsActive,
+      getNeedsSimEnabled: () => _needsPass.active,
       getRealismEnabled: () => _realismEnabled,
       getIsGroupNonObserverMode: () => _activeGroup != null,
-      getCurrentSpeakerIdForRealism: _getCurrentSpeakerIdForRealism,
+      getCurrentSpeakerIdForRealism: _groupStore.currentSpeakerId,
       getGroupCharacters: () => _groupCharacters,
       getEnjoysLowHygiene: () => enjoysLowHygiene,
-      getGroupNeeds: _getGroupNeeds,
+      getGroupNeeds: _groupStore.needsOf,
       getCharacterIdFromCard: _getCharacterIdFromCard,
       getNeedsOff: () =>
           _activeCharacter?.frontPorchExtensions?.needsOff ?? const [],
@@ -285,7 +267,7 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
       // Injecting it would bill the user, forever, for a line that cannot
       // change and describes a mechanism that is switched off.
       // Standing Mood: free (pure derivation), gated inside the leaf.
-      getStandingMood: buildStandingMoodInjection,
+      getStandingMood: () => _standingMood.injection,
       getAmbitionsEnabled: () =>
           _storageService.realismSettings.ambitionsEnabled && objectivesActive,
       getPromisesEnabled: () =>
@@ -336,7 +318,7 @@ extension ChatServiceWiringInjectionLeaves on ChatService {
         return phrase == null ? null : AbsenceTracker.ackNote(phrase);
       },
       getIsGroupNonObserverMode: () => _activeGroup != null,
-      getCurrentSpeakerIdForRealism: _getCurrentSpeakerIdForRealism,
+      getCurrentSpeakerIdForRealism: _groupStore.currentSpeakerId,
       getGroupCharacters: () => _groupCharacters,
       getActiveCharacter: () => _activeCharacter,
       getCharacterIdFromCard: _getCharacterIdFromCard,
