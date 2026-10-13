@@ -9,6 +9,8 @@ import 'package:path/path.dart' as p;
 
 // sherpa_onnx 1.13.8 requests this API before constructing native engines.
 const _requiredOrtApi = 28;
+const _loadLibrarySearchDllLoadDir = 0x100;
+const _loadLibrarySearchDefaultDirs = 0x1000;
 
 typedef _GetApiNative = Pointer<Void> Function(Uint32);
 typedef _GetVersionNative = Pointer<Utf8> Function();
@@ -111,7 +113,11 @@ void ensureWindowsSherpaOnnxRuntime(String? sherpaDirectory) {
     Pointer<Void> selected;
     try {
       // Search this DLL's directory and Windows default directories only.
-      selected = loadLibrary(path, nullptr, 0x100 | 0x1000);
+      selected = loadLibrary(
+        path,
+        nullptr,
+        _loadLibrarySearchDllLoadDir | _loadLibrarySearchDefaultDirs,
+      );
     } finally {
       calloc.free(path);
     }
