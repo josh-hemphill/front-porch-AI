@@ -9,6 +9,7 @@ import { api } from "../../../api/client";
 export type ExpressionIntensity = 'current' | 'subtle' | 'clear' | 'strong';
 export interface PackSlot {
   intensity?: ExpressionIntensity;
+  intensityOverride?: ExpressionIntensity | null;
   customPrompt?: boolean;
   prompt?: string;
   emotion: string;
@@ -125,7 +126,7 @@ export const updatePackRules = (promptRules: PromptRules, intensity?: Expression
 
 export const resumePack = () =>
   api.post<PackView>("/api/image/expression-pack/resume", {}).then(announce);
-export const rerollPack = (emotion: string, options?: { intensity: ExpressionIntensity; newSeed: boolean; useIntensityPrompt: boolean; promptOverride?: string }) =>
+export const rerollPack = (emotion: string, options?: { intensity?: ExpressionIntensity; followPackIntensity?: boolean; newSeed: boolean; useIntensityPrompt: boolean; promptOverride?: string }) =>
   api
     .post<PackView>("/api/image/expression-pack/reroll", { emotion, ...options })
     .then(announce);

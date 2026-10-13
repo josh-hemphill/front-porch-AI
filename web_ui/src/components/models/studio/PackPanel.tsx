@@ -384,7 +384,7 @@ export function PackPanel(props: {
       </label>
       <IntensityPicker value={intensity} onChange={setIntensity} />
       <label>
-        Source variation {denoise.toFixed(2)}
+        Variation strength {denoise.toFixed(2)}
         <input
           type="range"
           aria-label="Variation strength"
@@ -456,8 +456,8 @@ export function PackPanel(props: {
               Edit pack prompt rules...
             </button>
           ) : null}
-          {!running && pack.origin === 'phone' && pack.imported == null ?
-            <IntensityPicker label="Pack expression intensity" value={pack.intensity ?? 'current'} disabled={busy || props.sharedBusy}
+          {pack.origin === 'phone' && pack.imported == null ?
+            <IntensityPicker label="Pack expression intensity" value={pack.intensity ?? 'current'} disabled={running || busy || props.sharedBusy}
               onChange={(value) => {
                 refreshEpoch.current++; setBusy(true); setPackProblem('');
                 updatePackRules(pack.promptRules ?? {prefix:'', suffix:'', replacements:[]}, value)
@@ -491,11 +491,11 @@ export function PackPanel(props: {
                     Reroll {slot.emotion}
                   </button>
                 ) : null}
-                {!running && pack.origin === 'phone' && pack.imported == null ?
+                {slot.error ? <span> — {slot.error}</span> : null}
+                {pack.origin === 'phone' && pack.imported == null ?
                   <SlotIntensityEditor key={`${slot.emotion}:${slot.prompt}:${slot.intensity}`} slot={slot} pack={pack}
                     disabled={busy || props.sharedBusy === true} onBegin={() => {refreshEpoch.current++; setBusy(true);}}
                     onDone={(view) => {refreshEpoch.current++; setPack(view);}} onEnd={() => setBusy(false)} /> : null}
-                {slot.error ? <span> — {slot.error}</span> : null}
                 {slot.verdict &&
                 !(slot.verdict.samePerson && slot.verdict.expressionMatches) ? (
                   <span>

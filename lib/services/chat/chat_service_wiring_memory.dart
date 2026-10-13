@@ -131,12 +131,12 @@ extension ChatServiceWiringMemory on ChatService {
   // whole-personality rewrites (the evolved* session columns are dormant;
   // their content is distilled into rings by the first growth pass). Rings
   // live in the growth_rings table via growth_store, which also keeps the
-  // sync injection cache (_getEffectivePersonality runs inside synchronous
-  // prompt assembly). The pass is its own small background job with its own
+  // sync injection cache (GrowthDesk.effectivePersonality runs inside
+  // synchronous prompt assembly). The pass is its own small background job with its own
   // cursor (growth_state) — deliberately NOT a rider on the Journal pass,
   // whose per-pass cooling is tuned to journalInterval. Scenario evolution
-  // is retired: the recap owns "where we are" (_getEffectiveScenario below).
-  // Trigger/cache/UI surface live in chat_service_growth.dart (part file).
+  // is retired: the recap owns "where we are" (GrowthDesk.effectiveScenario).
+  // Trigger/cache/UI surface live in GrowthDesk (growth_desk.dart).
   GrowthStore _buildGrowthStore() {
     return GrowthStore(
       getDb: () => _db,
@@ -181,7 +181,7 @@ extension ChatServiceWiringMemory on ChatService {
       store: _growthStore,
       getSessionId: () => _currentSessionId,
       getIsGroup: () => _activeGroup != null,
-      onApplied: () => _refreshGrowthCache(),
+      onApplied: () => _growthDesk.refreshCache(),
       onNotify: notifyListeners,
     );
   }
@@ -214,7 +214,7 @@ extension ChatServiceWiringMemory on ChatService {
       getGrowthInterval: () => _storageService.memorySettings.growthInterval,
       getIsPassRunning: () => _isGrowthPassRunning,
       setIsPassRunning: (v) => _isGrowthPassRunning = v,
-      refreshCache: () => _refreshGrowthCache(),
+      refreshCache: () => _growthDesk.refreshCache(),
       onNotify: notifyListeners,
     );
   }
@@ -229,7 +229,7 @@ extension ChatServiceWiringMemory on ChatService {
         return raw == null ? null : _llmEvalEngine.stripThinkBlocks(raw);
       },
       getMaxCards: () => _storageService.memorySettings.journalMaxCards,
-      onWaypoint: () => _requestSalienceKick(),
+      onWaypoint: () => _growthDesk.requestSalienceKick(),
       onCacheWarmed: () {
         if (!_disposed) notifyListeners();
       },
@@ -259,7 +259,7 @@ extension ChatServiceWiringMemory on ChatService {
       applyBondDelta: (d) {
         if (_realismEnabled) _relationshipService.applyScoreDelta(d);
       },
-      onSalienceKick: () => _requestSalienceKick(),
+      onSalienceKick: () => _growthDesk.requestSalienceKick(),
       onCacheWarmed: () {
         if (!_disposed) notifyListeners();
       },
@@ -327,6 +327,10 @@ extension ChatServiceWiringMemory on ChatService {
       removeGroupMember: (member) async {
         final repo = _groupChatRepository;
         if (repo == null) return false;
+        if (!canRemoveCastMember) {
+          _setGuestStatus(kDirectorCastFloorNote, isError: true);
+          return true; // answered: the floor note says why
+        }
         // Narrate the member's goodbye + arm a deferred-deletion UNDO; the real
         // removal commits when the user continues (mirrors the Lite-NPC exit).
         return exitGroupMember(member, repo);
@@ -390,6 +394,20 @@ extension ChatServiceWiringMemory on ChatService {
         );
       },
       generateImage: (args) => _ensureImageCommand().handle(args),
+      director: DirectorCommands(
+        isGroup: () => _activeGroup != null,
+        hasSceneGuests: () => _sceneGuest.cards.isNotEmpty,
+        isDirecting: () => _directing,
+        promoteSceneToGroup: promoteSceneToFull,
+        stepUserOffStage: stepUserOffStage,
+        stepUserOnStage: stepUserOnStage,
+        getCast: () => _groupCharacters,
+        setWhisper: (member, text) =>
+            setDirectorWhisper(_getCharacterIdFromCard(member), text),
+        setGoal: setDirectorGoal,
+        narrate: narrateScene,
+        onSystemMessage: (m) => _setGuestStatus(m, isError: m.startsWith('⚠')),
+      ),
     );
   }
 

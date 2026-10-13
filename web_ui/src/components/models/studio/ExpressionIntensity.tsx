@@ -7,18 +7,20 @@ import { previewPrompts, rerollPack, type ExpressionIntensity, type PackSlot, ty
 export function IntensityPicker({value, onChange, disabled, label = 'Expression intensity'}: {
   value: ExpressionIntensity; onChange: (value: ExpressionIntensity) => void; disabled?: boolean; label?: string;
 }) {
-  return <label>{label}<select aria-label={label} value={value} disabled={disabled}
+  return <label className="pack-intensity">{label}<select aria-label={label} value={value} disabled={disabled}
     onChange={(e) => onChange(e.target.value as ExpressionIntensity)}>
-    <option value="current">Current prompts</option><option value="subtle">Subtle</option>
+    <option value="current">Default (original)</option><option value="subtle">Subtle</option>
     <option value="clear">Clear</option><option value="strong">Strong</option>
-  </select><small>Changes expression wording, not CFG or noise. Results depend on the model.</small></label>;
+  </select><small>Adjusts expression wording. Results depend on the model.</small></label>;
 }
 
 export function SlotIntensityEditor({slot, pack, disabled, onBegin, onDone, onEnd}: {
   slot: PackSlot; pack: PackView; disabled: boolean;
   onBegin: () => void; onDone: (pack: PackView) => void; onEnd: () => void;
 }) {
-  const [intensity, setIntensity] = useState<ExpressionIntensity>(slot.intensity ?? pack.intensity ?? 'current');
+  const [override, setOverride] = useState<ExpressionIntensity | null>(slot.intensityOverride ?? null);
+  const [intensityChanged, setIntensityChanged] = useState(false);
+  const intensity = override ?? pack.intensity ?? 'current';
   const [prompt, setPrompt] = useState(slot.prompt ?? '');
   const [generated, setGenerated] = useState(false);
   const [edited, setEdited] = useState(slot.customPrompt === true);
@@ -42,14 +44,22 @@ export function SlotIntensityEditor({slot, pack, disabled, onBegin, onDone, onEn
   };
   const run = async () => {
     onBegin(); setBusy(true); setProblem('');
-    try { onDone(await rerollPack(slot.emotion, {intensity, newSeed, useIntensityPrompt: generated, ...(edited ? {promptOverride: prompt} : {})})); }
+    try { onDone(await rerollPack(slot.emotion, {...(intensityChanged ? (override === null ? {followPackIntensity:true} : {intensity:override}) : {}), newSeed, useIntensityPrompt: generated, ...(edited ? {promptOverride: prompt} : {})})); }
     catch (e) { setProblem(e instanceof Error ? e.message : 'Could not retry expression.'); }
     finally { setBusy(false); onEnd(); }
   };
   return <details><summary>Tune {slot.emotion}</summary><fieldset disabled={disabled || busy}>
-    <IntensityPicker value={intensity} onChange={(value) => {setIntensity(value); if (!edited) void preview(value);}} label={`Intensity for ${slot.emotion}`} />
+    <label className="pack-intensity">Intensity for {slot.emotion}
+      <select aria-label={`Intensity for ${slot.emotion}`} value={override ?? 'pack'} onChange={event => {
+        const value = event.target.value === 'pack' ? null : event.target.value as ExpressionIntensity;
+        setOverride(value); setIntensityChanged(true);
+        if (!edited) void preview(value ?? pack.intensity ?? 'current');
+      }}><option value="pack">Follow pack</option><option value="current">Default (original)</option>
+        <option value="subtle">Subtle</option><option value="clear">Clear</option><option value="strong">Strong</option>
+      </select>
+    </label>
     <button type="button" onClick={() => void preview()}>Use intensity wording for {slot.emotion}</button>
-    {slot.customPrompt ? <p>A custom prompt overrides intensity until you replace its wording.</p> : null}
+    {edited && !generated ? <p>A custom prompt overrides intensity until you replace its wording.</p> : null}
     <label>Final prompt<textarea aria-label={`Prompt for ${slot.emotion}`} value={prompt}
       onChange={(e) => {setPrompt(e.target.value); setGenerated(false); setEdited(true);}} /></label>
     <label><input type="checkbox" checked={newSeed} onChange={(e) => setNewSeed(e.target.checked)} />New random seed</label>

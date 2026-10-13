@@ -3,7 +3,7 @@
 
 // Current preserves existing pack wording until a level is chosen.
 enum ExpressionIntensity {
-  current('Current prompts'),
+  current('Default (original)'),
   subtle('Subtle'),
   clear('Clear'),
   strong('Strong');
@@ -38,7 +38,7 @@ const _descriptions = <String, List<String>>{
   'amusement': [
     'faint asymmetric closed-mouth smile, gently crinkled eyes',
     'asymmetric smile, one raised brow, crinkled eyes',
-    'broad asymmetric smile, strongly crinkled eyes, raised brow',
+    'broad asymmetric closed-mouth smile, strongly crinkled eyes, raised brow',
   ],
   'anger': [
     'slightly drawn-together brows, gently tightened lips, naturally open eyes',
@@ -58,7 +58,7 @@ const _descriptions = <String, List<String>>{
   'caring': [
     'faint gentle smile, softened eyes, slightly lifted inner brows',
     'gentle smile, soft eyes, lifted inner brows',
-    'warm broad smile, deeply softened eyes, clearly lifted inner brows',
+    'warm broad closed-mouth smile, deeply softened eyes, clearly lifted inner brows',
   ],
   'confusion': [
     'one brow slightly raised, small brow crease, lightly parted lips',
@@ -118,12 +118,12 @@ const _descriptions = <String, List<String>>{
   'joy': [
     'small closed-lip smile, gently lifted cheeks, naturally open eyes',
     'warm smile, raised cheeks, gently crinkled eyes',
-    'broad smile, strongly raised cheeks, deeply crinkled eyes',
+    'broad closed-mouth smile, strongly raised cheeks, deeply crinkled eyes',
   ],
   'love': [
     'faint gentle smile, softened gaze',
     'gentle smile, soft half-lidded eyes, faint blush',
-    'warm broad smile, deeply softened eyes, visible blush',
+    'warm broad closed-mouth smile, deeply softened eyes, visible blush',
   ],
   'nervousness': [
     'slightly tense brows, lightly pressed lips, alert eyes',

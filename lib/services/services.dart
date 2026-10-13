@@ -40,6 +40,7 @@ export 'expression_pack_convert.dart';
 export 'expression_pack_jpeg_check.dart';
 export 'expression_pack_prepare.dart';
 export 'expression_pack_service.dart';
+export 'expression_pack_normalizer.dart';
 export 'model_fetch.dart';
 export 'model_manager.dart';
 export 'storage_service.dart';
@@ -99,6 +100,7 @@ export 'image_gen_service.dart';
 export 'v2_card_service.dart';
 export 'byaf_service.dart';
 export 'byaf_import_ops.dart';
+export 'persona_conversion.dart';
 export 'user_persona_service.dart';
 export 'folder_service.dart';
 

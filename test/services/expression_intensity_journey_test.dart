@@ -64,6 +64,9 @@ void main() {
         s.updateIntensity(ExpressionIntensity.subtle);
         await s.reroll(0);
         expect(prompts.last, contains('moderately narrowed eyes'));
+        await s.reroll(0, followPackIntensity: true);
+        expect(s.slots.first.intensityOverride, isNull);
+        expect(prompts.last, contains('slightly pressed lips'));
         await s.reroll(0, promptOverride: 'my exact wording');
         await s.reroll(0, intensityOverride: ExpressionIntensity.strong);
         expect(prompts.last, 'my exact wording');

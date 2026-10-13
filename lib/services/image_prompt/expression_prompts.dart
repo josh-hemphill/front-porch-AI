@@ -23,7 +23,8 @@
 /// (`a.label?.toLowerCase() == label`) finds it exactly.
 library;
 
-import 'image_prompt.dart';
+import 'expression_intensity.dart';
+import 'expression_prompt_rules.dart';
 
 /// The 8-emotion starter set (all reachable by both classifiers).
 const List<String> kCuratedExpressionSet = [
@@ -199,3 +200,27 @@ String expressionEditInstruction(
       'Keep the same person, hairstyle, outfit, pose, camera framing, and '
       'background exactly as they are.';
 }
+
+String originalExpressionPrompt({
+  required String emotion,
+  required String basePrompt,
+  required bool editMode,
+  ExpressionIntensity intensity = ExpressionIntensity.current,
+}) => editMode
+    ? expressionEditInstruction(emotion, intensity: intensity)
+    : '${expressionIntensityDescription(emotion, intensity) ?? kExpressionModifiers[emotion] ?? emotion}, $basePrompt';
+
+String composeExpressionPrompt({
+  required String emotion,
+  required String basePrompt,
+  required bool editMode,
+  ExpressionIntensity intensity = ExpressionIntensity.current,
+  required ExpressionPromptRules rules,
+}) => rules.apply(
+  originalExpressionPrompt(
+    emotion: emotion,
+    basePrompt: basePrompt,
+    editMode: editMode,
+    intensity: intensity,
+  ),
+);

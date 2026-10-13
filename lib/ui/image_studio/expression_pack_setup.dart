@@ -226,7 +226,7 @@ class _ExpressionPackSetupState extends State<ExpressionPackSetup> {
         ),
         const SizedBox(height: 16),
         Text(
-          'Source variation',
+          'Variation strength',
           style: TextStyle(
             color: AppColors.textSecondary(context),
             fontSize: 11,

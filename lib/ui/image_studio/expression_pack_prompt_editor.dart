@@ -42,6 +42,8 @@ Future<void> showPackRerollEditor(
   var denoise = session.effectiveDenoiseFor(index);
   var newSeed = false;
   var intensity = session.effectiveIntensityFor(index);
+  var followsPack = session.slots[index].intensityOverride == null;
+  var intensityChanged = false;
   var useIntensityPrompt = false;
   var promptEdited = session.slots[index].customPrompt != null;
   final emotion = session.slots[index].emotion;
@@ -64,8 +66,23 @@ Future<void> showPackRerollEditor(
               children: [
                 ExpressionIntensityPicker(
                   value: intensity,
+                  followsPack: followsPack,
+                  onFollowPack: () => setState(() {
+                    followsPack = true;
+                    intensityChanged = true;
+                    intensity = session.intensity;
+                    if (!promptEdited) {
+                      controller.text = session.intensityPromptFor(
+                        index,
+                        intensity,
+                      );
+                      useIntensityPrompt = true;
+                    }
+                  }),
                   onChanged: (value) => setState(() {
                     intensity = value;
+                    followsPack = false;
+                    intensityChanged = true;
                     if (!promptEdited) {
                       controller.text = session.intensityPromptFor(
                         index,
@@ -89,6 +106,10 @@ Future<void> showPackRerollEditor(
                     'Use intensity wording (replaces custom prompt)',
                   ),
                 ),
+                if (promptEdited && !useIntensityPrompt)
+                  const Text(
+                    'A custom prompt overrides intensity until you replace its wording.',
+                  ),
                 TextField(
                   onChanged: (_) {
                     useIntensityPrompt = false;
@@ -211,7 +232,8 @@ Future<void> showPackRerollEditor(
         promptOverride: prompt.trim() == initialPrompt.trim() ? null : prompt,
         denoiseOverride: denoise,
         newSeed: newSeed,
-        intensityOverride: intensity,
+        intensityOverride: intensityChanged && !followsPack ? intensity : null,
+        followPackIntensity: intensityChanged && followsPack,
         useIntensityPrompt: useIntensityPrompt,
       ),
     );

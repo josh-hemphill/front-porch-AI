@@ -129,17 +129,16 @@ class ExpressionPackBoard extends ChangeNotifier {
           !run.session.isRunning &&
           run.session.keptCount > 0,
       'slots': [
-        for (final slot in slots)
+        for (final (index, slot) in slots.indexed)
           {
             'emotion': slot.emotion,
             'state': slot.state.name,
             'keep': slot.keep,
             'error': slot.error,
-            'intensity': run.session
-                .effectiveIntensityFor(slots.indexOf(slot))
-                .name,
+            'intensity': run.session.effectiveIntensityFor(index).name,
+            'intensityOverride': slot.intensityOverride?.name,
             'customPrompt': slot.customPrompt != null,
-            'prompt': run.session.effectivePromptFor(slots.indexOf(slot)),
+            'prompt': run.session.effectivePromptFor(index),
             if (slot.qc != null)
               'verdict': {
                 'samePerson': slot.qc!.samePerson,

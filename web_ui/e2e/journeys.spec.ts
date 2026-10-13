@@ -8,7 +8,7 @@
 // is FPAI_REPLY.
 
 import { readFile } from 'node:fs/promises';
-import type { Locator, Page } from '@playwright/test';
+import type { APIRequestContext, Locator, Page } from '@playwright/test';
 import { expect, openRoute, SERIAL, test } from './support/fixtures';
 
 const REPLY = process.env.FPAI_REPLY ?? '';
@@ -32,7 +32,7 @@ test('expression workspace keeps its own prompt and picture across tabs', async 
     await panel.getByLabel('Image prompt', { exact: true }).fill('A deliberate pack portrait');
     await panel.getByLabel('Pack picture file').setInputFiles({
       name: 'pack-source.png', mimeType: 'image/png',
-      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'),
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAABQCAIAAAAm3eQSAAAAkUlEQVR4nO3PUQkAIBTAQGOb5CUxoCH8OITBAtzWnvN1iwsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKCB8YiXgQvuWSoOwHWgQgAAAABJRU5ErkJggg==', 'base64'),
     });
     await expect(panel).toContainText('Source: pack-source.png');
     await expect(panel.getByRole('button', { name: 'Start pack', exact: true })).toBeEnabled();
@@ -301,6 +301,48 @@ test('the creator\'s Greetings step: a steered rewrite, an edit, a delete and an
 
     await page.getByRole('button', { name: 'Open in editor' }).click();
     await expect(page).toHaveURL(new RegExp(`/edit/${id}$`));
+  } finally {
+    const gone = await page.request.post(`/api/characters/${id}/delete`);
+    expect(gone.ok(), `deleting the journey character: ${gone.status()}`).toBe(true);
+  }
+});
+
+// Library card → Manage Chats → Start new chat → persona → a fresh chat,
+// on a character made for this test (so Porch Tester's chats stay as the
+// conversation journeys left them). Start new chat is offered even though
+// this character has no saved chat yet.
+test('Manage Chats on a library card starts a new chat through the persona step', async ({ page }) => {
+  const name = `Manage Chats ${test.info().project.name}`;
+  const created = await page.request.post('/api/characters/create', {
+    data: { name, firstMessage: '*The screen door creaks.* "Back again?"' },
+  });
+  expect(created.ok(), `create: ${created.status()}`).toBe(true);
+  const id = String(((await created.json()) as { id: string | number }).id);
+  const sessions = async () =>
+    (
+      (await (
+        await page.request.get(`/api/chat/sessions?characterId=${encodeURIComponent(id)}`)
+      ).json()) as { sessions?: unknown[] }
+    ).sessions ?? [];
+  try {
+    await openRoute(page, '/');
+    const card = page.locator('.lib-card', { hasText: name });
+    await card.getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('menuitem', { name: 'Manage Chats' }).click();
+
+    const manage = page.locator('.chat-history-modal');
+    await expect(manage).toContainText('Manage Chats');
+    await manage.getByRole('button', { name: '+ Start new chat' }).click();
+    await expect(manage).toHaveCount(0);
+
+    const picker = page.locator('.modal', { hasText: `Start a new chat with ${name} as` });
+    await expect(picker).toBeVisible();
+    await picker.locator('.move-row').first().click();
+
+    await expect(page).toHaveURL(/\/chat$/);
+    await waitIdle(page);
+    await expect(rows(page).filter({ hasText: 'Back again?' })).toHaveCount(1);
+    await expect.poll(async () => (await sessions()).length).toBeGreaterThanOrEqual(1);
   } finally {
     const gone = await page.request.post(`/api/characters/${id}/delete`);
     expect(gone.ok(), `deleting the journey character: ${gone.status()}`).toBe(true);
@@ -578,4 +620,204 @@ test.describe('the Local model card', () => {
     await expect(card).toContainText('Uses your preset “Long chats”.');
     await expect(refused).toHaveCount(0);
   });
+});
+
+test.describe.serial('Director Mode', { tag: SERIAL }, () => {
+  // Stepping out turns the 1:1 into a group card in the shared library, and
+  // the other project's specs then find two cards named Second Guest or Porch
+  // Tester. Whatever happened, the group this spec made goes again.
+  let groupsBefore: string[] = [];
+  const groupIds = async (request: APIRequestContext) =>
+    ((await (await request.get('/api/groups')).json()) as { groups: { id: string }[] }).groups.map((g) => g.id);
+  test.beforeEach(async ({ request }) => {
+    groupsBefore = await groupIds(request);
+  });
+  test.afterEach(async ({ request }) => {
+    for (const id of await groupIds(request)) {
+      if (groupsBefore.includes(id)) continue;
+      const gone = await request.post(`/api/groups/${id}/delete`);
+      expect(gone.ok(), `removing the group this spec made: ${gone.status()}`).toBe(true);
+    }
+  });
+
+  test('step out of a scene to direct it, undo, direct a note, and step back in', async ({ page }) => {
+    // Second Guest's own chat, so the conversion leaves Porch Tester's alone.
+    await openRoute(page, '/');
+    await page.locator('.lib-card:not(.group-card)', { hasText: 'Second Guest' }).locator('.lib-open').click();
+    await expect(page.locator('.chat-view')).toBeVisible();
+    await waitIdle(page);
+    await page.locator('.conversations-btn').click();
+    await page.getByRole('button', { name: '+ New chat' }).click();
+    await waitIdle(page);
+
+    const box = page.locator('textarea.composer-input');
+    const strip = page.locator('.director-strip');
+    await box.fill('/join Porch Tester');
+    await box.press('Enter');
+    // The join settles after the send returns; stepping out before it lands
+    // is refused as a busy turn.
+    await expect(page.getByText('Porch Tester joined the scene')).toBeVisible();
+    await waitIdle(page);
+    await expect(strip).toContainText('You’re in the scene');
+
+    // Stepping out turns the 1:1 with a guest into a group, then directs it.
+    await strip.getByRole('button', { name: 'Step out to direct' }).click();
+    await waitIdle(page);
+    await expect(strip).toContainText('You’re directing');
+    await expect(box).toHaveAttribute('placeholder', 'Direct the scene…');
+    const undo = page.locator('.undo-bar');
+    await expect(undo).toContainText('You stepped out to direct');
+    const before = await rows(page).count();
+    await undo.getByRole('button', { name: 'Undo' }).click();
+    await expect(strip).toContainText('You’re in the scene');
+    await expect(rows(page)).toHaveCount(before - 1); // the goodbye is gone
+
+    await strip.getByRole('button', { name: 'Step out to direct' }).click();
+    await waitIdle(page);
+    await expect(undo).toContainText('You stepped out to direct'); // offered again
+    // The auto-chat delay saves on the host when the slider is let go.
+    const delay = strip.getByLabel('Auto-chat delay in seconds');
+    const savedDelay = await delay.inputValue();
+    await delay.fill('4.5');
+    await delay.blur();
+    await expect
+      .poll(async () => {
+        const s = (await (await page.request.get('/api/chat/state')).json()) as {
+          director?: { delaySeconds?: number | null };
+        };
+        return s.director?.delaySeconds;
+      })
+      .toBe(4.5);
+    await page.request.post('/api/chat/director/delay', { data: { seconds: Number(savedDelay) } });
+    await box.fill('The porch light flickers out.');
+    await box.press('Enter');
+    await waitIdle(page);
+    const note = page.locator('.bubble.director-note', { hasText: 'The porch light flickers out.' });
+    await expect(note).toContainText('Director');
+    await expect(lastRow(page).locator('.bubble.ai')).toContainText(REPLY);
+
+    await strip.getByRole('button', { name: 'Step back in' }).click();
+    await waitIdle(page);
+    await expect(strip).toContainText('You’re in the scene');
+    await expect(box).toHaveAttribute('placeholder', 'Message…');
+  });
+
+  test('pin a scene goal, set the auto-chat run, cue a speaker and narrate', async ({ page }) => {
+    await openRoute(page, '/');
+    await page.locator('.lib-card:not(.group-card)', { hasText: 'Second Guest' }).locator('.lib-open').click();
+    await expect(page.locator('.chat-view')).toBeVisible();
+    await waitIdle(page);
+    await page.locator('.conversations-btn').click();
+    await page.getByRole('button', { name: '+ New chat' }).click();
+    await waitIdle(page);
+
+    const box = page.locator('textarea.composer-input');
+    const strip = page.locator('.director-strip');
+    await box.fill('/join Porch Tester');
+    await box.press('Enter');
+    await expect(page.getByText('Porch Tester joined the scene')).toBeVisible();
+    await waitIdle(page);
+    await strip.getByRole('button', { name: 'Step out to direct' }).click();
+    await waitIdle(page);
+    await expect(strip).toContainText('You’re directing');
+
+    const directorState = async () =>
+      ((await (await page.request.get('/api/chat/state')).json()) as {
+        director?: { goal?: string; turnBudget?: number };
+      }).director;
+
+    await strip.getByLabel('Scene goal').fill('Find the lost key before dawn');
+    await strip.getByRole('button', { name: 'Pin' }).click();
+    await expect(strip.getByRole('note')).toContainText('Find the lost key before dawn');
+    await expect.poll(async () => (await directorState())?.goal).toBe('Find the lost key before dawn');
+
+    const run = strip.getByLabel('Auto-chat run length');
+    const savedRun = await run.inputValue();
+    await run.selectOption('6');
+    await expect.poll(async () => (await directorState())?.turnBudget).toBe(6);
+    await page.request.post('/api/chat/director/budget', { data: { turns: Number(savedRun) } });
+
+    // A cue has that member take their turn now.
+    let before = await rows(page).count();
+    await strip.getByLabel('Cue who speaks next').getByRole('button', { name: 'Porch Tester' }).click();
+    await waitIdle(page);
+    await expect(rows(page)).toHaveCount(before + 1);
+    await expect(lastRow(page).locator('.bubble.ai')).toContainText(REPLY);
+
+    // A quick beat is a director's note the cast answers.
+    before = await rows(page).count();
+    await strip.getByRole('button', { name: /Raise the stakes/ }).click();
+    await waitIdle(page);
+    await expect(rows(page)).toHaveCount(before + 2);
+    await expect(page.locator('.bubble.director-note').last()).toContainText('Director');
+
+    // A whisper pins for one member and clears from the strip.
+    await box.fill('/whisper Porch Tester You hid the key.');
+    await box.press('Enter');
+    const whisper = strip.getByRole('note').filter({ hasText: 'Porch Tester: You hid the key.' });
+    await expect(whisper).toBeVisible();
+    await strip.getByRole('button', { name: 'Clear the whisper to Porch Tester' }).click();
+    await expect(whisper).toHaveCount(0);
+
+    // The narrator's beat lands as its own line, and the cast answers it.
+    before = await rows(page).count();
+    await box.fill('/narrate a storm rolls in');
+    await box.press('Enter');
+    await waitIdle(page);
+    await expect(page.locator('.bubble.director-note', { hasText: 'Narrator' })).toBeVisible();
+    await expect(rows(page)).toHaveCount(before + 2);
+
+    await strip.getByRole('button', { name: 'Clear the scene goal' }).click();
+    await expect.poll(async () => (await directorState())?.goal).toBe('');
+  });
+});
+
+
+test('expression intensity rerolls Strong and can follow the pack again', async ({page, allowHttp}) => {
+  await page.request.post('/api/image/expression-pack/discard');
+  allowHttp((url,status) => status === 404 && url.includes('/api/image/expression-pack/source'));
+  const saved=await (await page.request.get('/api/image/config')).json() as {backend:string;localUrl:string};
+  try {
+    expect((await page.request.post('/api/image/config',{data:{backend:'a1111',localUrl:'http://127.0.0.1:9',currentPassword:process.env.FPAI_PASSWORD}})).ok()).toBe(true);
+    await openRoute(page,'/models');
+    await page.getByRole('tab',{name:'Expression pack',exact:true}).click();
+    const panel=page.locator('#studio-pack-panel');
+    await panel.getByLabel('Character',{exact:true}).selectOption({label:'Porch Tester'});
+    await panel.getByLabel('Image prompt',{exact:true}).fill('portrait');
+    await panel.getByLabel('Pack picture file').setInputFiles({name:'synthetic.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAABQCAIAAAAm3eQSAAAAkUlEQVR4nO3PUQkAIBTAQGOb5CUxoCH8OITBAtzWnvN1iwsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKCB8YiXgQvuWSoOwHWgQgAAAABJRU5ErkJggg==','base64')});
+    const intensity=panel.getByLabel('Expression intensity',{exact:true});
+    await intensity.selectOption('subtle');
+    await panel.getByRole('button',{name:'Prompt rules...',exact:true}).click();
+    await expect(page.getByRole('dialog')).toContainText('gently tightened lips');
+    await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
+    await intensity.selectOption('strong');
+    await panel.getByRole('button',{name:'Prompt rules...',exact:true}).click();
+    await expect(page.getByRole('dialog')).toContainText('deeply furrowed brows');
+    await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
+    await intensity.selectOption('subtle');
+    // An unavailable real backend exercises failed-slot iteration without a fake image server.
+    await panel.getByRole('button',{name:'Start pack',exact:true}).click();
+    await expect(panel.getByLabel('Pack expression intensity')).toBeEnabled({timeout:60_000});
+    await panel.getByText('Tune anger',{exact:true}).click();
+    const slot=panel.getByLabel('Intensity for anger');
+    await expect(slot).toHaveValue('pack');
+    await slot.selectOption('strong');
+    await expect(panel.getByLabel('Prompt for anger')).toHaveValue(/deeply furrowed brows/);
+    const retry=panel.getByRole('button',{name:'Retry anger with these settings',exact:true});
+    await retry.click();
+    await expect(slot).toBeEnabled({timeout:60_000});
+    await expect(slot).toHaveValue('strong');
+    await panel.getByText('Tune anger',{exact:true}).click();
+    await slot.selectOption('pack');
+    await expect(panel.getByLabel('Prompt for anger')).toHaveValue(/gently tightened lips/);
+    await panel.getByLabel('Prompt for anger').fill('my exact expression');
+    await retry.click();
+    await expect(slot).toBeEnabled({timeout:60_000});
+    await expect(slot).toHaveValue('pack');
+    await expect(panel.getByLabel('Prompt for anger')).toHaveValue('my exact expression');
+    await expect(panel).toContainText('A custom prompt overrides intensity');
+  } finally {
+    await page.request.post('/api/image/expression-pack/discard');
+    await page.request.post('/api/image/config',{data:{backend:saved.backend,localUrl:saved.localUrl,currentPassword:process.env.FPAI_PASSWORD}});
+  }
 });
