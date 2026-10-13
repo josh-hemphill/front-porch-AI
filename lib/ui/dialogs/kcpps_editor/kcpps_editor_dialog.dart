@@ -278,12 +278,13 @@ class _KcppsEditorDialogState extends State<KcppsEditorDialog> {
         KcppsChatLengthSection(c: c),
         KcppsSpeedSection(c: c),
         KcppsSmartCacheSection(c: c),
+        KcppsExtrasSection(c: c),
         KcppsChatTemplateField(
+          engineDir: c.storage.binDir.path,
           path: c.draft.chatTemplatePath,
           onChanged: (path) =>
               c.edit((d) => d.copyWith(chatTemplatePath: path)),
         ),
-        KcppsExtrasSection(c: c),
       ];
       if (box.maxWidth < 720) {
         return Column(
@@ -307,6 +308,8 @@ class _KcppsEditorDialogState extends State<KcppsEditorDialog> {
           pair(sections[0], sections[1]),
           const SizedBox(height: 16),
           pair(sections[2], sections[3]),
+          const SizedBox(height: 16),
+          sections[4],
         ],
       );
     },

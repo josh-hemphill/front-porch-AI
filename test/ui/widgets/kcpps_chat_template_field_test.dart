@@ -15,6 +15,16 @@ void main() {
     tester,
   ) async {
     var selected = '';
+    late Directory directory;
+    late File source;
+    await tester.runAsync(() async {
+      directory = await Directory.systemTemp.createTemp(
+        'fpai-template-widget-',
+      );
+      source = File('${directory.path}/example-chat-template.jinja');
+      await source.writeAsString('{{ messages }}');
+    });
+    addTearDown(() => directory.delete(recursive: true));
     final repaint = GlobalKey();
     final capture = Platform.environment['FPAI_TEMPLATE_CAPTURE'];
     if (capture != null && Platform.isWindows) {
@@ -33,20 +43,21 @@ void main() {
         theme: ThemeData(fontFamily: 'Segoe UI'),
         home: Scaffold(
           body: Center(
-            child: SizedBox(
-              width: 650,
-              height: 220,
-              child: RepaintBoundary(
-                key: repaint,
-                child: StatefulBuilder(
-                  builder: (context, setState) {
-                    return KcppsChatTemplateField(
-                      path: selected,
-                      pickFile: () async =>
-                          'E:/models/example-chat-template.jinja',
-                      onChanged: (path) => setState(() => selected = path),
-                    );
-                  },
+            child: SingleChildScrollView(
+              child: SizedBox(
+                width: 650,
+                child: RepaintBoundary(
+                  key: repaint,
+                  child: StatefulBuilder(
+                    builder: (context, setState) {
+                      return KcppsChatTemplateField(
+                        engineDir: directory.path,
+                        path: selected,
+                        pickFile: () async => source.path,
+                        onChanged: (path) => setState(() => selected = path),
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
@@ -55,9 +66,19 @@ void main() {
       ),
     );
     expect(find.textContaining('stop and restart KoboldCpp'), findsOneWidget);
-    await tester.tap(find.text('Choose .jinja file…'));
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Choose .jinja file…'));
+      for (var attempt = 0; selected.isEmpty && attempt < 100; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
     await tester.pumpAndSettle();
-    expect(selected, 'E:/models/example-chat-template.jinja');
+    expect(selected, contains('chat_templates'));
+    await tester.runAsync(() async {
+      expect(await File(selected).readAsString(), '{{ messages }}');
+      await source.delete();
+      expect(await File(selected).readAsString(), '{{ messages }}');
+    });
     expect(find.text('Use embedded template'), findsOneWidget);
     if (capture != null) {
       await tester.runAsync(() async {

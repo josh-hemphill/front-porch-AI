@@ -14,6 +14,7 @@ export 'chat_package_routes.dart';
 export 'chat_routes.dart';
 export 'chat_tools_routes.dart';
 export 'group_routes.dart';
+export 'persona_convert_routes.dart';
 export 'porch_routes.dart';
 export 'remote_routes.dart';
 export 'settings_routes.dart';
@@ -28,11 +29,7 @@ export 'voice_routes.dart';
 export 'world_routes.dart';
 export 'world_from_wiki_routes.dart';
 export 'xai_routes.dart';
-
 export 'kobold_chat_template_routes.dart';
-
 export 'civitai_routes.dart';
-
 export 'expression_pack_routes.dart';
-
 export 'image_desk_routes.dart';

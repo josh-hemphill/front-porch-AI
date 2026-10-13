@@ -38,7 +38,7 @@ export function KoboldChatTemplatePicker({ preset, onSaved }: {
   return <div className="kc-plain" aria-labelledby="kc-template-heading">
     <h4 id="kc-template-heading">Chat template</h4>
     <p>{name || 'Uses the template embedded in the GGUF.'}</p>
-    {preset.chatTemplateEditable ? <>
+    {preset.chatTemplateEditable ? <div className="kc-template-actions">
       <label className="kc-label" htmlFor="kc-template-file">Upload .jinja file</label>
       <input id="kc-template-file" type="file" accept=".jinja" disabled={busy}
         onChange={event => {
@@ -48,7 +48,7 @@ export function KoboldChatTemplatePicker({ preset, onSaved }: {
         }} />
       {name && <button className="btn" type="button" disabled={busy}
         onClick={() => void save()}>Use embedded template</button>}
-    </> : <p>Edit this preset on desktop, or select a preset in the host engine folder.</p>}
+    </div> : <p>Edit this preset on desktop, or select a preset in the host engine folder.</p>}
     <p className="kc-words">A custom template overrides the GGUF template.
       Stop and restart KoboldCpp after saving to apply the change.</p>
     {busy && <p role="status">Saving template…</p>}

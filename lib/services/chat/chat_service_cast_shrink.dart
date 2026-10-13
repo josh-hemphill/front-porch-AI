@@ -95,10 +95,10 @@ extension ChatServiceCastShrink on ChatService {
     final bool wasNeedsOn = _needsSimEnabled;
     Map<String, dynamic>? snapshot;
     if (wasRealismOn) {
-      _loadGroupRealismIntoScalars(
+      _realismDance.loadIntoScalars(
         soleId,
       ); // loads the survivor's per-char nsfw flag too
-      snapshot = _captureRealismState();
+      snapshot = _realismSnapshot.capture();
     }
     // Read the survivor's per-char NSFW flag straight from the group store (the
     // per-speaker load only ran above when realism is on; reading the live nsfw
@@ -205,7 +205,7 @@ extension ChatServiceCastShrink on ChatService {
       _emotionIntensity =
           (snapshot['emotionIntensity'] as String?) ?? _emotionIntensity;
       _nsfwService.restoreNsfwFromMessageState(snapshot);
-      _syncLoadedSlotClocks();
+      _clockWriter.syncLoadedSlotClocks();
       if (wasNeedsOn) {
         final needs = snapshot['needs'];
         if (needs is Map && needs['vector'] is Map) {
@@ -247,7 +247,7 @@ extension ChatServiceCastShrink on ChatService {
         ),
       );
     }
-    await _refreshGrowthCache();
+    await _growthDesk.refreshCache();
     await _saveChat();
     notifyListeners();
     debugPrint(
@@ -292,7 +292,7 @@ extension ChatServiceCastShrink on ChatService {
       _emotionIntensity =
           (state['emotionIntensity'] as String?) ?? _emotionIntensity;
       _nsfwService.restoreNsfwFromMessageState(state);
-      _syncLoadedSlotClocks();
+      _clockWriter.syncLoadedSlotClocks();
       if (needsEnabled) {
         final needs = state['needs'];
         if (needs is Map && needs['vector'] is Map) {
@@ -305,7 +305,7 @@ extension ChatServiceCastShrink on ChatService {
       } else {
         _needsSimulation.clearVector();
       }
-      _saveScalarsIntoGroupRealism(hostId);
+      _realismDance.saveScalarsIntoGroup(hostId);
     }
 
     // Enable-flags (independent of realism; persist via _doSaveChat columns in
@@ -354,7 +354,7 @@ extension ChatServiceCastShrink on ChatService {
         fromIsGroup: false,
         toIsGroup: true,
       );
-      await _refreshGrowthCache();
+      await _growthDesk.refreshCache();
       // Objectives -> the host MEMBER instance id + new group session.
       final origObjs = await _db.getObjectivesForCharacter(
         originalCharId,

@@ -234,8 +234,8 @@ finds the kit still there.
 `realismSettings.objectivesEnabled`. Not a stored AND at seed time. Flipping
 the global off must take effect on the next turn.
 
-**Needs run behind one gate.** `_needsActive`
-(`lib/services/chat/chat_service_needs_pass.dart`) = Realism engine AND
+**Needs run behind one gate.** `NeedsPass._needsActive`, read as
+`NeedsPass.active` (`lib/services/chat/needs_pass.dart`) = Realism engine AND
 the chat's Needs switch AND the global `needsSimDefault` read live. Every
 run (stamp, prompt lines, judge, clock wear, chip, Reprocess) reads it;
 the stored `_needsSimEnabled` is only for seeding, saving and rewinding
@@ -389,7 +389,7 @@ branch's copy.
 |-----|------------|
 | `analyze` | Analyzer issues in **changed** `.dart` files |
 | `test` | Unit/widget tests (`--concurrency=4 --exclude-tags golden`) |
-| `e2e-smoke` | A suite under `integration_test/*_test.dart` fails (one process per file, 5 shards × 3 OSes) |
+| `e2e-smoke` | A suite under `integration_test/*_test.dart` fails (one process per file, 5 shards; Linux on PRs, macOS + Windows on Rawhide/main pushes, all three on the schedule) |
 | `web-tests` | `npm run lint` / `npm test` in `web_ui/` |
 | `web-e2e` | Playwright sweep + journeys against the real app (`integration_test/web_ui/browser_test.dart`); also runs on Rawhide/main pushes |
 | `theme-lint` | New raw `Colors.blueAccent` under `lib/` |
@@ -404,7 +404,11 @@ every PR.
 deleting an existing test, golden, baseline, `test/deps/dependency_floors.json`,
 anything under `.github/`, `scripts/ci-local.sh`, or `analysis_options.yaml`
 fails until a maintainer applies **`approved-test-change`**. Adding a **new**
-test file never blocks. `integration_test/support/` (harness, no asserts) is
+test file never blocks, and neither does an edit to an existing `_test.dart`
+that deletes nothing and only adds whole `test(` / `testWidgets(` / `group(`
+calls (and imports). Touching a helper, fake or `setUp` the old tests use
+still needs the label, and so does any edit to a golden test file or one that
+mentions `autoUpdateGoldenFiles`, `goldenFileComparator` or `HttpOverrides`. `integration_test/support/` (harness, no asserts) is
 reported, not blocked.
 
 The dependency-floor test fails if `pubspec.lock` moves a package
@@ -420,6 +424,10 @@ Do not edit `pubspec.yaml` version — CI/CD normalizes releases.
 - A new guard must be **proven red** (break the fix, see fail) then green.
   If deleting the product call site still leaves the test green, it is
   decoration — say so or fix the test. Do not ship that test.
+- A new guard goes in the **existing** test file for its feature (append a
+  `test(` or `group(`). Start a new file only for a feature that has none.
+  Every test file is its own compile and launch in CI, and one-bug files
+  doubled the suite's file count in three weeks.
 - Prefer one broad interaction / E2E journey over another pure unit of a
   helper. Goldens answer “does it look right”; a tap answers “can a user do
   this.”

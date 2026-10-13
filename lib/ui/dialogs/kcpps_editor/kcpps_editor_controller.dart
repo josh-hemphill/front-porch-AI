@@ -234,7 +234,7 @@ class KcppsEditorController extends ChangeNotifier {
     problem = null;
     path = file != null && !asCopy ? file : null;
     unmanaged = (ok?.unmanagedKeys ?? const [])
-        .where((key) => key != 'jinjatemplate' && key != 'jinja_tools')
+        .where((key) => key != 'jinjatemplate' && key != 'jinja')
         .toList();
     info = seen?.info;
     fileBytes = seen?.bytes;

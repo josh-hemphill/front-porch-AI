@@ -63,7 +63,7 @@ extension ChatServiceSessionManage on ChatService {
   Future<void> persistSessionPersona() async {
     if (_currentSessionId == null) return;
     await _saveChat();
-    unawaited(_ensureBirthdayState());
+    unawaited(_birthdaySync.ensure());
   }
 
   /// [personaId] is the explicitly-picked persona ("Start New Chat"). Omitted —
@@ -175,7 +175,7 @@ extension ChatServiceSessionManage on ChatService {
         false,
       );
       // A silent card follows the Porch Life Needs switch (chat_entry twin).
-      _needsSimEnabled = _seedNeedsSim(extSeed.needsSimChoice);
+      _needsSimEnabled = _needsPass.seedNeedsSim(extSeed.needsSimChoice);
       _enjoysLowHygiene = extSeed.enjoysLowHygiene;
       if (_needsSimEnabled) {
         // Fresh chat / new session: seed from card baselines (falls back to
@@ -279,6 +279,7 @@ extension ChatServiceSessionManage on ChatService {
         // defaultMemberRealismState is perChar-only, so that path would wipe those
         // config maps. parseGroupRealismSeeds pulls just the perChar baselines.
         if (_activeGroup != null) {
+          _resetDirectorModeToDefault();
           _groupRealism = parseGroupRealismSeeds(
             _activeGroup!.defaultMemberRealismState,
           ).map((k, v) => MapEntry(k, GroupMemberRealism.fromJson(v)));
@@ -302,7 +303,7 @@ extension ChatServiceSessionManage on ChatService {
               });
           if (_needsSimEnabled) {
             // Placeholder vector only — the first per-speaker
-            // _loadGroupRealismIntoScalars replaces it with that member's own
+            // RealismDance.loadIntoScalars replaces it with that member's own
             // needs. Same flat baseline the group-entry twin uses.
             _needsSimulation.initializeFreshWithDefaults(const {
               'hunger': 80,
@@ -355,7 +356,7 @@ extension ChatServiceSessionManage on ChatService {
     // Drop the previous session's growth cache so the new chat starts with
     // the original (ungrown) personality. A fresh session has no rings and
     // no legacy blob, so an empty cache IS the correct state — the next
-    // _refreshGrowthCache (session load / first growth pass) re-scopes it.
+    // _growthDesk.refreshCache (session load / first growth pass) re-scopes it.
     _isGrowthPassRunning = false;
     _growthStore.invalidate();
 
@@ -392,9 +393,9 @@ extension ChatServiceSessionManage on ChatService {
           ),
         );
         _lorebookScanner.scanLatest();
-        _writeSlotClock(
+        _clockWriter.writeSlotClock(
           _messages.isEmpty ? null : _messages.first,
-          kind: _SlotClockWrite.seed,
+          kind: SlotClockWrite.seed,
         );
         // Overlay 0 / inherit baseline into live emotion and slots.
         // Previously only the empty-empty path applied seed, so leftover
@@ -424,9 +425,9 @@ extension ChatServiceSessionManage on ChatService {
           ),
         );
         _lorebookScanner.scanLatest();
-        _writeSlotClock(
+        _clockWriter.writeSlotClock(
           _messages.isEmpty ? null : _messages.first,
-          kind: _SlotClockWrite.seed,
+          kind: SlotClockWrite.seed,
         );
         if (_activeCharacter!.firstMessage.trim().isEmpty) {
           await _applyGreetingOpeningSeed(card: _activeCharacter!, index: 0);

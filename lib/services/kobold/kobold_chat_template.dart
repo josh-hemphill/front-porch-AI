@@ -22,7 +22,6 @@ Map<String, dynamic> kcppsWithChatTemplate(
   if (template.isNotEmpty) {
     updated['jinjatemplate'] = template;
     updated['jinja'] = true;
-    updated['jinja_tools'] = true;
   }
   return updated;
 }
@@ -56,48 +55,11 @@ Future<void> saveUploadedKoboldTemplate({
   }
   String template = '';
   if (content != null) {
-    final bytes = utf8.encode(content);
-    if (name == null ||
-        p.extension(name).toLowerCase() != '.jinja' ||
-        bytes.isEmpty ||
-        bytes.length > kChatTemplateMaxBytes ||
-        content.contains('\u0000')) {
-      throw const FormatException(
-        'Choose a nonempty .jinja text file up to 64 KiB.',
-      );
-    }
-    final uploadName = p.basename(name);
-    if (RegExp(r'[\\/:*?"<>|\x00-\x1F]').hasMatch(uploadName)) {
-      throw const FormatException(
-        'The template filename contains unsupported characters.',
-      );
-    }
-    final folder = Directory(p.join(engineDir, 'chat_templates'));
-    if (await FileSystemEntity.type(folder.path, followLinks: false) ==
-        FileSystemEntityType.link) {
-      throw const FormatException(
-        'The template folder cannot be a symbolic link.',
-      );
-    }
-    await folder.create(recursive: true);
-    final contentFolder = Directory(
-      p.join(folder.path, '${sha256.convert(bytes)}'),
+    template = await copyKoboldChatTemplate(
+      engineDir: engineDir,
+      name: name,
+      content: content,
     );
-    if (await FileSystemEntity.type(contentFolder.path, followLinks: false) ==
-        FileSystemEntityType.link) {
-      throw const FormatException(
-        'The template folder cannot be a symbolic link.',
-      );
-    }
-    await contentFolder.create(recursive: true);
-    template = p.join(contentFolder.path, uploadName);
-    if (await FileSystemEntity.type(template, followLinks: false) ==
-        FileSystemEntityType.link) {
-      throw const FormatException(
-        'The template file cannot be a symbolic link.',
-      );
-    }
-    await File(template).writeAsBytes(bytes, flush: true);
   }
   if (stillSelected?.call() == false) {
     throw const FormatException('The selected preset changed. Try again.');
@@ -112,4 +74,52 @@ Future<void> saveUploadedKoboldTemplate({
     p.basename(preset),
     encodeKcpps(kcppsWithChatTemplate((latest.read as KcppsOk).raw, template)),
   );
+}
+
+Future<String> copyKoboldChatTemplate({
+  required String engineDir,
+  required String? name,
+  required String content,
+}) async {
+  final bytes = utf8.encode(content);
+  if (name == null ||
+      p.extension(name).toLowerCase() != '.jinja' ||
+      bytes.isEmpty ||
+      bytes.length > kChatTemplateMaxBytes ||
+      content.contains('\u0000')) {
+    throw const FormatException(
+      'Choose a nonempty .jinja text file up to 64 KiB.',
+    );
+  }
+  final uploadName = p.basename(name);
+  if (RegExp(r'[\\/:*?"<>|\x00-\x1F]').hasMatch(uploadName)) {
+    throw const FormatException(
+      'The template filename contains unsupported characters.',
+    );
+  }
+  final folder = Directory(p.join(engineDir, 'chat_templates'));
+  if (await FileSystemEntity.type(folder.path, followLinks: false) ==
+      FileSystemEntityType.link) {
+    throw const FormatException(
+      'The template folder cannot be a symbolic link.',
+    );
+  }
+  await folder.create(recursive: true);
+  final contentFolder = Directory(
+    p.join(folder.path, '${sha256.convert(bytes)}'),
+  );
+  if (await FileSystemEntity.type(contentFolder.path, followLinks: false) ==
+      FileSystemEntityType.link) {
+    throw const FormatException(
+      'The template folder cannot be a symbolic link.',
+    );
+  }
+  await contentFolder.create(recursive: true);
+  final template = p.join(contentFolder.path, uploadName);
+  if (await FileSystemEntity.type(template, followLinks: false) ==
+      FileSystemEntityType.link) {
+    throw const FormatException('The template file cannot be a symbolic link.');
+  }
+  await File(template).writeAsBytes(bytes, flush: true);
+  return template;
 }

@@ -324,7 +324,10 @@ extension ChatServiceGeneration on ChatService {
                 : StoryClock.failureDriftMinutes,
           );
           // F3: persist the drift on the tip so reopen cannot rewind it.
-          _writeSlotClock(_visibleTipMessage(), kind: _SlotClockWrite.tick);
+          _clockWriter.writeSlotClock(
+            _clockReader.visibleTipMessage(),
+            kind: SlotClockWrite.tick,
+          );
         }
         _messages.add(
           ChatMessage(
@@ -351,7 +354,7 @@ extension ChatServiceGeneration on ChatService {
       // full member's Needs/bond. 1:1 scene guests (guestSpeaker) stay null.
       // Cleared in the finally below. Lite turns still skip the realism
       // dance and the realism/objective prompt blocks.
-      _turnSpeakerIdForRealism = (_activeGroup != null && guestSpeaker == null)
+      _groupStore.turnSpeakerId = (_activeGroup != null && guestSpeaker == null)
           ? _getCharacterIdFromCard(speakingCharacter)
           : null;
 
@@ -367,14 +370,14 @@ extension ChatServiceGeneration on ChatService {
           _realismActiveThisMode) {
         if (mode == GenerationMode.continue_ || skipSpeakerEval) {
           final sid = _getCharacterIdFromCard(speakingCharacter);
-          if (sid.isNotEmpty) _loadGroupRealismIntoScalars(sid);
+          if (sid.isNotEmpty) _realismDance.loadIntoScalars(sid);
         } else {
-          await _evaluateRealismForUpcomingSpeaker(speakingCharacter);
+          await _realismDance.evaluateForUpcomingSpeaker(speakingCharacter);
           // Cancel-aborts-generation, group edition: consume the flag and
           // abort before any prompt is built. Entry-state flags are reset
           // by hand — the normal clears live in completion/catch.
           if (_realismEvalCancelled) {
-            _applyTipClock();
+            _clockReader.applyTipClock();
             _pendingRealismMetadata = null;
             _needsSimulation.consumePendingCatastrophe();
             _realismEvalCancelled = false;
@@ -386,6 +389,11 @@ extension ChatServiceGeneration on ChatService {
             return;
           }
         }
+      } else if (guestSpeaker == null && _directing && !_isLiteTurn(t)) {
+        _realismDance.prepareDirectedSpeaker(
+          speakingCharacter,
+          stamp: mode != GenerationMode.continue_ && !skipSpeakerEval,
+        );
       }
 
       // ── The six-phase turn pipeline (chat_service_generation_*.dart) ──
@@ -400,7 +408,7 @@ extension ChatServiceGeneration on ChatService {
       }
       await _finalizeGenerationTurn(t);
     } catch (e) {
-      _restoreCapturedThroughReader();
+      _clockWriter.restoreCapturedThroughReader();
       // A stream that threw mid-think must not leave its live start behind.
       if (t.thinkStartedAt != null) t.sealThinkClock();
       final wasCancelled = _cancelRequested;
@@ -463,7 +471,7 @@ extension ChatServiceGeneration on ChatService {
       // on every exit (normal completion, early return, or error) so the next
       // turn's pre-pick window (e.g. _applyMoodDecay) keeps its prior
       // nextCharacter-based behaviour instead of seeing a stale speaker.
-      _turnSpeakerIdForRealism = null;
+      _groupStore.turnSpeakerId = null;
       // Stopped, refused or failed before the reply landed: the picked
       // member never spoke, so Try again (or the next send) is theirs.
       final rotation = t.rotationBeforePick;

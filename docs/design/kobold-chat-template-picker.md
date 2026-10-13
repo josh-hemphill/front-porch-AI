@@ -2,7 +2,7 @@
 
 The preset editor can select a local `.jinja` file or return to the template
 embedded in the GGUF. The selection is saved as `jinjatemplate` in the preset;
-Jinja and Jinja tool formatting are enabled for a selected custom template.
+Jinja while preserving tool-formatting settings are enabled for a selected custom template.
 Other preset settings survive save, copy and clear.
 
 The web Models page offers the same override for a selected host-owned preset.
@@ -45,3 +45,13 @@ Turn-event and prompt matrices: N/A; this changes preset configuration and
 file selection, not chat state, prompt builders, rewind or orchestration.
 Desktop and web both expose the setting. Backend activation retains its
 existing lifecycle and explicitly requires a restart for template changes.
+
+## Review verification
+
+Desktop imports copy the selected text into the same content-addressed engine-owned
+directory as web uploads. The picked source can be deleted without breaking the
+saved template. Native tool formatting is preserved, not forced by this feature.
+The facade delegates to a real `ChatTemplateSettings` class, with no new parts.
+The wide editor retains Extras as well as the template controls. All 51 targeted
+Dart/editor/hygiene tests, web lint/build, 925 Vitest tests and the migrated
+real-app template journey in Chromium and WebKit pass on current Rawhide.

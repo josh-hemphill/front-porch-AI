@@ -38,7 +38,7 @@ void main() {
       );
       expect(selected.chatTemplatePath, '/templates/selected.jinja');
       final saved = kcppsMergeEdits(original, draft.toMap(), selected.toMap());
-      expect(saved['jinja_tools'], isTrue);
+      expect(saved['jinja_tools'], isFalse);
       expect(saved['tensor_split'], original['tensor_split']);
       expect(saved['custom_future_setting'], original['custom_future_setting']);
       await preset.writeAsString(encodeKcpps(saved));
@@ -75,7 +75,7 @@ void main() {
       expect(await File(template).readAsString(), content);
       expect(saved.raw['tensor_split'], original['tensor_split']);
       expect(saved.raw['jinja'], isTrue);
-      expect(saved.raw['jinja_tools'], isTrue);
+      expect(saved.raw['jinja_tools'], isFalse);
       await saveUploadedKoboldTemplate(
         engineDir: engine.path,
         preset: preset.path,
