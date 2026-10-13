@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Front Porch AI
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 function(fpai_select_onnx_runtime output)
   set(runtime)
   foreach(library IN LISTS ARGN)
