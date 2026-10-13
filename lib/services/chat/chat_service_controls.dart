@@ -37,7 +37,7 @@ extension ChatServiceControls on ChatService {
       // ── Solution 1: Pending greeting flag ────────────────────────────
       // The greeting was placed while realism was off. Fire the baseline
       // eval now that the user has explicitly enabled it.
-      if (_greetingEvalPending && !_hasRealismBaseline) {
+      if (_greetingEvalPending && !_realismDance.hasBaseline) {
         debugPrint(
           '[Realism] Consuming pending greeting eval (user enabled realism after load).',
         );
@@ -47,7 +47,7 @@ extension ChatServiceControls on ChatService {
       // Realism was enabled mid-conversation with no baseline captured yet
       // (emotion is blank, affection is zero, multiple messages exist).
       // Run a full retrospective eval against all visible messages.
-      else if (!_hasRealismBaseline && _messages.length > 1) {
+      else if (!_realismDance.hasBaseline && _messages.length > 1) {
         debugPrint(
           '[Realism] No baseline detected — running retroactive scan on enable.',
         );
@@ -77,7 +77,7 @@ extension ChatServiceControls on ChatService {
     if (_activeGroup != null) {
       for (final c in _groupCharacters) {
         final id = _getCharacterIdFromCard(c);
-        final entry = _memberForWrite(id);
+        final entry = _groupStore.memberForWrite(id);
         entry.nsfwCooldownEnabled = enabled;
         // Parity with 1:1: NsfwService.setNsfwCooldownEnabled(false) zeroes
         // the scalar arousal + cooldowns, so disabling must clear each
@@ -169,12 +169,15 @@ extension ChatServiceControls on ChatService {
   Future<void> nudgeTimePeriod(int delta) async {
     if (!_clockRunning) return;
     final before = _timeService.clock;
-    _pendingNudgeBefore = before;
+    _clockWriter.pendingNudgeBefore = before;
     await _timeService.nudgeTimePeriod(delta);
-    _writeSlotClock(_visibleTipMessage(), kind: _SlotClockWrite.nudge);
+    _clockWriter.writeSlotClock(
+      _clockReader.visibleTipMessage(),
+      kind: SlotClockWrite.nudge,
+    );
     // Day-ate journal rides TimeService.onStoryDayChanged.
-    await _maybeMintEpisodeCrumbs(before, _timeService.clock);
-    unawaited(_ensureBirthdayState());
+    await _episodeCrumbs.maybeMint(before, _timeService.clock);
+    unawaited(_birthdaySync.ensure());
     await _saveChat();
     notifyListeners();
   }
@@ -184,12 +187,15 @@ extension ChatServiceControls on ChatService {
   Future<void> setStoryClock(DateTime clock) async {
     if (!_clockRunning) return;
     final before = _timeService.clock;
-    _pendingNudgeBefore = before;
+    _clockWriter.pendingNudgeBefore = before;
     await _timeService.setClockDirect(clock);
-    _writeSlotClock(_visibleTipMessage(), kind: _SlotClockWrite.nudge);
+    _clockWriter.writeSlotClock(
+      _clockReader.visibleTipMessage(),
+      kind: SlotClockWrite.nudge,
+    );
     // Day-ate journal rides TimeService.onStoryDayChanged.
-    await _maybeMintEpisodeCrumbs(before, _timeService.clock);
-    unawaited(_ensureBirthdayState());
+    await _episodeCrumbs.maybeMint(before, _timeService.clock);
+    unawaited(_birthdaySync.ensure());
     await _saveChat();
     notifyListeners();
   }
@@ -203,8 +209,8 @@ extension ChatServiceControls on ChatService {
     final delta = _timeService.startDate.difference(oldStart);
     shiftMessageClockStamps(_messages, delta);
     await _shiftPersistedSessionClockStamps(delta);
-    _applyTipClock();
-    unawaited(_ensureBirthdayState());
+    _clockReader.applyTipClock();
+    unawaited(_birthdaySync.ensure());
     await _saveChat();
     notifyListeners();
   }

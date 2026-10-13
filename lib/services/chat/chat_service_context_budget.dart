@@ -74,7 +74,7 @@ extension ChatServiceContextBudget on ChatService {
         ];
         speakerCard =
             '${(speaker.isLite ? buildLiteGroupTurnNote : buildSpeakerTurnNote)(speakerName: speaker.name, otherMemberNames: others, userName: _userPersonaService.persona.name, observerMode: _observerMode)}'
-            '${buildSpeakerPersonaLine(name: speaker.name, personality: _getEffectivePersonality(speaker))}\n'
+            '${buildSpeakerPersonaLine(name: speaker.name, personality: _growthDesk.effectivePersonality(speaker))}\n'
             '${speaker.mesExample}';
       }
     } else if (_activeCharacter != null) {
@@ -93,7 +93,7 @@ extension ChatServiceContextBudget on ChatService {
     final historyLines = <String>[];
     for (final m in _messages) {
       if (m.characterId == '__director__') {
-        historyLines.add('[Director: ${m.text}]');
+        historyLines.add(m.toPromptHistoryLine());
       } else {
         historyLines.add('${m.sender}: ${m.text}');
       }

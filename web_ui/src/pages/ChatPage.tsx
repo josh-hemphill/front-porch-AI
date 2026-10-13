@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMous
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { CastBar } from '../components/CastBar';
+import { DirectorStrip, ExitUndoBar } from '../components/DirectorStrip';
 import { ChatMessageList } from '../components/ChatMessageList';
 import { ChatComposer } from '../components/ChatComposer';
 import { ChatInsight } from '../components/ChatInsight';
@@ -153,6 +154,13 @@ export function ChatPage() {
   }
 
   const cast = state.cast ?? [];
+  // One Director setting to the app, then a refresh (or the failure shown).
+  const postDirector = (path: string, body: object, what: string) => {
+    api
+      .post(`/api/chat/director/${path}`, body)
+      .then(() => refresh())
+      .catch((e) => reportActionFailure(what, e));
+  };
   // A chat is active if there's a cast (group or 1:1) or a host character.
   // (In a group, state.character is null — the cast carries the participants.)
   if (cast.length === 0 && !state.character) {
@@ -238,6 +246,29 @@ export function ChatPage() {
           onFocus={focusParticipant}
           onAdd={() => setShowPicker(true)}
           onCommand={sendMessage}
+          canRemoveMember={state.director?.canRemoveMember ?? true}
+        />
+        {state.director && (state.isGroupMode || cast.length > 1) && (
+          <DirectorStrip
+            director={state.director}
+            busy={state.isGenerating}
+            onCommand={sendMessage}
+            memberNames={cast.map((c) => c.name)}
+            onAutoPlay={(on) => postDirector('autoplay', { on }, 'change auto-chat')}
+            onDelay={(seconds) => postDirector('delay', { seconds }, 'change the auto-chat delay')}
+            onGoal={(text) => postDirector('goal', { text }, 'change the scene goal')}
+            onClearWhisper={(id) => postDirector('whisper', { id, text: '' }, 'clear the whisper')}
+            onTurnBudget={(turns) => postDirector('budget', { turns }, 'change the auto-chat run')}
+          />
+        )}
+        <ExitUndoBar
+          undo={state.exitUndo ?? null}
+          onUndo={() => {
+            api
+              .post('/api/chat/exit-undo')
+              .then(() => refresh())
+              .catch((e) => reportActionFailure('undo that exit', e));
+          }}
         />
 
         <ChatNotices
@@ -342,6 +373,7 @@ export function ChatPage() {
           }}
           apiReady={state.llmReady !== false}
           apiHint={state.llmHint}
+          directing={!!state.director?.directing}
         />
       </div>
 

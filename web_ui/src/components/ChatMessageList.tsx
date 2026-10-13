@@ -23,6 +23,7 @@ import { MessageActions } from './MessageActions';
 import { type CastMember } from './CastBar';
 import { type Message } from './chatTypes';
 import { canonicalizeReasoning } from '../utils/reasoningMarkers';
+import { DIRECTOR_CHARACTER_ID } from './DirectorStrip';
 
 /// Truthful generation status (desktop status-bar parity): live prompt-reading
 /// counts from the managed local backend + which background pass holds the
@@ -176,6 +177,7 @@ const TranscriptRows = memo(function TranscriptRows({
     <>
       {messages.map((m) => {
         const speaker = !m.isUser && m.characterId ? castById.get(m.characterId) : undefined;
+        const isDirectorNote = m.characterId === DIRECTOR_CHARACTER_ID;
         // Living Time §1: dreams render as a centered narration banner
         // (desktop parity — same treatment as Chance Time).
         if (m.isDream) {
@@ -199,7 +201,10 @@ const TranscriptRows = memo(function TranscriptRows({
                 <div className="thinking-body">{m.thinkingContent}</div>
               </details>
             )}
-            <div className={m.isUser ? 'bubble user' : 'bubble ai'}>
+            <div className={isDirectorNote ? 'bubble director-note' : m.isUser ? 'bubble user' : 'bubble ai'}>
+              {isDirectorNote && (
+                <span className="director-note-label">{m.isNarration ? '📜 Narrator' : '🎬 Director'}</span>
+              )}
               {m.image && (
                 // Generated image (from /image or the Image Studio) —
                 // native right-click gives "Save image as…" in a browser.
@@ -232,25 +237,39 @@ const TranscriptRows = memo(function TranscriptRows({
                 onRevert={() => onRevert(m.index)}
               />
             )}
-            <MessageActions
-              m={m}
-              isLast={m.index === lastIndex}
-              busy={busy}
-              canSpeak={canSpeak}
-              greetCount={greetCount}
-              greetingIndex={greetingIndex}
-              userHasReplied={userHasReplied}
-              onSwipe={onSwipe}
-              onRegenerate={onRegenerate}
-              lookupWeb={lookupWeb}
-              lookupWiki={lookupWiki}
-              onContinue={onContinue}
-              onFork={() => onFork(m.index)}
-              onEdit={() => onBeginEdit(m)}
-              onDelete={() => onDelete(m.index)}
-              onVariantPicked={onVariantPicked}
-              onActionFailed={onActionFailed}
-            />
+            {m.isNarration ? (
+              // A narrator beat offers Delete only, as on the desktop.
+              <div className="msg-actions user">
+                <button
+                  className="icon-btn"
+                  title="Delete"
+                  disabled={busy && m.index === lastIndex}
+                  onClick={() => onDelete(m.index)}
+                >
+                  🗑
+                </button>
+              </div>
+            ) : (
+              <MessageActions
+                m={m}
+                isLast={m.index === lastIndex}
+                busy={busy}
+                canSpeak={canSpeak}
+                greetCount={greetCount}
+                greetingIndex={greetingIndex}
+                userHasReplied={userHasReplied}
+                onSwipe={onSwipe}
+                onRegenerate={onRegenerate}
+                lookupWeb={lookupWeb}
+                lookupWiki={lookupWiki}
+                onContinue={onContinue}
+                onFork={() => onFork(m.index)}
+                onEdit={() => onBeginEdit(m)}
+                onDelete={() => onDelete(m.index)}
+                onVariantPicked={onVariantPicked}
+                onActionFailed={onActionFailed}
+              />
+            )}
           </div>
         );
       })}
