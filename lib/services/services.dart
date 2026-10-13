@@ -31,6 +31,7 @@
 // Direct imports of individual service files remain fully supported and are
 // the correct choice when only one or two niche services are needed.
 
+export 'character_stats.dart';
 export 'desktop_spell_check_service.dart';
 export 'engine_health.dart';
 export 'expression_pack_base.dart';
@@ -84,6 +85,8 @@ export 'reasoning_effort_store.dart';
 // for the consolidated eval/impact layer; direct import also supported).
 export 'chat/needs_impact_evaluator.dart';
 export 'chat/context_viewer_snapshot.dart';
+export 'chat/reply_context.dart';
+export 'chat/token_alternatives.dart';
 
 // TTS / STT / media
 export 'tts_service.dart';
@@ -96,6 +99,7 @@ export 'image_gen_service.dart';
 export 'v2_card_service.dart';
 export 'byaf_service.dart';
 export 'byaf_import_ops.dart';
+export 'persona_conversion.dart';
 export 'user_persona_service.dart';
 export 'folder_service.dart';
 

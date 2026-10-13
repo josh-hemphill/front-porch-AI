@@ -4,6 +4,7 @@
 import 'dart:io';
 import 'package:flutter/painting.dart';
 
+// Keep new portrait decode sizes in the eviction list below.
 const kPortraitGridDecodeWidth = 512;
 const kPortraitGalleryDecodeWidth = 384;
 const kPortraitMontageDecodeWidth = 256;

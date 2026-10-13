@@ -82,7 +82,7 @@ extension ChatServiceImportSeed on ChatService {
             _storageService.realismSettings.chaosModeDefault,
         false,
       );
-      _needsSimEnabled = _seedNeedsSim(extSeed.needsSimChoice);
+      _needsSimEnabled = _needsPass.seedNeedsSim(extSeed.needsSimChoice);
       _objectivesEnabled = _storageService.realismSettings.objectivesEnabled;
       _enjoysLowHygiene = extSeed.enjoysLowHygiene;
       if (_needsSimEnabled) {
@@ -157,7 +157,7 @@ extension ChatServiceImportSeed on ChatService {
             });
         if (_needsSimEnabled) {
           // Placeholder vector only — the first per-speaker
-          // _loadGroupRealismIntoScalars replaces it with that member's own
+          // RealismDance.loadIntoScalars replaces it with that member's own
           // needs. Same flat baseline both group twins use.
           _needsSimulation.initializeFreshWithDefaults(const {
             'hunger': 80,
@@ -213,6 +213,7 @@ extension ChatServiceImportSeed on ChatService {
       'story_start_date': _timeService.storyStartDateIso,
       'chaos_mode_enabled': _chaosModeService.chaosModeEnabled,
       'chaos_pressure': _chaosModeService.chaosPressure,
+      'chaos_nsfw_enabled': _chaosModeService.chaosNsfwEnabled,
       'needs_vector': Map<String, int>.from(_needsSimulation.vector),
       if (_pockets != null) 'pockets': _pockets!.toJson(),
       if (_activeGroup != null)
@@ -320,7 +321,7 @@ extension ChatServiceImportSeed on ChatService {
       );
       _restoreRealismStateFromMessage(synth, restoreClock: false);
     }
-    _syncLoadedSlotClocks();
+    _clockWriter.syncLoadedSlotClocks();
 
     // 1:1 suitcase kit is captured from raw `_pockets` (HIDES≠erase).
     // Phase-0 nulled it so the prior open chat cannot bleed; the gated
@@ -338,7 +339,7 @@ extension ChatServiceImportSeed on ChatService {
     if (head['chaos_mode_enabled'] is bool) {
       _chaosModeService.seedFromGroupOrExt(
         head['chaos_mode_enabled'] as bool,
-        false,
+        head['chaos_nsfw_enabled'] == true,
       );
     }
     final pressure = (head['chaos_pressure'] as num?)?.toInt();

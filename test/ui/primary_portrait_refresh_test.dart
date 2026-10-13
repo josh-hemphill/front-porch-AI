@@ -9,7 +9,7 @@ import 'package:front_porch_ai/ui/pages/home/cards/cards.dart';
 import 'package:front_porch_ai/ui/chat_components/chat_components.dart';
 import 'package:front_porch_ai/ui/dialogs/avatar_gallery/avatar_gallery_controller.dart';
 import 'package:front_porch_ai/ui/dialogs/avatar_gallery/avatar_tile.dart';
-import 'image_studio/expression_workspace_test.dart' as fixture;
+import '../helpers/expression_workspace_harness.dart' as fixture;
 
 void main() {
   testWidgets(

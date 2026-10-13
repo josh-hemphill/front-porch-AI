@@ -20,6 +20,7 @@
 library;
 
 export 'waifu_brand.dart';
+export 'waifu_card_match.dart';
 export 'waifu_coworker_prompt.dart';
 export 'waifu_emphasis.dart';
 export 'waifu_folder_listing.dart';
@@ -37,6 +38,8 @@ export 'waifu_session.dart';
 export 'waifu_sit_down.dart';
 export 'waifu_skills.dart';
 export 'waifu_speech.dart';
+export 'waifu_stage.dart';
+export 'waifu_status.dart';
 export 'waifu_store.dart';
 export 'waifu_todos.dart';
 export 'waifu_tokens.dart';

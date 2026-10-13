@@ -204,6 +204,7 @@ extension AppDatabaseMaintenance on AppDatabase {
         'start_day_of_week INTEGER NOT NULL DEFAULT 0',
         'chaos_mode_enabled INTEGER NOT NULL DEFAULT 0',
         'chaos_pressure INTEGER NOT NULL DEFAULT 0',
+        'chaos_nsfw_enabled INTEGER NOT NULL DEFAULT 0', // v56
         'generation_settings TEXT',
         'user_persona_id TEXT',
         'passage_of_time_enabled INTEGER NOT NULL DEFAULT 1',
@@ -483,7 +484,7 @@ extension AppDatabaseMaintenance on AppDatabase {
     }
   }
 
-  /// Public helper so that direct-open paths (reunification, certain test or recovery
+  /// Public helper so that direct-open paths (certain test or recovery
   /// scenarios) can explicitly ensure the schema matches before using group or objective
   /// features. The primary AppDatabase.instance() path calls the repair automatically.
   Future<void> ensureSchemaIsRepaired() => _repairMissingSchemaColumns();
