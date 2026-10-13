@@ -26,7 +26,7 @@ class _RequestState {
   int aborts = 0;
 
   /// Port of the managed process launched with Jinja tool formatting.
-  int? nativeJinjaToolsPort;
+  final toolCrashGuard = KoboldToolCrashGuard();
 
   /// Chat replies still waiting for their turn.
   final Set<_Waiting> waiting = {};
@@ -77,10 +77,16 @@ extension KoboldServiceRequests on KoboldService {
     final speedTest = _requests.speedTest;
     if (speedTest != null) await speedTest.future;
     if (!isReady) return null;
+    final reasoningOff =
+        !params.reasoningEnabled || params.reasoningMaxTokens == 0;
+    if (reasoningOff && toolCrashGuard.blocks(toolConfigurationKey)) {
+      return null; // The caller owns the one existing text floor.
+    }
     http.Client? mine;
     return _runSerialized<LlmToolResponse?>(() async {
       if (params.stillWantTools?.call() == false) return null;
       if (params.cancel?.isCancelled ?? false) return null;
+      toolCrashGuard.begin(toolConfigurationKey, reasoningOff: reasoningOff);
       return postOpenAiChatWithTools(
         _baseUrl,
         params,
@@ -88,7 +94,6 @@ extension KoboldServiceRequests on KoboldService {
         thinkingModelKey: requestModel,
         foldSystemIntoUser: _systemRole.foldSystemIntoUser,
         toolChoice: params.toolChoice,
-        nativeToolsUseJinja: _nativeToolsUseJinja,
         registerClient: (client) {
           mine = client;
           _requests.wire.hold(client);
@@ -97,28 +102,6 @@ extension KoboldServiceRequests on KoboldService {
         onDone: () => _requests.wire.release(mine),
       );
     });
-  }
-
-  bool get _nativeToolsUseJinja {
-    final endpoint = Uri.tryParse(_baseUrl);
-    if (_process == null ||
-        (_residentKey ?? '').isEmpty ||
-        endpoint == null ||
-        endpoint.scheme != 'http' ||
-        !const {'127.0.0.1', 'localhost', '::1'}.contains(endpoint.host) ||
-        endpoint.port != _requests.nativeJinjaToolsPort) {
-      return false;
-    }
-    try {
-      final config = jsonDecode(_residentKey!);
-      return config is Map &&
-          config['jinja'] == true &&
-          config['jinja_tools'] == true &&
-          !kcppsIsOn(config['gendefaultsoverwrite']);
-    } on FormatException catch (error) {
-      debugPrint('[Kobold] Loaded tool configuration is unverified: $error');
-      return false;
-    }
   }
 
   /// The preset editor's speed test is about to load its own preset. Until

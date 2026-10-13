@@ -19,15 +19,18 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/gpu_backend_resolver.dart';
-import 'package:front_porch_ai/services/services.dart';
+import 'package:front_porch_ai/services/kobold/kobold.dart';
+import 'package:front_porch_ai/services/kobold_admin_swap.dart';
+import 'package:front_porch_ai/services/storage_service.dart';
 import 'package:front_porch_ai/utils/utils.dart';
 import 'package:path/path.dart' as p;
 
 /// One way to launch KoboldCpp: from a config file the app writes.
 ///
 /// The config is the user's preset or the app's own settings, made ready to
-/// run (the model's full path, chat and tool templates on, the vision file, the
+/// run (the model's full path, the chat template on, the vision file, the
 /// listen address) and written into the admin folder. KoboldCpp decides
 /// memory placement itself unless the user chose a layer count. The command
 /// line carries only what KoboldCpp will not take from a config: the port
@@ -128,9 +131,6 @@ Future<KoboldStagedRole> stageKoboldRole({
     onNote: onNote,
     trial: trial,
   );
-  // Without this, tool requests disable Jinja, ignore enable_thinking, and
-  // use legacy grammar that can crash when the reasoning budget closes.
-  config['jinja_tools'] = true;
   config['host'] = kKoboldHost;
   config['adminunloadtimeout'] = kKoboldAdminUnloadTimeout;
   final adminDir = koboldAdminDirFor(storage);
