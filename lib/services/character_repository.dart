@@ -339,7 +339,6 @@ class CharacterRepository extends ChangeNotifier {
     if (notify) notifyListeners();
   }
 
-  /// Update a character's image path and persist to DB + PNG.
   Future<void> setCharacterImagePath(
     CharacterCard card,
     String imagePath,
@@ -349,7 +348,6 @@ class CharacterRepository extends ChangeNotifier {
     await updateCharacter(card);
   }
 
-  /// Read the JSON-encoded [memorySources] list for a character.
   Future<List<String>> getMemorySources(String characterDbId) =>
       _writer.memorySources(characterDbId);
 
