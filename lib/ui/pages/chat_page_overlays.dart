@@ -265,9 +265,6 @@ List<Widget> buildChatPageOverlays(
   required bool callActive,
   required VoidCallback onEndCall,
 }) {
-  final stoppingReply =
-      chatService.isEvaluatingRealism || chatService.isProcessingGreeting;
-  final showingRealism = stoppingReply || chatService.isVerifyingRealism;
   return [
     if (chatService.isLoadingSession)
       Positioned.fill(
@@ -285,32 +282,7 @@ List<Widget> buildChatPageOverlays(
       Positioned.fill(
         child: CallOverlay(character: character, onEndCall: onEndCall),
       ),
-    if (showingRealism || chatService.isCheckingCompletion)
-      EvaluationProgressShell(
-        key: ValueKey(chatService.currentSessionId),
-        title: chatService.isProcessingGreeting
-            ? 'Reading the room…'
-            : chatService.isVerifyingRealism
-            ? 'Verifying Realism output'
-            : chatService.isEvaluatingRealism
-            ? 'Realism Engine'
-            : 'Objective Engine',
-        onStop: stoppingReply
-            ? chatService.isCancellingRealismEval
-                  ? null
-                  : () => chatService.cancelRealismEval()
-            : chatService.isCheckingCompletion &&
-                  !chatService.isVerifyingRealism
-            ? chatService.skipObjectiveCheck
-            : null,
-        stopLabel: stoppingReply ? 'Stop this reply' : 'Skip goal check',
-        details: showingRealism
-            ? RealismProcessingOverlay(
-                chatService: chatService,
-                isGreeting: chatService.isProcessingGreeting,
-              )
-            : ObjectiveCheckOverlay(chatService: chatService),
-      ),
+    ChatEvaluationProgress(chatService: chatService),
     // ONNX model download progress overlay
     Positioned.fill(
       child: Consumer<ExpressionClassifierService>(

@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { ProcessingOverlay, NO_PROCESSING } from './ProcessingOverlay';
 
-it('minimizes live details without cancelling, preserves phase actions, and resets after idle', () => {
+it('minimizes live details without cancelling, preserves phase actions, and retains the chosen view after idle', () => {
   vi.useFakeTimers();
   const host = document.createElement('div');
   document.body.append(host);
@@ -17,8 +17,11 @@ it('minimizes live details without cancelling, preserves phase actions, and rese
     expect(match, label).toBeDefined();
     act(() => match!.click());
   };
+  let minimized = false;
+  let current: Partial<typeof NO_PROCESSING> = {};
   const render = (flags: Partial<typeof NO_PROCESSING>) => act(() => root.render(createElement(
-    ProcessingOverlay, { p: { ...NO_PROCESSING, ...flags }, onCancel: cancel, onSkipObjective: skip },
+    ProcessingOverlay, { p: { ...NO_PROCESSING, ...(current = flags) }, onCancel: cancel, onSkipObjective: skip,
+      minimized, onMinimizedChange: (value: boolean) => { minimized = value; render(current); } },
   )));
   try {
     render({ active: true, realism: true, text: 'synthetic evaluation' });
@@ -28,6 +31,7 @@ it('minimizes live details without cancelling, preserves phase actions, and rese
     expect(cancel).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(31_000));
     expect(host.textContent).toContain('31s elapsed');
+    expect(host.querySelector('[aria-hidden="true"][aria-live="off"]')?.textContent).toBe('31s elapsed');
     button('Stop this reply');
     expect(cancel).toHaveBeenCalledTimes(1);
     render({ active: true, objective: true });
@@ -35,10 +39,12 @@ it('minimizes live details without cancelling, preserves phase actions, and rese
     expect(skip).toHaveBeenCalledTimes(1);
     button('Show evaluation details');
     expect(host.querySelector('.proc-stages')).not.toBeNull();
+    button('Minimize evaluation');
     render({ active: false });
     expect(host.textContent).toBe('');
     render({ active: true, greeting: true });
-    button('Minimize evaluation');
+    expect(host.querySelector('.proc-stages')).toBeNull();
+    expect(host.textContent).toContain('Show evaluation details');
     expect(host.textContent).toContain('Reading the room');
     button('Stop this reply');
     expect(cancel).toHaveBeenCalledTimes(2);

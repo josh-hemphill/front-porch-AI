@@ -9,13 +9,15 @@ class EvaluationProgressShell extends StatefulWidget {
   const EvaluationProgressShell({
     super.key,
     required this.title,
-    required this.details,
+    required this.minimized,
+    required this.onExpand,
     this.onStop,
     this.stopLabel = 'Stop this reply',
   });
 
   final String title;
-  final Widget details;
+  final bool minimized;
+  final VoidCallback onExpand;
   final VoidCallback? onStop;
   final String stopLabel;
 
@@ -25,7 +27,6 @@ class EvaluationProgressShell extends StatefulWidget {
 }
 
 class _EvaluationProgressShellState extends State<EvaluationProgressShell> {
-  bool _minimized = false;
   int _seconds = 0;
   late final Timer _timer;
 
@@ -46,14 +47,9 @@ class _EvaluationProgressShellState extends State<EvaluationProgressShell> {
 
   @override
   Widget build(BuildContext context) {
-    final seconds = _seconds;
-    final status = seconds < 30
-        ? widget.title
-        : '${widget.title} · ${seconds}s elapsed';
-    final controls = Material(
+    if (!widget.minimized) return const SizedBox.shrink();
+    return Material(
       color: AppColors.surfaceOf(context),
-      elevation: 4,
-      borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Wrap(
@@ -61,59 +57,32 @@ class _EvaluationProgressShellState extends State<EvaluationProgressShell> {
           runSpacing: 4,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            if (_minimized) ...[
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.porchAmberOf(context),
-                ),
-              ),
-              Text(
-                status,
-                style: TextStyle(color: AppColors.textPrimary(context)),
-              ),
-            ] else if (seconds >= 30)
-              Text('${seconds}s elapsed'),
-            TextButton.icon(
-              onPressed: () => setState(() => _minimized = !_minimized),
-              icon: Icon(_minimized ? Icons.open_in_full : Icons.minimize),
-              label: Text(
-                _minimized ? 'Show evaluation details' : 'Minimize evaluation',
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppColors.porchAmberOf(context),
               ),
             ),
-            if (_minimized && widget.onStop != null)
+            Text(
+              widget.title,
+              style: TextStyle(color: AppColors.textPrimary(context)),
+            ),
+            if (_seconds >= 30)
+              ExcludeSemantics(child: Text('${_seconds}s elapsed')),
+            TextButton.icon(
+              onPressed: widget.onExpand,
+              icon: const Icon(Icons.open_in_full),
+              label: const Text('Show evaluation details'),
+            ),
+            if (widget.onStop != null)
               TextButton(
                 onPressed: widget.onStop,
                 child: Text(widget.stopLabel),
               ),
           ],
         ),
-      ),
-    );
-    if (_minimized) {
-      return Positioned(
-        top: 12,
-        left: 12,
-        right: 12,
-        child: SafeArea(bottom: false, child: controls),
-      );
-    }
-    return Positioned.fill(
-      child: Stack(
-        children: [
-          widget.details,
-          Positioned(
-            top: 12,
-            right: 12,
-            left: 12,
-            child: SafeArea(
-              bottom: false,
-              child: Align(alignment: Alignment.topRight, child: controls),
-            ),
-          ),
-        ],
       ),
     );
   }

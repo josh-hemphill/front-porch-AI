@@ -184,6 +184,7 @@ class SettingsSnapshot {
       'spellCheckLanguage': _storage.spellCheckLanguage,
       // General "Follow streaming replies" (default ON). Additive — an
       // older PWA ignores the key.
+      'evaluationMinimized': _storage.uiSettings.evaluationMinimized,
       'followStreamingReplies': _storage.uiSettings.followStreamingReplies,
       ...readWorkerSettings(_storage, _llm),
     };

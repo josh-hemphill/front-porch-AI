@@ -30,14 +30,19 @@ function ActiveProcessingOverlay({
   p,
   onCancel,
   onSkipObjective,
+  minimized = false,
+  onMinimizedChange,
+  saving = false,
 }: {
+  minimized?: boolean;
+  onMinimizedChange?: (value: boolean) => void;
+  saving?: boolean;
   p: Processing;
   onCancel: () => void;
   // Stops only the goal check; the reply still comes (desktop twin:
   // objective_check_overlay.dart).
   onSkipObjective: () => void;
 }) {
-  const [minimized, setMinimized] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     if (!p.active) return;
@@ -83,8 +88,8 @@ function ActiveProcessingOverlay({
         </div>
 
         <div className="proc-progress-controls">
-          {elapsed >= 30 && <span className="muted small">{elapsed}s elapsed</span>}
-          <button type="button" aria-expanded={!minimized} onClick={() => setMinimized(!minimized)}>
+          {elapsed >= 30 && <span className="muted small" aria-hidden="true" aria-live="off">{elapsed}s elapsed</span>}
+          <button type="button" aria-expanded={!minimized} disabled={saving} onClick={() => onMinimizedChange?.(!minimized)}>
             {minimized ? 'Show evaluation details' : 'Minimize evaluation'}
           </button>
         </div>
@@ -119,6 +124,9 @@ function ActiveProcessingOverlay({
 }
 
 export function ProcessingOverlay(props: {
+  minimized?: boolean;
+  onMinimizedChange?: (value: boolean) => void;
+  saving?: boolean;
   p: Processing;
   onCancel: () => void;
   onSkipObjective: () => void;
