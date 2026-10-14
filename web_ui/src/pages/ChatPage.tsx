@@ -338,7 +338,7 @@ export function ChatPage() {
           onActionFailed={reportActionFailure}
         />
 
-        <ProcessingOverlay p={processing} onCancel={cancelRealism} onSkipObjective={skipObjectiveCheck} />
+        <ProcessingOverlay key={state.sessionId} p={processing} onCancel={cancelRealism} onSkipObjective={skipObjectiveCheck} />
 
         {imageProg && (
           <div className="image-progress-card">
