@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:front_porch_ai/database/database.dart' show AppDatabase;
@@ -16,8 +15,6 @@ import 'package:front_porch_ai/models/models.dart';
 import 'package:front_porch_ai/services/services.dart';
 import 'package:front_porch_ai/services/image/image.dart';
 import 'package:front_porch_ai/services/capability/capability.dart';
-import 'package:front_porch_ai/ui/image_studio/image_studio.dart';
-import 'package:front_porch_ai/ui/image_studio/studio_widgets.dart';
 
 /// UI-only image producer. No network transport or network response is mocked.
 class WorkspaceImages extends ChangeNotifier implements ImageGenService {
@@ -159,70 +156,4 @@ Future<WorkspaceRig> workspaceRig(WidgetTester tester) async {
     });
   });
   return rig;
-}
-
-Future<void> pumpWorkspace(
-  WidgetTester tester,
-  WorkspaceRig rig, {
-  Size size = const Size(1050, 1400),
-  ValueChanged<String>? onImported,
-  ImageStudio? studio,
-}) async {
-  await tester.binding.setSurfaceSize(size);
-  addTearDown(() => tester.binding.setSurfaceSize(null));
-  await tester.pumpWidget(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider<StorageService>.value(value: rig.storage),
-        ChangeNotifierProvider<ImageGenService>.value(value: rig.image),
-        ChangeNotifierProvider<CharacterRepository>.value(
-          value: rig.repository,
-        ),
-      ],
-      child: MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => showDialog<void>(
-                context: context,
-                builder: (_) =>
-                    studio ??
-                    ImageStudio(
-                      mode: ImageGenMode.characterPortrait,
-                      characterName: rig.first.name,
-                      characterDbId: rig.first.dbId,
-                      onExpressionsImported: onImported,
-                    ),
-              ),
-              child: const Text('Open Studio'),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-  await tester.tap(find.text('Open Studio'));
-  await tester.pump();
-  await tester.runAsync(() async {
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-  });
-  await tester.pump(const Duration(milliseconds: 400));
-  for (var attempt = 0; attempt < 20; attempt++) {
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 25));
-    });
-    await tester.pump();
-    if (find
-        .byType(ExpressionPackSetup, skipOffstage: false)
-        .evaluate()
-        .isNotEmpty) {
-      break;
-    }
-  }
-}
-
-Future<void> tapVisible(WidgetTester tester, Finder finder) async {
-  await tester.ensureVisible(finder);
-  await tester.tap(finder);
-  await tester.pump();
 }

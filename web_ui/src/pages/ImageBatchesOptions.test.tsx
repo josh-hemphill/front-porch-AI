@@ -39,6 +39,6 @@ it('uses full sets and shared inline Edit settings with portrait selection', asy
   await settle();
   expect(container.querySelector('.fp-config-only')).not.toBeNull();
   act(() => (container.querySelector('.batch-characters input') as HTMLInputElement).click());
-  click('Prepare for 1 characters'); await settle();
+  click('Prepare for 1 character'); await settle();
   expect(posts('/api/image/batches/prepare')[0].body).toMatchObject({set: 'full', kind: 'expressions', characterIds: ['c1']});
 });

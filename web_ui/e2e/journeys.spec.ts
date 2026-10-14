@@ -484,10 +484,9 @@ test.describe('the Local model card', () => {
   const setBackend = (page: Page, backend: 'kobold' | 'openRouter') =>
     page.request.post('/api/settings', { data: { backend } });
 
-  // The stand-in backend as the suite set it up. Switching the backend blanks
-  // the remote model name on purpose (BackendSettings.setBackendType: the
-  // picker must not keep the previous host's model), so putting back the
-  // backend alone leaves chat with no model.
+  // The stand-in backend as the suite set it up, put back in full: the host
+  // restores each backend's last model on a switch, but naming it here
+  // keeps the next spec independent of that.
   let standIn: { backend: string; remoteApiUrl: string; remoteModelName: string };
   test.beforeEach(async ({ request }) => {
     const s = await (await request.get('/api/settings')).json();
@@ -770,6 +769,59 @@ test.describe.serial('Director Mode', { tag: SERIAL }, () => {
     await strip.getByRole('button', { name: 'Clear the scene goal' }).click();
     await expect.poll(async () => (await directorState())?.goal).toBe('');
   });
+
+  test('auto-chat pauses with its turns kept, resumes, and stops', async ({ page }) => {
+    await openRoute(page, '/');
+    await page.locator('.lib-card:not(.group-card)', { hasText: 'Second Guest' }).locator('.lib-open').click();
+    await expect(page.locator('.chat-view')).toBeVisible();
+    await waitIdle(page);
+    await page.locator('.conversations-btn').click();
+    await page.getByRole('button', { name: '+ New chat' }).click();
+    await waitIdle(page);
+
+    const box = page.locator('textarea.composer-input');
+    const strip = page.locator('.director-strip');
+    await box.fill('/join Porch Tester');
+    await box.press('Enter');
+    await expect(page.getByText('Porch Tester joined the scene')).toBeVisible();
+    await waitIdle(page);
+    await strip.getByRole('button', { name: 'Step out to direct' }).click();
+    await waitIdle(page);
+    await expect(strip).toContainText('You’re directing');
+
+    type Director = { delaySeconds?: number | null; turnBudget?: number; turnsLeft?: number | null };
+    const director = async () =>
+      ((await (await page.request.get('/api/chat/state')).json()) as { director?: Director }).director;
+    const saved = await director();
+    // A long wait between turns, so the run sits still after each one.
+    await page.request.post('/api/chat/director/delay', { data: { seconds: 60 } });
+    await page.request.post('/api/chat/director/budget', { data: { turns: 3 } });
+    try {
+      let before = await rows(page).count();
+      await strip.getByRole('button', { name: '▶ Auto-chat', exact: true }).click();
+      await expect(rows(page)).toHaveCount(before + 1);
+      await expect.poll(async () => (await director())?.turnsLeft).toBe(2);
+
+      await strip.getByRole('button', { name: /Pause auto-chat/ }).click();
+      const resume = strip.getByRole('button', { name: /Resume auto-chat \(2 left\)/ });
+      await expect(resume).toBeVisible();
+
+      before = await rows(page).count();
+      await resume.click();
+      await expect(rows(page)).toHaveCount(before + 1);
+      await expect.poll(async () => (await director())?.turnsLeft).toBe(1);
+
+      await strip.getByRole('button', { name: /Stop auto-chat/ }).click();
+      await expect(strip.getByRole('button', { name: '▶ Auto-chat', exact: true })).toBeVisible();
+      await expect.poll(async () => (await director())?.turnsLeft ?? null).toBeNull();
+    } finally {
+      await page.request.post('/api/chat/director/autoplay', { data: { on: false } });
+      await page.request.post('/api/chat/director/delay', {
+        data: { seconds: saved?.delaySeconds ?? 15 },
+      });
+      await page.request.post('/api/chat/director/budget', { data: { turns: saved?.turnBudget ?? 0 } });
+    }
+  });
 });
 
 
@@ -788,7 +840,7 @@ test('image batches prepare full expressions with rules and persist across navig
     const dialog=page.getByRole('dialog',{name:'Prompt rules'});
     await dialog.getByLabel('Prefix',{exact:true}).fill('Preserve the costume.');
     await dialog.getByRole('button',{name:'Use for this pack',exact:true}).click();
-    await page.getByRole('button',{name:'Prepare for 1 characters',exact:true}).click();
+    await page.getByRole('button',{name:'Prepare for 1 character',exact:true}).click();
     await expect(page.getByRole('button',{name:'Start 28 images',exact:true})).toBeVisible();
     const queue=await (await page.request.get('/api/image/batches')).json() as {jobs:{id:string;prompt:string;kind:string;state:string}[]};
     created=queue.jobs.filter(j=>j.state==='waiting').map(j=>j.id);

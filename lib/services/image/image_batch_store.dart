@@ -70,7 +70,9 @@ class ImageBatchStore {
           RegExp(
             r'^comfy_(create|edit)_(workflow_id|model_choices|uploaded_workflow)$',
           ).hasMatch(plain) ||
-          plain.startsWith('draw_things') ||
+          RegExp(
+            r'^draw_things_(grpc_host|grpc_port|sampler|shift|seed_mode|tea_cache|cfg_zero_star)$',
+          ).hasMatch(plain) ||
           plain == 'comfy_ui_url' ||
           plain == 'local_image_gen_url';
     }).toList()..sort();

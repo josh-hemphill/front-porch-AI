@@ -26,7 +26,7 @@ it('focus refresh cannot invalidate a pending mutation completion', async () => 
   });
   mount(createElement(ImageBatchesPage)); await settle();
   act(() => container.querySelector<HTMLInputElement>('.batch-characters input')!.click());
-  click('Prepare for 1 characters'); await settle();
+  click('Prepare for 1 character'); await settle();
   act(() => window.dispatchEvent(new Event('focus'))); await settle();
   queue = idle;
   await act(async () => resolve(idle)); await settle();

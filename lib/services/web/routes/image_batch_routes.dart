@@ -86,6 +86,11 @@ class ImageBatchRoutes {
     router.get(
       '/api/image/batches/<id>/picture',
       (shelf.Request r, String id) => _handle(() async {
+        if (!queue.jobs.any(
+          (job) => job.id == id && job.data['candidate'] is String,
+        )) {
+          return JsonResponse.error(404, 'This batch picture is unavailable.');
+        }
         return shelf.Response.ok(
           await queue.picture(id),
           headers: {'content-type': 'image/png', 'cache-control': 'no-store'},
@@ -106,11 +111,6 @@ class ImageBatchRoutes {
       return JsonResponse.error(400, error.message);
     } on ArgumentError catch (error) {
       return JsonResponse.error(400, '${error.message}');
-    } on TypeError {
-      return JsonResponse.error(
-        400,
-        'The batch request contains invalid field types.',
-      );
     } on StateError catch (error) {
       return JsonResponse.error(409, error.message);
     } catch (error) {

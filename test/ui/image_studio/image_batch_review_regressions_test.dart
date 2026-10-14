@@ -32,7 +32,7 @@ Future<void> finish(WidgetTester tester, Future<void> Function() action) async {
     );
     await tester.pump();
   }
-  expect(done, isTrue);
+  expectSync(done, isTrue);
   if (failure != null) throw failure!;
 }
 
@@ -60,7 +60,7 @@ void main() {
         ),
         throwsStateError,
       );
-      expect(queue.jobs, isEmpty);
+      expectSync(queue.jobs, isEmpty);
     });
   });
 
@@ -96,13 +96,13 @@ void main() {
           loaded = true;
         });
         await Future<void>.delayed(const Duration(milliseconds: 20));
-        expect(loaded, isFalse);
+        expectSync(loaded, isFalse);
         release.complete();
         try {
-          expect(await moving, isNull);
+          expectSync(await moving, isNull);
           await loading;
-          expect(lazy.jobs, hasLength(1));
-          expect(lazy.jobs.single.data['config']['root'], destination.path);
+          expectSync(lazy.jobs, hasLength(1));
+          expectSync(lazy.jobs.single.data['config']['root'], destination.path);
         } finally {
           lazy.dispose();
           await destination.delete(recursive: true);
@@ -130,7 +130,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
       var closed = false;
-      expect(
+      expectSync(
         await rig.storage.setRootPath(
           '${rig.storage.rootPath}_other',
           beforeMove: () async {
@@ -139,8 +139,8 @@ void main() {
         ),
         isNotNull,
       );
-      expect(closed, isFalse);
-      expect(
+      expectSync(closed, isFalse);
+      expectSync(
         await rig.repository.getCharacterCardById(rig.first.dbId!),
         isNotNull,
       );
@@ -185,7 +185,7 @@ void main() {
         await decoded.future;
         stream.removeListener(listener);
         final cacheKey = await provider.obtainKey(ImageConfiguration.empty);
-        expect(
+        expectSync(
           PaintingBinding.instance.imageCache.containsKey(cacheKey),
           isTrue,
         );
@@ -201,15 +201,15 @@ void main() {
         final card = (await rig.repository.getCharacterCardById(
           rig.first.dbId!,
         ))!;
-        expect(
+        expectSync(
           PngMetadataUtils.extractTextChunk(
             await File(card.imagePath!).readAsBytes(),
             'chara',
           ),
           payload,
         );
-        expect(card.imagePath, original);
-        expect(
+        expectSync(card.imagePath, original);
+        expectSync(
           PaintingBinding.instance.imageCache.containsKey(cacheKey),
           isFalse,
         );
@@ -232,8 +232,11 @@ void main() {
       await queue.decide(queue.jobs.single.id, 'keep');
       await rig.repository.deleteCharacter(rig.first);
       await expectLater(queue.saveKept(rig.repository), throwsStateError);
-      expect(await rig.repository.getAvatarImages(rig.first.dbId!), isEmpty);
-      expect(queue.jobs.single.state, 'review');
+      expectSync(
+        await rig.repository.getAvatarImages(rig.first.dbId!),
+        isEmpty,
+      );
+      expectSync(queue.jobs.single.state, 'review');
     });
   });
 
@@ -257,13 +260,13 @@ void main() {
           'batch_relocation_',
         );
         try {
-          expect(await rig.storage.setRootPath(destination.path), isNull);
-          expect(await queue.picture(queue.jobs.first.id), bytes);
+          expectSync(await rig.storage.setRootPath(destination.path), isNull);
+          expectSync(await queue.picture(queue.jobs.first.id), bytes);
           final restored = ImageBatchService(rig.storage, rig.image);
           await restored.ready;
-          expect(restored.jobs, hasLength(2));
+          expectSync(restored.jobs, hasLength(2));
           await restored.run();
-          expect(restored.jobs.last.state, 'review');
+          expectSync(restored.jobs.last.state, 'review');
         } finally {
           await destination.delete(recursive: true);
         }
@@ -294,9 +297,9 @@ void main() {
         } catch (_) {
           /* The real disk error is expected. */
         }
-        expect(queue.running, isFalse);
-        expect(realImage.isGenerating, isFalse);
-        expect(queue.jobs.single.state, isNot('running'));
+        expectSync(queue.running, isFalse);
+        expectSync(realImage.isGenerating, isFalse);
+        expectSync(queue.jobs.single.state, isNot('running'));
         await blocker.delete();
         await queue.decide(queue.jobs.single.id, 'discard');
         realImage.dispose();
@@ -319,12 +322,12 @@ void main() {
           return [];
         });
         await entered.future;
-        expect(image.isGenerating, isTrue);
+        expectSync(image.isGenerating, isTrue);
         await expectLater(queue.run(), throwsStateError);
-        expect(image.isGenerating, isTrue);
+        expectSync(image.isGenerating, isTrue);
         release.complete();
         await flight;
-        expect(image.isGenerating, isFalse);
+        expectSync(image.isGenerating, isFalse);
         image.dispose();
       });
     },

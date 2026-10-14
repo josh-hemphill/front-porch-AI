@@ -35,7 +35,7 @@ export function ChatPage() {
   const session = useChatSession();
   const send = useChatSend(session.refresh);
   const {
-    opening, state, loadError, streaming, chance, imageProg, genStatus,
+    opening, switching, state, loadError, streaming, chance, imageProg, genStatus,
     processing, showSessions, setShowSessions, sessions, loadingSessions,
     toolsBump, voice, impersonateFill, scrollRef, onTranscriptScroll, refresh, stop, revealFate,
     acceptFate, cancelRealism, dismissStoppedReply, skipObjectiveCheck, openSessions, loadSession, newChat,
@@ -139,7 +139,7 @@ export function ChatPage() {
     [state?.cast],
   );
 
-  if (!state || opening || state.isLoadingSession) {
+  if (!state || opening || switching || state.isLoadingSession) {
     if (loadError && !opening) {
       return (
         <div className="page centered-col">
@@ -255,6 +255,9 @@ export function ChatPage() {
             onCommand={sendMessage}
             memberNames={cast.map((c) => c.name)}
             onAutoPlay={(on) => postDirector('autoplay', { on }, 'change auto-chat')}
+            onPauseAutoPlay={() =>
+              postDirector('autoplay', { on: false, pause: true }, 'pause auto-chat')
+            }
             onDelay={(seconds) => postDirector('delay', { seconds }, 'change the auto-chat delay')}
             onGoal={(text) => postDirector('goal', { text }, 'change the scene goal')}
             onClearWhisper={(id) => postDirector('whisper', { id, text: '' }, 'clear the whisper')}
@@ -359,7 +362,7 @@ export function ChatPage() {
         <ChatComposer
           onSend={sendMessage}
           onStop={stop}
-          isGenerating={state.isGenerating}
+          isGenerating={session.replying}
           isSettlingTurn={!!state.isSettlingTurn}
           isSendWaitingOnSettle={!!state.isSendWaitingOnSettle}
           canMic={canMic}

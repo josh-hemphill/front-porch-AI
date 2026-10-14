@@ -135,9 +135,6 @@ class ImageBatchPreparation {
               : basePrompt;
           final negative =
               store.storage.imageGenSettings.imageGenNegativePrompt;
-          final counter = kind == 'expressions'
-              ? kExpressionNegatives[label] ?? ''
-              : '';
           if (prepared.length + store.jobs.length >= 1024) {
             throw StateError('Prepare up to 1024 queued requests at a time.');
           }
@@ -149,12 +146,13 @@ class ImageBatchPreparation {
               'kind': kind,
               'label': label,
               'prompt': effective,
-              'negativePrompt': [
+              'negativePrompt': imageBatchNegativePrompt(
                 negative,
-                counter,
-              ].where((s) => s.trim().isNotEmpty).join(', '),
+                kind == 'expressions' ? label : null,
+              ),
               'seed': sharedSeed,
               'denoise': strength,
+              'denoiseOverride': denoise,
               'size': store.storage.imageGenSettings.imageGenSize,
               'edit': useEdit,
               'source': source,

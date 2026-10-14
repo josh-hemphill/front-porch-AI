@@ -63,6 +63,9 @@ class SettingsSnapshot {
       'remoteModelName': b.remoteModelName,
       'hasApiKey': b.remoteApiKey.isNotEmpty,
       'remoteApiUrlsWithKeys': b.remoteApiUrlsWithKeys,
+      // Slot → last model per host, so a provider switch restores it.
+      // Additive: an older PWA ignores it.
+      'remoteApiModels': b.rememberedRemoteModels,
       'omlxAvailable': Platform.isMacOS,
       'remoteConfigured': _llm.openRouterService.isConfigured,
       'remoteReachability': _llm.openRouterService.reachability.name,
@@ -133,6 +136,7 @@ class SettingsSnapshot {
         'realismDefaultWritable': true,
         'nsfwCooldownDefault': _storage.realismSettings.nsfwCooldownDefault,
         'needsSimDefault': _storage.realismSettings.needsSimDefault,
+        'timeSkipBridgeEnabled': _storage.realismSettings.timeSkipBridgeEnabled,
         'passageOfTimeDefault': _storage.realismSettings.passageOfTimeDefault,
         'standaloneClockEnabled':
             _storage.realismSettings.standaloneClockEnabled,

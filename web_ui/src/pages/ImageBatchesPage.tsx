@@ -91,7 +91,7 @@ export function ImageBatchesPage() {
     <section className="card batch-status" aria-label="Queue status">
       <span>{jobs.filter((j) => ['review', 'saved'].includes(j.state)).length} finished · {waiting} waiting</span>
       <button className="primary" disabled={locked || !waiting} onClick={() => void action('start')}>Start {waiting} images</button>
-      <button disabled={busy || !queue?.running} onClick={() => void action('pause')}>{queue?.pauseRequested ? 'Pausing after current image…' : 'Pause after current image'}</button>
+      <button disabled={busy || !queue?.running} onClick={() => void action('pause')}>{queue?.running && queue?.pauseRequested ? 'Pausing after current image…' : 'Pause after current image'}</button>
       <small>Runs while the desktop app remains open.</small>
     </section>
     {queue?.loadFailed ? <button disabled={busy} onClick={() => void action('retry')}>Retry loading queue</button> : null}
@@ -100,7 +100,7 @@ export function ImageBatchesPage() {
       {['prepare', 'queue', 'review'].map((value) => <button key={value} aria-pressed={tab === value} onClick={() => setTab(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}
     </div>
     {confirmSave ? <section className="card" aria-label="Confirm portrait replacement">
-      <h3>Replace primary portraits?</h3><p>The kept primary portrait candidates replace the selected characters’ current portraits. Additional portraits stay in the gallery.</p>
+      <h3>Replace primary portraits?</h3><p>The kept primary portrait candidates replace the selected characters’ current portraits; the old portraits move to the gallery. Additional portraits stay in the gallery.</p>
       <button disabled={reviewLocked} onClick={() => void save()}>Replace portraits</button><button onClick={() => setConfirmSave(false)}>Cancel</button>
     </section> : null}
     {tab === 'prepare' ? <section className="card">
@@ -133,9 +133,9 @@ export function ImageBatchesPage() {
         <div className="batch-actions"><button type="button" onClick={() => setSelected(characters.filter(c => `${c.name} ${batchCharacterPath(c.folderId, folders)}`.toLowerCase().includes(search.toLowerCase())).map(c => c.id))}>Select visible</button><button type="button" onClick={() => setSelected([])}>Clear selection</button></div>
         <div className="batch-characters">{characters.filter((c) => `${c.name} ${batchCharacterPath(c.folderId, folders)}`.toLowerCase().includes(search.toLowerCase())).map((c) => <label key={c.id}>
           <input type="checkbox" checked={selected.includes(c.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, c.id] : selected.filter((id) => id !== c.id))} />{c.hasAvatar ? <img loading="lazy" src={api.avatarUrl(`/api/characters/${c.id}/avatar`, 80, c.avatarVersion)} alt="" /> : <span className="batch-portrait-placeholder" aria-hidden="true">?</span>}
-          <span>{c.name}<small>{batchCharacterPath(c.folderId, folders)}</small></span>
+          <span>{c.name}<small>{batchCharacterPath(c.folderId, folders)}{characters.filter(other => other.name === c.name).length > 1 ? ` · ${c.id.slice(0,8)}` : ''}</small></span>
         </label>)}</div>
-        <button className="primary" disabled={!selected.length || !queue} onClick={() => void action('prepare', { characterIds: selected, kind, prompt, edit, missingOnly, set: fullSet ? 'full' : 'starter', ...(rules ? {promptRules: rules} : {}) }).then((ok) => { if (ok) setTab('queue'); })}>Prepare for {selected.length} characters</button>
+        <button className="primary" disabled={!selected.length || !queue} onClick={() => void action('prepare', { characterIds: selected, kind, prompt, edit, missingOnly, set: fullSet ? 'full' : 'starter', ...(rules ? {promptRules: rules} : {}) }).then((ok) => { if (ok) setTab('queue'); })}>Prepare for {selected.length} {selected.length === 1 ? 'character' : 'characters'}</button>
       </fieldset>
     </section> : <div className="batch-results">{!rows.length ? <p>{tab === 'review' ? 'Finished images will appear here for review.' : 'Prepare a batch to add images to the queue.'}</p> : rows.map((job) => <article className="card" key={job.id}>
       <h3>{job.characterName} · {job.label}</h3><p>{job.state}</p>

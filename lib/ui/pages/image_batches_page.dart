@@ -20,11 +20,6 @@ class ImageBatchesPage extends StatefulWidget {
 class _ImageBatchesPageState extends State<ImageBatchesPage> {
   int _tab = 0;
   String? _error;
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
   Future<void> _action(Future<void> Function() action) async {
     if (mounted) setState(() => _error = null);
     try {
@@ -171,9 +166,10 @@ Future<bool> confirmImageBatchSave(
   if (portraits == 0) return true;
   return await showWarmDialog<bool>(
         context,
-        title: 'Replace $portraits primary portraits?',
+        title:
+            'Replace $portraits primary ${portraits == 1 ? 'portrait' : 'portraits'}?',
         content: const WarmDialogText(
-          'The kept primary portrait candidates will replace those characters’ current portraits. Additional portraits remain in the gallery.',
+          'The kept primary portrait candidates will replace those characters’ current portraits. The old portraits move to the gallery; additional portraits remain there.',
         ),
         actions: [
           warmDialogCancel(context),

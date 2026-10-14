@@ -61,7 +61,9 @@ class ImageBatchReview {
           throw ArgumentError('Enter a prompt up to 16000 characters.');
         }
         String? source;
-        if (target.edit) {
+        if (target.edit ||
+            target.kind == 'expressions' ||
+            target.data['source'] != null) {
           final repository = store.repository;
           if (repository == null) {
             throw StateError(
@@ -94,9 +96,13 @@ class ImageBatchReview {
             'error': null,
             'config': store.snapshot(),
             'size': store.storage.imageGenSettings.imageGenSize,
-            'negativePrompt':
-                store.storage.imageGenSettings.imageGenNegativePrompt,
-            'denoise': store.storage.imageGenSettings.imageGenDenoise,
+            'negativePrompt': imageBatchNegativePrompt(
+              store.storage.imageGenSettings.imageGenNegativePrompt,
+              target.kind == 'expressions' ? target.label : null,
+            ),
+            'denoise':
+                target.data['denoiseOverride'] ??
+                store.storage.imageGenSettings.imageGenDenoise,
             'prompt': prompt ?? target.prompt,
             'seed': newSeed
                 ? Random.secure().nextInt(0x7fffffff)

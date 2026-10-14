@@ -261,7 +261,9 @@ class _ImageBatchPrepareState extends State<ImageBatchPrepare> {
         CheckboxListTile(
           value: _selected.contains(card.dbId),
           title: Text(card.name),
-          subtitle: Text(_folderPath(card.imagePath)),
+          subtitle: Text(
+            '${_folderPath(card.imagePath)}${repo.characters.where((other) => other.name == card.name).length > 1 ? ' · ${card.dbId!.substring(0, 8)}' : ''}',
+          ),
           secondary: card.imagePath == null
               ? const Icon(Icons.person)
               : ClipOval(
@@ -302,7 +304,9 @@ class _ImageBatchPrepareState extends State<ImageBatchPrepare> {
                   widget.onPrepared();
                 }
               }),
-        child: Text('Prepare for ${_selected.length} characters'),
+        child: Text(
+          'Prepare for ${_selected.length} ${_selected.length == 1 ? 'character' : 'characters'}',
+        ),
       ),
     ],
   );

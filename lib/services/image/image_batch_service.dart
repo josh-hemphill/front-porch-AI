@@ -183,6 +183,7 @@ class ImageBatchService extends ChangeNotifier {
       }
     } finally {
       store.running = false;
+      store.pauseRequested = false;
       store.changed();
     }
   }

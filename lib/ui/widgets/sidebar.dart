@@ -34,6 +34,7 @@ class Sidebar extends StatelessWidget {
   /// Every nav label below; the sidebar widens until the longest fits.
   static const labels = [
     'Home',
+    'Image batches',
     'The Stoop',
     'AI Character Creator',
     'Create Character',
@@ -100,7 +101,7 @@ class Sidebar extends StatelessWidget {
                     icon: Icons.collections_outlined,
                     label: 'Image batches',
                     isSelected: appState.selectedIndex == 6,
-                    onTap: () => appState.setIndex(6),
+                    onTap: () => _goTo(context, appState, 6),
                   ),
                   // The Stoop (community character hub) — a flagship destination, so it
                   // sits right under Home.
