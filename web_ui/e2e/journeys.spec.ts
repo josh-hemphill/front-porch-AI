@@ -32,7 +32,7 @@ test('expression workspace keeps its own prompt and picture across tabs', async 
     await panel.getByLabel('Image prompt', { exact: true }).fill('A deliberate pack portrait');
     await panel.getByLabel('Pack picture file').setInputFiles({
       name: 'pack-source.png', mimeType: 'image/png',
-      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'),
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAABQCAIAAAAm3eQSAAAAkUlEQVR4nO3PUQkAIBTAQGOb5CUxoCH8OITBAtzWnvN1iwsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKCB8YiXgQvuWSoOwHWgQgAAAABJRU5ErkJggg==', 'base64'),
     });
     await expect(panel).toContainText('Source: pack-source.png');
     await expect(panel.getByRole('button', { name: 'Start pack', exact: true })).toBeEnabled();
@@ -48,6 +48,40 @@ test('expression workspace keeps its own prompt and picture across tabs', async 
   } finally {
     const restored = await page.request.post('/api/image/config', {
       data: { backend: original.backend, localUrl: original.localUrl, currentPassword: process.env.FPAI_PASSWORD },
+    });
+    expect(restored.ok()).toBe(true);
+  }
+});
+
+test('the Remote API stove offers each host and asks a keyless one for its key', async ({ page }) => {
+  const original = await (await page.request.get('/api/image/config')).json() as {
+    backend: string; imageRemoteHost?: string;
+  };
+  try {
+    const configured = await page.request.post('/api/image/config', {
+      data: { backend: 'remote', imageRemoteHost: 'openrouter', currentPassword: process.env.FPAI_PASSWORD },
+    });
+    expect(configured.ok()).toBe(true);
+    await openRoute(page, '/models');
+    const stove = page.locator('.fp-remote');
+    await expect(stove).toContainText('Remote API');
+    const hosts = stove.getByRole('radiogroup', { name: 'Remote host' });
+    await expect(hosts.getByRole('radio')).toHaveCount(3);
+    await expect(hosts.getByRole('radio', { name: /OpenRouter/ })).toHaveAttribute('aria-checked', 'true');
+    await expect(stove).toContainText('Paste your OpenRouter key to use it here');
+    await expect(stove).toContainText('Add an OpenRouter key, or pick another host.');
+    await expect(stove.getByRole('button', { name: 'Generate', exact: true })).toBeDisabled();
+    await expect(page.getByText('LoRA', { exact: true })).toHaveCount(0);
+    await hosts.getByRole('radio', { name: /xAI/ }).click();
+    await expect(hosts.getByRole('radio', { name: /xAI/ })).toHaveAttribute('aria-checked', 'true');
+    await expect(stove).toContainText('https://api.x.ai/v1');
+  } finally {
+    const restored = await page.request.post('/api/image/config', {
+      data: {
+        backend: original.backend,
+        ...(original.imageRemoteHost ? { imageRemoteHost: original.imageRemoteHost } : {}),
+        currentPassword: process.env.FPAI_PASSWORD,
+      },
     });
     expect(restored.ok()).toBe(true);
   }
@@ -824,6 +858,103 @@ test.describe.serial('Director Mode', { tag: SERIAL }, () => {
   });
 });
 
+// The real sandboxed app and real host-owned preset seeded by browser_test.dart.
+test('upload and clear a preset chat template without changing the model settings', async ({ page }) => {
+  const settings = await (await page.request.get('/api/settings')).json();
+  try {
+    const switched = await page.request.post('/api/settings', { data: { backend: 'kobold' } });
+    expect(switched.ok()).toBe(true);
+    await page.goto('/#/models');
+    const select = page.locator('#kc-preset');
+    await expect(select).toBeVisible();
+    const model = await (await page.request.get('/api/backend/local-model')).json();
+    const preset = model.presets.find((entry: { name: string }) => entry.name === 'Long chats');
+    expect(preset).toBeTruthy();
+    await select.selectOption(preset.path);
+    const panel = page.getByRole('heading', { name: 'Chat template', exact: true }).locator('..');
+    await expect(panel.getByText('Upload .jinja file')).toBeVisible();
+    await panel.screenshot({ path: test.info().outputPath('template-before.png') });
+    const upload = page.waitForResponse(response =>
+      response.url().endsWith('/api/backend/local-model/chat-template') && response.request().method() === 'POST');
+    await panel.locator('input[type=file]').setInputFiles({
+      name: 'example-chat-template.jinja', mimeType: 'text/plain',
+      buffer: Buffer.from('{% if enable_thinking is false %}direct{% endif %}'),
+    });
+    const response = await upload;
+    expect(response.ok(), await response.text()).toBe(true);
+    const saved = await response.json();
+    expect(saved.preset.path).toBe(preset.path);
+    expect(saved.preset.chatTemplate).toMatch(/chat_templates[/\\][a-f0-9]+[/\\]example-chat-template\.jinja$/);
+    await expect(panel.getByRole('button', { name: 'Use embedded template' })).toBeVisible();
+    await expect(panel.getByRole('status')).toContainText('Restart KoboldCpp');
+    await panel.screenshot({ path: test.info().outputPath('template-after.png') });
+    await page.reload();
+    await expect(panel.getByRole('button', { name: 'Use embedded template' })).toBeVisible();
+    const clearing = page.waitForResponse(response =>
+      response.url().endsWith('/api/backend/local-model/chat-template') && response.request().method() === 'POST');
+    await panel.getByRole('button', { name: 'Use embedded template' }).click();
+    expect((await clearing).ok()).toBe(true);
+    await expect(panel.getByText('Uses the template embedded in the GGUF.')).toBeVisible();
+    const after = await (await page.request.get('/api/backend/local-model')).json();
+    expect(after.model).toBe(model.model);
+    expect(after.preset.chatTemplate).toBe('');
+  } finally {
+    await page.request.post('/api/backend/local-model/preset', { data: { path: null } });
+    await page.request.post('/api/settings', { data: {
+      backend: settings.backend, remoteApiUrl: settings.remoteApiUrl, remoteModelName: settings.remoteModelName,
+    } });
+  }
+});
+
+
+test('expression intensity rerolls Strong and can follow the pack again', async ({page, allowHttp}) => {
+  await page.request.post('/api/image/expression-pack/discard');
+  allowHttp((url,status) => status === 404 && url.includes('/api/image/expression-pack/source'));
+  const saved=await (await page.request.get('/api/image/config')).json() as {backend:string;localUrl:string};
+  try {
+    expect((await page.request.post('/api/image/config',{data:{backend:'a1111',localUrl:'http://127.0.0.1:9',currentPassword:process.env.FPAI_PASSWORD}})).ok()).toBe(true);
+    await openRoute(page,'/models');
+    await page.getByRole('tab',{name:'Expression pack',exact:true}).click();
+    const panel=page.locator('#studio-pack-panel');
+    await panel.getByLabel('Character',{exact:true}).selectOption({label:'Porch Tester'});
+    await panel.getByLabel('Image prompt',{exact:true}).fill('portrait');
+    await panel.getByLabel('Pack picture file').setInputFiles({name:'synthetic.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAABQCAIAAAAm3eQSAAAAkUlEQVR4nO3PUQkAIBTAQGOb5CUxoCH8OITBAtzWnvN1iwsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKCB8YiXgQvuWSoOwHWgQgAAAABJRU5ErkJggg==','base64')});
+    const intensity=panel.getByLabel('Expression intensity',{exact:true});
+    await intensity.selectOption('subtle');
+    await panel.getByRole('button',{name:'Prompt rules...',exact:true}).click();
+    await expect(page.getByRole('dialog')).toContainText('gently tightened lips');
+    await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
+    await intensity.selectOption('strong');
+    await panel.getByRole('button',{name:'Prompt rules...',exact:true}).click();
+    await expect(page.getByRole('dialog')).toContainText('deeply furrowed brows');
+    await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
+    await intensity.selectOption('subtle');
+    // An unavailable real backend exercises failed-slot iteration without a fake image server.
+    await panel.getByRole('button',{name:'Start pack',exact:true}).click();
+    await expect(panel.getByLabel('Pack expression intensity')).toBeEnabled({timeout:60_000});
+    await panel.getByText('Tune anger',{exact:true}).click();
+    const slot=panel.getByLabel('Intensity for anger');
+    await expect(slot).toHaveValue('pack');
+    await slot.selectOption('strong');
+    await expect(panel.getByLabel('Prompt for anger')).toHaveValue(/deeply furrowed brows/);
+    const retry=panel.getByRole('button',{name:'Retry anger with these settings',exact:true});
+    await retry.click();
+    await expect(slot).toBeEnabled({timeout:60_000});
+    await expect(slot).toHaveValue('strong');
+    await panel.getByText('Tune anger',{exact:true}).click();
+    await slot.selectOption('pack');
+    await expect(panel.getByLabel('Prompt for anger')).toHaveValue(/gently tightened lips/);
+    await panel.getByLabel('Prompt for anger').fill('my exact expression');
+    await retry.click();
+    await expect(slot).toBeEnabled({timeout:60_000});
+    await expect(slot).toHaveValue('pack');
+    await expect(panel.getByLabel('Prompt for anger')).toHaveValue('my exact expression');
+    await expect(panel).toContainText('A custom prompt overrides intensity');
+  } finally {
+    await page.request.post('/api/image/expression-pack/discard');
+    await page.request.post('/api/image/config',{data:{backend:saved.backend,localUrl:saved.localUrl,currentPassword:process.env.FPAI_PASSWORD}});
+  }
+});
 
 test('image batches prepare full expressions with rules and persist across navigation', async ({page}) => {
   const original=await (await page.request.get('/api/image/config')).json() as {backend:string;localUrl:string;model:string};

@@ -46,6 +46,7 @@ class WebBackendRoutes {
       router.get('/api/backend/models', _models);
       router.post('/api/backend/models/switch', _switchModel);
       router.get('/api/backend/local-model', _localModel);
+      KoboldChatTemplateRoutes(backend, router);
       router.post('/api/backend/local-model/preset', _setChatPreset);
       router.post('/api/backend/local-model/context', _setLocalContext);
       router.post('/api/backend/models/delete', _deleteModel);
@@ -81,6 +82,7 @@ class WebBackendRoutes {
       router.post('/api/image/studio/installed', _imageInstalled);
       router.get('/api/image/comfy-workflow-slots', _imageComfyWorkflowSlots);
       router.get('/api/image/models', _imageRemoteModels);
+      router.get('/api/image/remote-panel', _imageRemotePanel);
       ImageDeskRoutes(router, deps: _deps, image: image);
       ExpressionPackRoutes(router, image: image);
       ImageBatchRoutes(router, image: image);
@@ -444,6 +446,16 @@ class WebBackendRoutes {
 
   Future<shelf.Response> _imageRemoteModels(shelf.Request r) async =>
       JsonResponse.ok(await _image!.remoteModels());
+
+  Future<shelf.Response> _imageRemotePanel(shelf.Request r) async {
+    final q = r.url.queryParameters;
+    return JsonResponse.ok(
+      await _image!.remotePanel(
+        edit: q['mode'] == 'edit',
+        refresh: q['refresh'] == '1',
+      ),
+    );
+  }
 
   Future<shelf.Response> _imageSaved(shelf.Request r, String name) async {
     final file = _image!.savedImageFile(name);
